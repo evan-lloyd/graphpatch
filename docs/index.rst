@@ -53,7 +53,7 @@ This means that, for example, you can perform optimizations over the ``value`` p
       loss.backward()
       optimizer.step()
 
-For a practical usage example, see the [demo] of using ``graphpatch`` to replicate `ROME <https://rome.baulab.info/>`_.
+For a practical usage example, see the `demo <https://github.com/evan-lloyd/graphpatch/tree/main/demos/ROME>`_ of using ``graphpatch`` to replicate `ROME <https://rome.baulab.info/>`_.
 
 Prerequisites
 #############

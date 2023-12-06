@@ -31,7 +31,7 @@ print(probe.activation)
 ```
 
 `graphpatch` can patch (or record) any intermediate Tensor value without manual modification of the
-underlying model’s code. See full documentation here: [link].
+underlying model’s code. See full documentation [here](https://readthedocs.org/projects/graphpatch/).
 
 # Requirements
 `graphpatch` requires `torch>=2` as it uses [`torch.compile()`](https://pytorch.org/docs/stable/generated/torch.compile.html#torch-compile) to build the
@@ -51,7 +51,7 @@ pg = PatchableGraph(model, **example_inputs)
 ```
 
 # Installation
-`graphpatch` is available on PyPI, and can be installed via `pip`:
+`graphpatch` is available on [PyPI](https://pypi.org/project/graphpatch), and can be installed via `pip`:
 ```
 pip install graphpatch
 ```
@@ -62,7 +62,7 @@ pip install graphpatch[transformers]
 ```
 
 # Demos
-See [demos](demos/) for some practical usage examples.
+See the [demos](https://github.com/evan-lloyd/graphpatch/tree/main/demos) for some practical usage examples.
 
 # Documentation
-See full documentation on [Read the Docs]
+See the full documentation on [Read the Docs](https://readthedocs.org/projects/graphpatch/).
