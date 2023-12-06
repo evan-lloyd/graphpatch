@@ -1,0 +1,12 @@
+{
+  "black-formatter.args": ["--config=.black"],
+  "isort.args": ["--settings-file", ".isort.cfg"],
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "editor.rulers": [
+    100,
+    120
+  ],
+  "python.analysis.typeCheckingMode": "off"
+}
