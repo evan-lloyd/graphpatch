@@ -13,7 +13,7 @@ within the final structure. Each intermediate operation is given a canonical nam
 position within the overall graph. We call such a name a **NodePath** because it identifies a path
 from the root of the graph through intermediate subgraphs. For example, a Tensor addition performed
 within a submodule named ``"foo"`` might be named ``"foo.add"``. Or for a real-world example used
-in the [ROME demo],
+in the `ROME demo <https://github.com/evan-lloyd/graphpatch/tree/main/demos/ROME>`_,
 
 .. code::
 
