@@ -5,10 +5,32 @@
 [tool.poetry]
 name = "graphpatch"
 version = "0.1.0"
-description = ""
-authors = ["Evan Lloyd <evan.t.lloyd@gmail.com>"]
+description = "graphpatch is a library for activation patching on PyTorch neural network models."
+authors = [
+    "Evan Lloyd <evan.t.lloyd@gmail.com>"
+]
+classifiers = [
+    "Development Status :: 4 - Beta"
+]
+documentation = "https://graphpatch.readthedocs.io/en/latest/index.html"
+homepage = "https://www.graphpatch.dev"
 license = "MIT"
+packages = [{include = "graphpatch"}]
 readme = "README.md"
+keywords = [
+    "mechanistic interpretability",
+    "interpretability",
+    "pytorch",
+    "torch",
+    "activation patch",
+    "ablation",
+    "transformer",
+    "large language model",
+    "llm"
+]
+repository = "https://github.com/evan-lloyd/graphpatch"
+
+
 
 [tool.poetry.dependencies]
 # Due to beta-ness of torch.compile(), minor releases demonstrably break our code, so for now cap
@@ -69,7 +91,6 @@ pytest-cov = "^4.1.0"
 python = ">=3.10, <3.11"
 sphinx = { version = "^7.2.6", markers = "python_version >= '3.9'" }
 furo = "^2023.9.10"
-sphinx-togglebutton = "^0.3.2"
 sphinx-autobuild = "^2021.3.14"
 
 [build-system]
