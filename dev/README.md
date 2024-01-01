@@ -40,10 +40,16 @@ Builds the dev Docker image and tags it `graphpatch-dev`.
 
 #### Usage
 ```
+./dev/dev_shell.sh
+```
+
+Runs a bash shell inside the dev image, locally. Mounts the repository directory as a volume mapped to `/graphpatch` inside the container.
+
+```
 ./dev/dev_local.sh
 ```
 
-Runs a shell inside the dev image, locally.
+Runs the container locally, using the same configuration as when running it on a hosting service. Connects to your Tailnet using the `TAILSCALE_AUTH_KEY` and `TAILSCALE_HOST_NAME` environment variables and launches the Tailscale SSH server. You can then connect to the container over SSH from any other device on your Tailnet. Also mounts the repository directory as a volume mapped to `/graphpatch` inside the container.
 
 #### Other recommendations
 A workflow I found useful was launching this image on RunPod, then setting up file synchronization between my local machine and the running container via [Mutagen](https://mutagen.io/). I created a Docker image to streamline this process, available [here](https://github.com/evan-lloyd/codesync/tree/main).

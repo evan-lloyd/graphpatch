@@ -1,5 +1,3 @@
 #!/bin/bash
-docker run -it --gpus all --rm -e TAILSCALE_AUTH_KEY=$TAILSCALE_AUTH_KEY \
-  -e TAILSCALE_HOST_NAME=graphpatch graphpatch-dev \
-|| docker run -it --rm -e TAILSCALE_AUTH_KEY=$TAILSCALE_AUTH_KEY \
-  -e TAILSCALE_HOST_NAME=graphpatch graphpatch-dev
+. ./dev/graphpatch.sh
+docker_run -it --rm $(tailscale_env) graphpatch-dev
