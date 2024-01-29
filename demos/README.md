@@ -3,7 +3,9 @@
 ## ROME
 Partial implementation of the Rank-One Model Editing (ROME) method from the paper
 [Locating and Editing Factual Associations in GPT](https://rome.baulab.info/)[^1]. Uses `graphpatch`
-to perform activation patching. Files for the demo:
+to perform activation patching. Also see the GPT2 demo (modified slightly to work on free-tier hardware) [on Collab](https://colab.research.google.com/drive/1JlSp7Ckikb_r1bHvzHzphvR7nHPq_kbJ?usp=sharing).
+
+Files for the demo:
 
 ### `ROME/rome.py`
 Implementation of the ROME algorithm. The main API consists of [generate_key_vector](https://github.com/evan-lloyd/graphpatch/blob/5ebc57a12f8b23c869eb22581695f7e03688f941/demos/ROME/rome.py#L214) and [generate_value_vector](https://github.com/evan-lloyd/graphpatch/blob/5ebc57a12f8b23c869eb22581695f7e03688f941/demos/ROME/rome.py#L104C22-L104C22), which compute the vectors needed for the model editing, and [RomePatch](https://github.com/evan-lloyd/graphpatch/blob/5ebc57a12f8b23c869eb22581695f7e03688f941/demos/ROME/rome.py#L17) which applies the edit when used in the
