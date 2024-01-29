@@ -62,7 +62,7 @@ pip install graphpatch[transformers]
 ```
 
 # Demos
-See the [demos](https://github.com/evan-lloyd/graphpatch/tree/main/demos) for some practical usage examples.
+See the [demos](https://github.com/evan-lloyd/graphpatch/tree/main/demos) for some practical usage examples. The ROME GPT-2 demo can also be run [on Collab](https://colab.research.google.com/drive/1JlSp7Ckikb_r1bHvzHzphvR7nHPq_kbJ?usp=sharing).
 
 # Documentation
 See the full documentation on [Read the Docs](https://graphpatch.readthedocs.io/en/latest/).
