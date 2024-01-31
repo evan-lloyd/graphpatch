@@ -34,7 +34,7 @@ from .meta import (
 )
 from .optional.accelerate import ModelHook, add_hook_to_module, remove_hook_from_module
 from .optional.bitsandbytes import Linear8bitLt
-from .optional.dataclasses import dataclass
+from .optional.dataclasses import dataclass, field
 from .wrapped_8bit_linear import Wrapped8BitLinear
 
 CONTAINER_TYPES = (Sequential, ModuleList, ModuleDict)
@@ -154,15 +154,15 @@ def detach_accelerate_hooks(module: Module) -> Iterator[Optional[ModelHook]]:
 
 @dataclass
 class ArgTracker:
-    args: List[Any]
-    kwargs: Dict[str, Any]
-    output: Any
-    seen_outputs: Set[int]
+    args: List[Any] = field(default_factory=list)
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+    output: Any = None
+    seen_outputs: Set[int] = field(default_factory=set)
 
 
 @dataclass
-class GraphModuleWraper:
-    graph_module: Optional[GraphModule] = None
+class GraphModuleWrapper:
+    graph_modules: List[GraphModule] = field(default_factory=list)
 
 
 @contextmanager
@@ -239,17 +239,22 @@ def _extract_impl(
     model: Module,
     arg_tracker: ArgTracker,
     _graphpatch_postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None,
+    
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
+    print(model.__class__)
     # Some pytorch builtins remain uncompilable. TODO: workaround!
     if not is_compilable(model):
         return None, None
 
     # Wrap this in a mutable object soley to help VSCode detect that graph_module is non-None
     # later in this function.
-    graph_module_wrapper = GraphModuleWraper()
+    graph_module_wrapper = GraphModuleWrapper()
 
     def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
-        graph_module_wrapper.graph_module = gm
+        # NB: this is a list because we allow graph breaks during compilation. If we hit this
+        # callback multiple times, that means that a graph break occurred.
+        # breakpoint()
+        graph_module_wrapper.graph_modules.append(gm)
         return gm
 
     module_args: Dict[str, ArgTracker] = {}
@@ -276,7 +281,7 @@ def _extract_impl(
             if not name[0].isalpha():
                 name = "sub" + name
 
-            module_args[name] = ArgTracker([], {}, None, set())
+            module_args[name] = ArgTracker()
             tracer_stack.enter_context(
                 tracer_hook(
                     module,
@@ -285,10 +290,12 @@ def _extract_impl(
                 )
             )
         torch._dynamo.reset()
-        compiled_model = torch.compile(backend=callback, dynamic=True, fullgraph=True)(
+        compiled_model = torch.compile(backend=callback, dynamic=True, fullgraph=False)(
             maybe_wrapped_model
         )
         output_value = compiled_model(*arg_tracker.args, **arg_tracker.kwargs)
+
+    breakpoint()
 
     graph_module = graph_module_wrapper.graph_module
     if graph_module is None:
