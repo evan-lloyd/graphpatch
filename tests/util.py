@@ -110,7 +110,7 @@ def validate_node_meta(meta, graph_module):
     assert [n.name for n in meta.values()] == list(meta.keys())
     for name, module in graph_module.named_modules():
         if name in meta:
-            assert isinstance(meta[name], GraphMeta)
+            assert isinstance(meta[name], GraphMeta), f"Expected {name} to be a Graph"
             assert meta[name].parent == ".".join(name.split(".")[:-1])
     # TODO: more validation. probably don't want to use named_modules
     # ModuleList added to handle duplicate instances of submodule in original code

@@ -38,14 +38,12 @@ def test_extract_deeply_nested_module(
     assert_outputs_identical(
         deeply_nested_output_module, graph_module, deeply_nested_output_module_inputs
     )
-    
+
 
 def test_extract_graph_break_module(graph_break_module, graph_break_module_inputs):
     graph_module, meta = extract(graph_break_module, graph_break_module_inputs)
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(
-        graph_break_module, graph_module, graph_break_module_inputs
-    )
+    assert_outputs_identical(graph_break_module, graph_module, graph_break_module_inputs)
 
 
 @requires_transformers

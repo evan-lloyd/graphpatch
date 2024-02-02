@@ -65,6 +65,7 @@ jupyterlab = "^4.0.7"
 ipywidgets = "^8.1.1"
 tox = "^4.11.3"
 sphobjinv = "^2.3.1"
+pdbpp = "^0.10.3"
 
 [tool.poetry.group.testenv-lint.dependencies]
 flake8 = "^6.1.0"

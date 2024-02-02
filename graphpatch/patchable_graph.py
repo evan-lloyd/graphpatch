@@ -33,6 +33,7 @@ from .meta import (
     wrap_node_path,
     wrap_node_shape,
 )
+from .opaque_graph_module import OpaqueGraphModule
 from .optional.accelerate import add_hook_to_module
 from .patch import Patch
 
@@ -219,7 +220,7 @@ class PatchableGraph(Module):
         # Populate with any uncompiled submodules.
         for key, submodule in uncompiled_submodules.items():
             [*parent_path, name] = key.split(".")
-            submodules_by_parent[".".join(parent_path)][name] = submodule
+            submodules_by_parent[".".join(parent_path)][name] = OpaqueGraphModule(submodule)
 
         for meta in reversed(list(deserialized_instance._meta.values())):
             if not isinstance(meta, GraphMeta):
@@ -290,9 +291,9 @@ class PatchableGraph(Module):
 
     def _uncompiled_submodules(self) -> Dict[str, Module]:
         return {
-            name: module
+            name: module._original_module.module
             for name, module in self.named_modules()
-            if not is_container(module) and not isinstance(module, GraphModule) and name != ""
+            if isinstance(module, OpaqueGraphModule)
         }
 
     def __reduce__(self) -> Tuple[Callable[..., "PatchableGraph"], Tuple[Any, ...]]:
@@ -342,7 +343,7 @@ class PatchableGraph(Module):
                 {
                     name: module._graphpatch_output_indexes
                     for name, module in self.named_modules()
-                    if isinstance(module, GraphModule)
+                    if hasattr(module, "_graphpatch_output_indexes")
                 },
                 uncompiled_submodules,
             ),

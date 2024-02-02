@@ -1,4 +1,5 @@
 import inspect
+import re
 import warnings
 from collections import defaultdict
 from contextlib import ExitStack, contextmanager
@@ -32,6 +33,7 @@ from .meta import (
     wrap_graph_module,
     wrap_output_argument_index,
 )
+from .opaque_graph_module import OpaqueGraphModule
 from .optional.accelerate import ModelHook, add_hook_to_module, remove_hook_from_module
 from .optional.bitsandbytes import Linear8bitLt
 from .optional.dataclasses import dataclass, field
@@ -160,9 +162,19 @@ class ArgTracker:
     seen_outputs: Set[int] = field(default_factory=set)
 
 
+@dataclass(kw_only=True)
+class CompilationState:
+    self_args: ArgTracker = field(default_factory=ArgTracker)
+    child_state: Dict[str, "CompilationState"] = field(default_factory=dict)
+    accelerate_hook: Optional[ModelHook] = None
+    original_module: Module
+    local_name: Optional[str] = None
+    parent_name: Optional[str] = None
+
+
 @dataclass
 class GraphModuleWrapper:
-    graph_modules: List[GraphModule] = field(default_factory=list)
+    graph_module: Optional[GraphModule] = None
 
 
 @contextmanager
@@ -235,84 +247,9 @@ def is_compilable(model: Union[Module, Type[Module]]) -> bool:
     return model_class not in UNCOMPILABLE_BUILTINS and not is_container(model)
 
 
-def _extract_impl(
-    model: Module,
-    arg_tracker: ArgTracker,
-    _graphpatch_postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None,
-    
-) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
-    print(model.__class__)
-    # Some pytorch builtins remain uncompilable. TODO: workaround!
-    if not is_compilable(model):
-        return None, None
-
-    # Wrap this in a mutable object soley to help VSCode detect that graph_module is non-None
-    # later in this function.
-    graph_module_wrapper = GraphModuleWrapper()
-
-    def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
-        # NB: this is a list because we allow graph breaks during compilation. If we hit this
-        # callback multiple times, that means that a graph break occurred.
-        # breakpoint()
-        graph_module_wrapper.graph_modules.append(gm)
-        return gm
-
-    module_args: Dict[str, ArgTracker] = {}
-    accelerate_hook = None
-
-    with ExitStack() as tracer_stack, torch.inference_mode(), eval_mode(model), wrap_bits_and_bytes(
-        model
-    ) as maybe_wrapped_model, hacks.dynamo_hacks_for_current_torch_version():
-        # This needs to happen after wrapping bits and bytes, so the wrapper class will be added
-        # to allow_modules
-        tracer_stack.enter_context(
-            allow_modules(
-                [m.__class__ for m in maybe_wrapped_model.modules() if m != model],
-                module_class=model.__class__,
-            )
-        )
-        for name, module in maybe_wrapped_model.named_modules():
-            hook = tracer_stack.enter_context(detach_accelerate_hooks(module))
-            if module is maybe_wrapped_model:
-                accelerate_hook = hook
-                continue
-            name = name.replace(".", "_")
-            # Need to mirror torch.compile() behavior, which adds this prefix in this situation.
-            if not name[0].isalpha():
-                name = "sub" + name
-
-            module_args[name] = ArgTracker()
-            tracer_stack.enter_context(
-                tracer_hook(
-                    module,
-                    module_args[name],
-                    hook,
-                )
-            )
-        torch._dynamo.reset()
-        compiled_model = torch.compile(backend=callback, dynamic=True, fullgraph=False)(
-            maybe_wrapped_model
-        )
-        output_value = compiled_model(*arg_tracker.args, **arg_tracker.kwargs)
-
-    breakpoint()
-
-    graph_module = graph_module_wrapper.graph_module
-    if graph_module is None:
-        return None, None
-
-    # Recurse to turn all children into graph modules themselves.
-    # TODO: do this iteratively instead of recursively so we can't hit recursion limits for deeply
-    # nested modules
-    for name, module in graph_module.named_children():
-        if module is graph_module or not is_compilable(module):
-            continue
-        # NB: deliberately not forwarding postprocessing function, since we want to apply it only
-        # to the root.
-        sub_graph, _ = _extract_impl(module, module_args[name])
-        if sub_graph is not None:
-            setattr(graph_module, name, sub_graph)
-
+def postprocess_compiled_graph(
+    graph_module: GraphModule, original_model: Module, compilation_state: CompilationState
+):
     # Compilation flattens the arguments to the output node into a single tuple, which changes the
     # signature of the function. This is problematic when we have nested modules that may assume
     # a particular shape! We can hack around this by injecting a function that generates the correct
@@ -322,7 +259,10 @@ def _extract_impl(
     setattr(
         graph_module,
         "_graphpatch_output_indexes",
-        wrap_output_argument_index(output_value, set(id(v.output) for v in module_args.values())),
+        wrap_output_argument_index(
+            compilation_state.self_args.output,
+            set(id(v.self_args.output) for v in compilation_state.child_state.values()),
+        ),
     )
 
     output_node = next(n for n in graph_module.graph.nodes if n.op == "output")
@@ -345,7 +285,7 @@ def _extract_impl(
     placeholders = [n for n in graph_module.graph.nodes if n.op == "placeholder"]
     if placeholders:
         insert_after = placeholders[-1]
-    forward_parameters = inspect.signature(model.forward).parameters
+    forward_parameters = inspect.signature(original_model.forward).parameters
     for name, parameter in forward_parameters.items():
         existing_placeholder = next((p for p in placeholders if p.target == name), None)
         # Argument was created positionally; convert into a kwarg.
@@ -380,7 +320,7 @@ def _extract_impl(
         else:
             original_attribute_name = placeholder.target
 
-        setattr(graph_module, placeholder.target, getattr(model, original_attribute_name))
+        setattr(graph_module, placeholder.target, getattr(original_model, original_attribute_name))
         placeholder.op = "get_attr"
 
     # Submodules can be used more than once, but this will cause problems later when we manipulate
@@ -414,16 +354,127 @@ def _extract_impl(
     for node in graph_module.graph.nodes:
         hacks.maybe_replace_dynamo_get_item_lambda(node)
 
-    # Escape hatch for models that torch just refuses to compile correctly. Ideally as compatibility
-    # improves we won't need this in the future!
-    if _graphpatch_postprocessing_function is not None:
-        _graphpatch_postprocessing_function(graph_module, model)
 
-    graph_module.recompile()
+def convert_to_graph_module(
+    model: Module, compilation_state: CompilationState, should_compile: bool
+):
+    graph_module: Optional[GraphModule] = None
+
+    def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
+        nonlocal graph_module
+        graph_module = gm
+        return gm
+
+    arg_tracker = compilation_state.self_args
+
+    with ExitStack() as tracer_stack, torch.inference_mode(), eval_mode(model), wrap_bits_and_bytes(
+        model
+    ) as maybe_wrapped_model, hacks.dynamo_hacks_for_current_torch_version():
+        # This needs to happen after wrapping bits and bytes, so the wrapper class will be added
+        # to allow_modules
+        tracer_stack.enter_context(
+            allow_modules(
+                [m.__class__ for m in maybe_wrapped_model.modules() if m != model],
+                module_class=model.__class__,
+            )
+        )
+        # TODO: shouldn't this be named_children? unless going for one pass (if not compiling)
+        for name, module in maybe_wrapped_model.named_modules():
+            hook = tracer_stack.enter_context(detach_accelerate_hooks(module))
+            if module is maybe_wrapped_model:
+                compilation_state.accelerate_hook = hook
+                continue
+
+            # Need to mirror torch.compile() behavior, which adds this prefix in this situation.
+            if not name[0].isalpha():
+                name = "sub" + name
+
+            # Bit of a quirk with compile(); the named_modules() iterator returns names like
+            # module_list.0.foo, but the resulting modules will be named like module_list_0.foo
+            name = re.sub(r"\.(\d+)", lambda match: f"_{match.group(1)}", name)
+
+            [*parent_name, local_name] = name.split(".")
+            parent_name = "_".join(parent_name)
+            name = name.replace(".", "_")
+
+            # TODO: we should only need module-level tracing on the first pass, whether or not
+            # we are compiling
+            compilation_state.child_state[name] = CompilationState(
+                original_module=module, local_name=local_name, parent_name=parent_name
+            )
+            tracer_stack.enter_context(
+                tracer_hook(
+                    module,
+                    compilation_state.child_state[name].self_args,
+                    hook,
+                )
+            )
+
+        if should_compile:
+            torch._dynamo.reset()
+            try:
+                compiled_model = torch.compile(backend=callback, dynamic=True, fullgraph=True)(
+                    maybe_wrapped_model
+                )
+                arg_tracker.output = compiled_model(*arg_tracker.args, **arg_tracker.kwargs)
+            except Exception as exc:
+                print(f"Warning: compilation failed due to {exc}")
+                # Fall back to running the original module
+                arg_tracker.output = model(*arg_tracker.args, **arg_tracker.kwargs)
+                should_compile = False
+        if not should_compile:
+            graph_module = OpaqueGraphModule(model)
+
+    return graph_module
+
+
+def _extract_impl(
+    model: Module,
+    arg_tracker: ArgTracker,
+    _graphpatch_postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None,
+    _graphpatch_skip_compilation: bool = False,
+) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
+    root_compilation_state = CompilationState(self_args=arg_tracker, original_module=model)
+    graph_module = convert_to_graph_module(
+        model, root_compilation_state, is_compilable(model) and not _graphpatch_skip_compilation
+    )
+    graph_modules_by_name = {}
+
+    # Turn all children into graph modules themselves.
+    for name, state in root_compilation_state.child_state.items():
+        module = state.original_module
+        if module is model or is_container(module):
+            continue
+        sub_graph = convert_to_graph_module(
+            module,
+            state,
+            is_compilable(module) and not _graphpatch_skip_compilation,
+        )
+        if not isinstance(sub_graph, OpaqueGraphModule):
+            postprocess_compiled_graph(sub_graph, module, state)
+            sub_graph.recompile()
+            if state.accelerate_hook is not None:
+                add_hook_to_module(sub_graph, state.accelerate_hook)
+
+        graph_modules_by_name[name] = sub_graph
+        if not state.parent_name:
+            setattr(graph_module, state.local_name, sub_graph)
+        else:
+            setattr(graph_modules_by_name[state.parent_name], state.local_name, sub_graph)
+
+    if not isinstance(graph_module, OpaqueGraphModule):
+        postprocess_compiled_graph(graph_module, model, root_compilation_state)
+
+        # Escape hatch for models that torch just refuses to compile correctly. Ideally as
+        # compatibility improves we won't need this in the future!
+        if _graphpatch_postprocessing_function is not None:
+            _graphpatch_postprocessing_function(graph_module, model)
+
+        graph_module.recompile()
 
     # Must happen *after* recompile, since that changes forward()
-    if accelerate_hook is not None:
-        add_hook_to_module(graph_module, accelerate_hook)
+    if root_compilation_state.accelerate_hook is not None:
+        add_hook_to_module(graph_module, root_compilation_state.accelerate_hook)
 
     return graph_module, wrap_graph_module(graph_module)
 
@@ -432,7 +483,10 @@ def extract(
     model: Module,
     *trace_args: Any,
     _graphpatch_postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None,
+    _graphpatch_skip_compilation: bool = False,
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     arg_tracker = ArgTracker(list(trace_args), dict(**trace_kwargs), None, set())
-    return _extract_impl(model, arg_tracker, _graphpatch_postprocessing_function)
+    return _extract_impl(
+        model, arg_tracker, _graphpatch_postprocessing_function, _graphpatch_skip_compilation
+    )
