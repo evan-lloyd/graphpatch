@@ -20,7 +20,6 @@ from torch.fx.graph_module import GraphModule
 from torch.fx.node import Node
 from torch.nn import Module
 
-from ..opaque_graph_module import OpaqueGraphModule
 from ..optional.accelerate import ModelHook
 from ..optional.dataclasses import dataclass
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
@@ -205,31 +204,25 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 code = ""
             # Last 4 lines are nonsense we added to handle unflattening compile() output, which the
             # user doesn't need to see.
-            if isinstance(module, OpaqueGraphModule):
-                code += base_code.strip()
-            else:
-                code += "\n".join(base_code.split("\n")[:-4]).strip()
+            code += "\n".join(base_code.split("\n")[:-4]).strip()
             # Add in our prettified return statement.
             if output_meta is not None and output_meta._value is not NodeData._NO_VALUE:
                 code += f"\n    {output_meta._value.code}"
         elif node.op == "output":
-            if not isinstance(module, OpaqueGraphModule):
-                # Use the inputs to our match_shape function to pretty-print the node's output
-                # module._graphpatch_output_indexes
-                match_shape_node = list(node._input_nodes.keys())[0]
-                output_args = match_shape_node.args[1:]
+            # Use the inputs to our match_shape function to pretty-print the node's output
+            # module._graphpatch_output_indexes
+            match_shape_node = list(node._input_nodes.keys())[0]
+            output_args = match_shape_node.args[1:]
 
-                def pretty_print_output(
-                    path: str, index: Any
-                ) -> Union[Literal[NodeData.Sentinels._NO_VALUE], WrappedCode]:
-                    if not isinstance(index, int):
-                        return NodeData._NO_VALUE
-                    return WrappedCode(cast(Node, output_args[index]).name)
+            def pretty_print_output(
+                path: str, index: Any
+            ) -> Union[Literal[NodeData.Sentinels._NO_VALUE], WrappedCode]:
+                if not isinstance(index, int):
+                    return NodeData._NO_VALUE
+                return WrappedCode(cast(Node, output_args[index]).name)
 
-                mapped = module._graphpatch_output_indexes.map(pretty_print_output)
-                code = f"return {mapped.unwrap()}"
-            else:
-                code = ""
+            mapped = module._graphpatch_output_indexes.map(pretty_print_output)
+            code = f"return {mapped.unwrap()}"
         else:
             code = str(node.meta.get("stack_trace", "<no source available>"))
 

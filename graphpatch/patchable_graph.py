@@ -33,8 +33,6 @@ from .meta import (
     wrap_node_path,
     wrap_node_shape,
 )
-from .opaque_graph_module import OpaqueGraphModule
-from .compiled_graph_module import CompiledGraphModule
 from .optional.accelerate import add_hook_to_module
 from .patch import Patch
 
@@ -218,11 +216,6 @@ class PatchableGraph(Module):
         # that we process children before their parents.
         submodules_by_parent: Dict[str, Dict[str, Module]] = defaultdict(dict)
 
-        # Populate with any uncompiled submodules.
-        # for key, submodule in uncompiled_submodules.items():
-        #     [*parent_path, name] = key.split(".")
-        #     submodules_by_parent[".".join(parent_path)][name] = OpaqueGraphModule(submodule)
-
         for meta in reversed(list(deserialized_instance._meta.values())):
             if not isinstance(meta, GraphMeta):
                 continue
@@ -237,10 +230,6 @@ class PatchableGraph(Module):
             else:
                 parent_name = "_graph_module"
             target = cast(str, meta.node.target) if meta.node is not None else ""
-
-            # Already loaded OpaqueGraphModules.
-            if target in submodules_by_parent[parent_name]:
-                continue
 
             local_submodules = submodules_by_parent[name]
             local_state = state_by_submodule[name]
@@ -267,7 +256,7 @@ class PatchableGraph(Module):
             for prefix, modules in local_graph_modules_by_prefix.items():
                 local_submodules[prefix] = ModuleList(module for _, module in sorted(modules))
 
-            graph_module = CompiledGraphModule(
+            graph_module = GraphModule(
                 {
                     **local_state,
                     **local_submodules,
@@ -296,11 +285,6 @@ class PatchableGraph(Module):
 
     def _uncompiled_submodules(self) -> Dict[str, Module]:
         return {}
-        return {
-            name: module._original_module.module
-            for name, module in self.named_modules()
-            if isinstance(module, OpaqueGraphModule)
-        }
 
     def __reduce__(self) -> Tuple[Callable[..., "PatchableGraph"], Tuple[Any, ...]]:
         """Set up custom serialization for when user calls torch.save(), since our node wrappers are
@@ -628,6 +612,7 @@ class PatchableGraph(Module):
         next_node = node.next
         node.replace_all_uses_with(replacement_node, propagate_meta=True)
         graph.erase_node(node)
+        print(f"erasing {node_qual_name}")
         with graph.inserting_before(next_node):
             # A little low-level for my liking, but this lets us keep the same name for the replaced
             # node (erase_node doesn't clean up the namespace)

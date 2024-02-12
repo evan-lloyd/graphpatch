@@ -24,6 +24,7 @@ from torch._dynamo.allowed_functions import (
 )
 from torch.fx.graph_module import GraphModule
 from torch.nn import LayerNorm, Module, ModuleDict, ModuleList, Sequential
+from .opaque_graph_module import opaque_graph_module
 
 from . import hacks
 from .meta import (
@@ -33,8 +34,6 @@ from .meta import (
     wrap_graph_module,
     wrap_output_argument_index,
 )
-from .opaque_graph_module import OpaqueGraphModule
-from .compiled_graph_module import CompiledGraphModule
 from .optional.accelerate import ModelHook, add_hook_to_module, remove_hook_from_module
 from .optional.bitsandbytes import Linear8bitLt
 from .optional.dataclasses import dataclass, field
@@ -251,13 +250,13 @@ def is_compilable(model: Union[Module, Type[Module]]) -> bool:
 def postprocess_graph(
     graph_module: GraphModule, original_model: Module, compilation_state: CompilationState
 ):
+    print(f"postprocess {original_model.__class__.__name__}")
     # Compilation flattens the arguments to the output node into a single tuple, which changes the
     # signature of the function. This is problematic when we have nested modules that may assume
     # a particular shape! We can hack around this by injecting a function that generates the correct
     # shape and returning its output.
     # NB: we add an attribute to the graph_module rather than passing it to our function via closure
     # because the latter method would not be picklable
-    print("yeah?")
     setattr(
         graph_module,
         "_graphpatch_output_indexes",
@@ -331,10 +330,8 @@ def postprocess_graph(
     # independent graphs to work with.
     duplicate_graph_modules = defaultdict(list)
     for node in graph_module.graph.nodes:
-        if node.op == "call_module" and isinstance(
-            target := getattr(graph_module, node.target), GraphModule
-        ):
-            duplicate_graph_modules[target].append(node)
+        if node.op == "call_module":
+            duplicate_graph_modules[getattr(graph_module, node.target)].append(node)
     for module, calling_nodes in duplicate_graph_modules.items():
         if len(calling_nodes) < 2:
             continue
@@ -345,8 +342,7 @@ def postprocess_graph(
             graph_module,
             module_name,
             ModuleList(
-                [module]
-                + [CompiledGraphModule(module, deepcopy(module.graph)) for _ in calling_nodes[1:]]
+                [module] + [GraphModule(module, deepcopy(module.graph)) for _ in calling_nodes[1:]]
             ),
         )
         # Update the call_module nodes to refer to a specific instance in the list.
@@ -360,15 +356,12 @@ def postprocess_graph(
 
 def convert_to_graph_module(
     model: Module, compilation_state: CompilationState, should_compile: bool
-) -> Union[CompiledGraphModule, OpaqueGraphModule]:
-    graph_module: Optional[CompiledGraphModule] = None
+) -> GraphModule:
+    graph_module: Optional[GraphModule] = None
 
     def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
         nonlocal graph_module
-        # TODO: this effectively constructs a GraphModule twice, investigate the performance impact
-        # (may be negligible). Workaround would be to monkeypatch OutputGraph to construct our
-        # subclass instead of the native fx.GraphModule.
-        graph_module = CompiledGraphModule(gm, gm.graph)
+        graph_module = gm
         return gm
 
     arg_tracker = compilation_state.self_args
@@ -429,7 +422,7 @@ def convert_to_graph_module(
         if not should_compile:
             # Fall back to running the original module
             arg_tracker.output = model(*arg_tracker.args, **arg_tracker.kwargs)
-            graph_module = OpaqueGraphModule(model)
+            graph_module = opaque_graph_module(model)
 
     return graph_module
 
@@ -441,10 +434,11 @@ def _extract_impl(
     _graphpatch_skip_compilation: bool = False,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     root_compilation_state = CompilationState(self_args=arg_tracker, original_module=model)
-    graph_module = convert_to_graph_module(
-        model, root_compilation_state, is_compilable(model) and not _graphpatch_skip_compilation
-    )
-    graph_modules_by_name = {}
+    graph_modules_by_name = {
+        "": convert_to_graph_module(
+            model, root_compilation_state, is_compilable(model) and not _graphpatch_skip_compilation
+        )
+    }
 
     # Turn all children into graph modules themselves.
     for name, state in root_compilation_state.child_state.items():
@@ -456,26 +450,31 @@ def _extract_impl(
             state,
             is_compilable(module) and not _graphpatch_skip_compilation,
         )
-        #if not isinstance(sub_graph, OpaqueGraphModule):
-        postprocess_graph(sub_graph, module, state)
-        sub_graph.recompile()
-        if state.accelerate_hook is not None:
-            add_hook_to_module(sub_graph, state.accelerate_hook)
 
         graph_modules_by_name[name] = sub_graph
-        if not state.parent_name:
-            setattr(graph_module, state.local_name, sub_graph)
-        else:
-            setattr(graph_modules_by_name[state.parent_name], state.local_name, sub_graph)
+        setattr(graph_modules_by_name[state.parent_name], state.local_name, sub_graph)
 
-    # if not isinstance(graph_module, OpaqueGraphModule):
+    # Postprocess after all modules have been converted. Reverse
+    # order so children are postprocessed before their parents, which matters for cloned graphs.
+    for name, state in reversed(root_compilation_state.child_state.items()):
+        module = state.original_module
+        if is_container(module):
+            continue
+        graph_module = graph_modules_by_name[name]
+        postprocess_graph(graph_module, module, state)
+        graph_module.recompile()
+        if state.accelerate_hook is not None:
+            add_hook_to_module(graph_module, state.accelerate_hook)
+
+    graph_module = graph_modules_by_name[""]
+
+    # Finally, handle root.
     postprocess_graph(graph_module, model, root_compilation_state)
 
     # Escape hatch for models that torch just refuses to compile correctly. Ideally as
     # compatibility improves we won't need this in the future!
     if _graphpatch_postprocessing_function is not None:
         _graphpatch_postprocessing_function(graph_module, model)
-
     graph_module.recompile()
 
     # Must happen *after* recompile, since that changes forward()
