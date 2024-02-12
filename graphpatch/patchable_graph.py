@@ -23,7 +23,7 @@ from torch.fx.node import Node, Node as FXNode
 from torch.nn import Module, ModuleList, Parameter
 from typing_extensions import TypedDict
 
-from .graph_extraction import detach_accelerate_hooks, extract, is_container
+from .graph_extraction import detach_accelerate_hooks, extract
 from .meta import (
     GraphMeta,
     NodeData,
@@ -34,6 +34,7 @@ from .meta import (
     wrap_node_shape,
 )
 from .opaque_graph_module import OpaqueGraphModule
+from .compiled_graph_module import CompiledGraphModule
 from .optional.accelerate import add_hook_to_module
 from .patch import Patch
 
@@ -218,9 +219,9 @@ class PatchableGraph(Module):
         submodules_by_parent: Dict[str, Dict[str, Module]] = defaultdict(dict)
 
         # Populate with any uncompiled submodules.
-        for key, submodule in uncompiled_submodules.items():
-            [*parent_path, name] = key.split(".")
-            submodules_by_parent[".".join(parent_path)][name] = OpaqueGraphModule(submodule)
+        # for key, submodule in uncompiled_submodules.items():
+        #     [*parent_path, name] = key.split(".")
+        #     submodules_by_parent[".".join(parent_path)][name] = OpaqueGraphModule(submodule)
 
         for meta in reversed(list(deserialized_instance._meta.values())):
             if not isinstance(meta, GraphMeta):
@@ -236,6 +237,10 @@ class PatchableGraph(Module):
             else:
                 parent_name = "_graph_module"
             target = cast(str, meta.node.target) if meta.node is not None else ""
+
+            # Already loaded OpaqueGraphModules.
+            if target in submodules_by_parent[parent_name]:
+                continue
 
             local_submodules = submodules_by_parent[name]
             local_state = state_by_submodule[name]
@@ -262,7 +267,7 @@ class PatchableGraph(Module):
             for prefix, modules in local_graph_modules_by_prefix.items():
                 local_submodules[prefix] = ModuleList(module for _, module in sorted(modules))
 
-            graph_module = GraphModule(
+            graph_module = CompiledGraphModule(
                 {
                     **local_state,
                     **local_submodules,
@@ -290,6 +295,7 @@ class PatchableGraph(Module):
         return deserialized_instance
 
     def _uncompiled_submodules(self) -> Dict[str, Module]:
+        return {}
         return {
             name: module._original_module.module
             for name, module in self.named_modules()

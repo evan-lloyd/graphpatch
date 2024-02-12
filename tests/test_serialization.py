@@ -78,6 +78,7 @@ def test_uncompilable_module_serialization(minimal_module, minimal_module_inputs
     # have similar issues.
     mocker.patch.object(graph_extraction, "UNCOMPILABLE_BUILTINS", {torch.nn.Linear})
     patchable_minimal_module = PatchableGraph(minimal_module, minimal_module_inputs)
+    breakpoint()
     deserialized = _roundtrip(patchable_minimal_module)
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
 

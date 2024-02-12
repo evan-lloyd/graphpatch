@@ -6,9 +6,21 @@ from torch.nn import Module
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModuleWrapper:
     module: Module
+
+    __name__ = "opaque_module_call"
+
+    def __call__(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+def opaque_module_call(wrapper: ModuleWrapper, *args, **kwargs):
+    def call(*args, **kwargs):
+        return module(*args, **kwargs)
+
+    return call
 
 
 class OpaqueGraphModule(GraphModule):
@@ -36,12 +48,12 @@ class OpaqueGraphModule(GraphModule):
         # Use a wrapper so that torch doesn't insert the original module into the module hierarchy.
         self._original_module = ModuleWrapper(original_module)
 
-        # Call the forward function directly, so we don't have to mangle the module hierarchy by
-        # inserting a dummy child module.
         # TODO: does this play nice with accelerate?
-        call_function = graph.call_function(
-            original_module.forward, tuple(module_args.values()), module_kwargs
+        # NB: we don't actually execute this, instead we implement custom interpreter logic in
+        # PatchableGraphInterpreter.
+        call_forward = graph.call_function(
+            self._original_module, tuple(module_args.values()), module_kwargs
         )
-        graph.output(call_function)
-
+        graph.output((call_forward,))
         super().__init__(original_module, graph, "OpaqueGraphModule")
+        # breakpoint()

@@ -34,6 +34,7 @@ from .meta import (
     wrap_output_argument_index,
 )
 from .opaque_graph_module import OpaqueGraphModule
+from .compiled_graph_module import CompiledGraphModule
 from .optional.accelerate import ModelHook, add_hook_to_module, remove_hook_from_module
 from .optional.bitsandbytes import Linear8bitLt
 from .optional.dataclasses import dataclass, field
@@ -247,7 +248,7 @@ def is_compilable(model: Union[Module, Type[Module]]) -> bool:
     return model_class not in UNCOMPILABLE_BUILTINS and not is_container(model)
 
 
-def postprocess_compiled_graph(
+def postprocess_graph(
     graph_module: GraphModule, original_model: Module, compilation_state: CompilationState
 ):
     # Compilation flattens the arguments to the output node into a single tuple, which changes the
@@ -256,6 +257,7 @@ def postprocess_compiled_graph(
     # shape and returning its output.
     # NB: we add an attribute to the graph_module rather than passing it to our function via closure
     # because the latter method would not be picklable
+    print("yeah?")
     setattr(
         graph_module,
         "_graphpatch_output_indexes",
@@ -343,7 +345,8 @@ def postprocess_compiled_graph(
             graph_module,
             module_name,
             ModuleList(
-                [module] + [GraphModule(module, deepcopy(module.graph)) for _ in calling_nodes[1:]]
+                [module]
+                + [CompiledGraphModule(module, deepcopy(module.graph)) for _ in calling_nodes[1:]]
             ),
         )
         # Update the call_module nodes to refer to a specific instance in the list.
@@ -357,12 +360,15 @@ def postprocess_compiled_graph(
 
 def convert_to_graph_module(
     model: Module, compilation_state: CompilationState, should_compile: bool
-):
-    graph_module: Optional[GraphModule] = None
+) -> Union[CompiledGraphModule, OpaqueGraphModule]:
+    graph_module: Optional[CompiledGraphModule] = None
 
     def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
         nonlocal graph_module
-        graph_module = gm
+        # TODO: this effectively constructs a GraphModule twice, investigate the performance impact
+        # (may be negligible). Workaround would be to monkeypatch OutputGraph to construct our
+        # subclass instead of the native fx.GraphModule.
+        graph_module = CompiledGraphModule(gm, gm.graph)
         return gm
 
     arg_tracker = compilation_state.self_args
@@ -419,10 +425,10 @@ def convert_to_graph_module(
                 arg_tracker.output = compiled_model(*arg_tracker.args, **arg_tracker.kwargs)
             except Exception as exc:
                 print(f"Warning: compilation failed due to {exc}")
-                # Fall back to running the original module
-                arg_tracker.output = model(*arg_tracker.args, **arg_tracker.kwargs)
                 should_compile = False
         if not should_compile:
+            # Fall back to running the original module
+            arg_tracker.output = model(*arg_tracker.args, **arg_tracker.kwargs)
             graph_module = OpaqueGraphModule(model)
 
     return graph_module
@@ -450,11 +456,11 @@ def _extract_impl(
             state,
             is_compilable(module) and not _graphpatch_skip_compilation,
         )
-        if not isinstance(sub_graph, OpaqueGraphModule):
-            postprocess_compiled_graph(sub_graph, module, state)
-            sub_graph.recompile()
-            if state.accelerate_hook is not None:
-                add_hook_to_module(sub_graph, state.accelerate_hook)
+        #if not isinstance(sub_graph, OpaqueGraphModule):
+        postprocess_graph(sub_graph, module, state)
+        sub_graph.recompile()
+        if state.accelerate_hook is not None:
+            add_hook_to_module(sub_graph, state.accelerate_hook)
 
         graph_modules_by_name[name] = sub_graph
         if not state.parent_name:
@@ -462,15 +468,15 @@ def _extract_impl(
         else:
             setattr(graph_modules_by_name[state.parent_name], state.local_name, sub_graph)
 
-    if not isinstance(graph_module, OpaqueGraphModule):
-        postprocess_compiled_graph(graph_module, model, root_compilation_state)
+    # if not isinstance(graph_module, OpaqueGraphModule):
+    postprocess_graph(graph_module, model, root_compilation_state)
 
-        # Escape hatch for models that torch just refuses to compile correctly. Ideally as
-        # compatibility improves we won't need this in the future!
-        if _graphpatch_postprocessing_function is not None:
-            _graphpatch_postprocessing_function(graph_module, model)
+    # Escape hatch for models that torch just refuses to compile correctly. Ideally as
+    # compatibility improves we won't need this in the future!
+    if _graphpatch_postprocessing_function is not None:
+        _graphpatch_postprocessing_function(graph_module, model)
 
-        graph_module.recompile()
+    graph_module.recompile()
 
     # Must happen *after* recompile, since that changes forward()
     if root_compilation_state.accelerate_hook is not None:
