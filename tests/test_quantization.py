@@ -1,4 +1,4 @@
-from graphpatch.wrapped_8bit_linear import Wrapped8BitLinear
+from graphpatch.extraction.bitsandbytes import Wrapped8BitLinear
 
 from .util import assert_outputs_identical, requires_bitsandbytes, requires_gpu
 

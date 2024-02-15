@@ -1,3 +1,5 @@
+from .extraction import ExtractionOptions
+
 # Load bitsandbytes early so we can suppress its rather chatty startup process.
 from .optional import bitsandbytes  # noqa: F401
 from .patch import (
@@ -19,5 +21,6 @@ __all__ = [
     "RecordPatch",
     "ReplacePatch",
     "ZeroPatch",
+    "ExtractionOptions",
     "PatchableGraph",
 ]

@@ -3,7 +3,8 @@ import io
 import pytest
 import torch
 
-from graphpatch import PatchableGraph, graph_extraction
+from graphpatch import PatchableGraph
+from graphpatch.extraction import graph_extraction
 from graphpatch.optional.accelerate import ModelHook, add_hook_to_module
 
 from .util import (

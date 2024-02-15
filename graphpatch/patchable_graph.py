@@ -23,7 +23,7 @@ from torch.fx.node import Node, Node as FXNode
 from torch.nn import Module, ModuleList, Parameter
 from typing_extensions import TypedDict
 
-from .graph_extraction import detach_accelerate_hooks, extract
+from .extraction import ExtractionOptions, detach_accelerate_hooks, extract
 from .meta import (
     GraphMeta,
     NodeData,
@@ -85,12 +85,14 @@ def _make_patch_wrapper(
 
 class PatchableGraph(Module):
     """PatchableGraph is a wrapper around :class:`torch.nn.Module` allowing activation patching at
-    any computational node.
+    any tensor operation.
 
     Internally, PatchableGraph builds a :class:`torch.fx.GraphModule` for the module and each of its
     submodules using :func:`torch.compile`. This exposes the computational structure of the module
     while still being equivalent to the original--you can perform any operation you would with the
-    original module using the PatchableGraph.
+    original module using the PatchableGraph. In case compilation fails--compile() is not yet
+    compatible with all model code--PatchableGraph will fall back to patching submodule input and
+    output. See :class:`ExtractionOptions` for options controlling this behavior.
 
     Note that the original module hierarchy is retained. For example, if you had a module ``foo``
     containing a submodule ``bar``, you would get back a GraphModule equivalent to ``foo`` which has
@@ -113,12 +115,9 @@ class PatchableGraph(Module):
 
     Parameters:
         module: The :class:`Module <torch.nn.Module>` to wrap.
-        extraction_args: Arguments (example inputs) to be passed to the module during
-            :func:`torch.compile`.
-        _graphpatch_postprocessing_function: Optional function to call which will modify the
-            generated :class:`torch.fx.GraphModule`. This function can modify the underlying
-            :class:`torch.fx.Graph` in-place. The original module is passed for reference in case,
-            for example, the needed modifications depend on its configuration.
+        extraction_options_and_args: Arguments (example inputs) to be passed to the module during
+            :func:`torch.compile`. If the first argument is an :class:`ExtractionOptions` instance,
+            apply them during graph extraction.
         extraction_kwargs: Keyword arguments to be passed to the module during
             :func:`torch.compile()`.
     """
@@ -126,15 +125,27 @@ class PatchableGraph(Module):
     def __init__(
         self,
         module: Module,
-        *extraction_args: Any,
-        _graphpatch_postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None,
+        *extraction_options_and_args: Any,
         **extraction_kwargs: Any,
     ):
         super().__init__()
+
+        # Pull extraction args from positional arguments, if present; otherwise, use defaults.
+        if len(extraction_options_and_args) > 0:
+            if isinstance(extraction_options_and_args[0], ExtractionOptions):
+                extraction_options = extraction_options_and_args[0]
+                extraction_args = extraction_options_and_args[1:]
+            else:
+                extraction_options = ExtractionOptions()
+                extraction_args = extraction_options_and_args
+        else:
+            extraction_options = ExtractionOptions()
+            extraction_args = []
+
         graph_module, meta = extract(
             module,
+            extraction_options,
             *extraction_args,
-            _graphpatch_postprocessing_function=_graphpatch_postprocessing_function,
             **extraction_kwargs,
         )
         if graph_module is None or meta is None:
@@ -612,7 +623,6 @@ class PatchableGraph(Module):
         next_node = node.next
         node.replace_all_uses_with(replacement_node, propagate_meta=True)
         graph.erase_node(node)
-        print(f"erasing {node_qual_name}")
         with graph.inserting_before(next_node):
             # A little low-level for my liking, but this lets us keep the same name for the replaced
             # node (erase_node doesn't clean up the namespace)

@@ -4,7 +4,7 @@ import torch
 
 from demos.ROME.rome import standardize_tokenizer
 from graphpatch import PatchableGraph, ZeroPatch
-from graphpatch.graph_extraction import extract
+from graphpatch.extraction import ExtractionOptions, extract
 from graphpatch.hacks import fix_gpt2_bool_buffers, patch_llama
 from graphpatch.optional.transformers import (
     AutoConfig,
@@ -35,6 +35,7 @@ def test_extract_llama_model():
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
     gm, _ = extract(
         LlamaModel(config=config),
+        ExtractionOptions(),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
@@ -58,6 +59,7 @@ def test_extract_gpt2_attention():
     embedding = torch.nn.Embedding(config.vocab_size, config.hidden_size)
     gm, _ = extract(
         GPT2Attention(config=config),
+        ExtractionOptions(),
         embedding(inputs.input_ids),
     )
     gm(embedding(inputs.input_ids))

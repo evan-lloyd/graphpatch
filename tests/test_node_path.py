@@ -2,11 +2,14 @@ from typing import Optional
 
 import pytest
 
+from graphpatch import PatchableGraph
+from graphpatch.extraction import ExtractionOptions
 from graphpatch.hacks import TORCH_VERSION
 from graphpatch.meta import NodeData, NodeMeta, wrap_node_path
 from graphpatch.meta.graph_meta import WrappedCode
 from graphpatch.meta.node_path import NodeShapePath
 from tests.fixtures.deeply_nested_output_module import DeeplyNestedOutputModule
+from tests.fixtures.nested_module import NestedModule
 
 
 class MockNodeMeta(NodeMeta):
@@ -167,3 +170,12 @@ def test_protected_names(patchable_protected_name_module, protected_name_module_
     # The renamed nodes should still be in the graph.
     assert any(n.node.name == "_shape" for n in pg._meta.values() if n.node is not None)
     assert any(n.node.name == "_code" for n in pg._meta.values() if n.node is not None)
+
+
+def test_uncompiled_module_presentation(nested_module, nested_module_inputs):
+    pg = PatchableGraph(
+        nested_module,
+        ExtractionOptions(modules_to_skip_compiling={NestedModule}),
+        nested_module_inputs,
+    )
+    breakpoint()

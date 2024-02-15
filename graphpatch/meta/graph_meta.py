@@ -20,6 +20,7 @@ from torch.fx.graph_module import GraphModule
 from torch.fx.node import Node
 from torch.nn import Module
 
+from ..extraction.opaque_graph_module import ChildModuleWrapper
 from ..optional.accelerate import ModelHook
 from ..optional.dataclasses import dataclass
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
@@ -236,47 +237,67 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
         node_meta: DefaultDict[str, Dict[str, NodeData[Union[GraphMeta, NodeMeta]]]] = defaultdict(
             dict
         )
-        graph_module_stack: List[Tuple[str, GraphModule]] = []
-        module_stack: List[Tuple[str, Module]] = [("", data)]
+        graph_module_stack: List[Tuple[str, str, GraphModule]] = []
+        module_stack: List[Tuple[str, str, Module]] = [("", "", data)]
         # First figure out the module hierarchy in terms of the name of the node that calls each
         # submodule in its parent graph.
         while module_stack:
-            cur_name, cur_module = module_stack.pop()
+            meta_name, module_name, cur_module = module_stack.pop()
             if not isinstance(cur_module, GraphModule):
                 continue
-            if cur_name == "":
-                name_prefix = ""
+            if meta_name == "":
+                meta_prefix = ""
             else:
-                name_prefix = f"{cur_name}."
+                meta_prefix = f"{meta_name}."
+            if module_name == "":
+                module_prefix = ""
+            else:
+                module_prefix = f"{module_name}."
 
-            graph_module_stack.append((cur_name, cur_module))
+            graph_module_stack.append((meta_name, module_name, cur_module))
             for node in cur_module.graph.nodes:
                 if node.op == "call_module" and isinstance(
                     target := cur_module.get_submodule(node.target), GraphModule
                 ):
-                    qual_name = f"{name_prefix}{node.name}"
-                    module_stack.append((qual_name, target))
-                    graph_module_stack.append((qual_name, target))
+                    module_stack.append(
+                        (f"{meta_prefix}{node.name}", f"{module_prefix}{node.name}", target)
+                    )
+                elif node.op == "call_function" and isinstance(node.target, ChildModuleWrapper):
+                    module_stack.append(
+                        (
+                            f"{meta_prefix}{node.name}",
+                            f"{module_prefix}{node.name}",
+                            cur_module.get_submodule(node.target.module_name),
+                        )
+                    )
 
         while graph_module_stack:
-            cur_name, cur_module = graph_module_stack.pop()
-            if cur_name == "":
-                name_prefix = ""
+            meta_name, module_name, cur_module = graph_module_stack.pop()
+            if meta_name == "":
+                meta_prefix = ""
             else:
-                name_prefix = f"{cur_name}."
+                meta_prefix = f"{meta_name}."
+            if module_name == "":
+                module_prefix = ""
+            else:
+                module_prefix = f"{module_name}."
 
             for node in cur_module.graph.nodes:
                 if node.meta.get("_graphpatch_hidden", False):
                     continue
-                if node.op == "call_module" and isinstance(
-                    target := data.get_submodule(f"{name_prefix}{node.target}"), GraphModule
+                if (
+                    # Real call to submodule
+                    node.op == "call_module"
+                    # Dummy call from opaque module to submodule, which we should display as a graph
+                    or (node.op == "call_function" and isinstance(node.target, ChildModuleWrapper))
                 ):
-                    sub_nodes = node_meta[f"{name_prefix}{node.name}"]
-                    node_meta[cur_name][node.name] = NodeData(
+                    target = data.get_submodule(f"{module_prefix}{node.target}")
+                    sub_nodes = node_meta[f"{meta_prefix}{node.name}"]
+                    node_meta[meta_name][node.name] = NodeData(
                         _original_type=Graph,
                         _children=sub_nodes,
                         _value=GraphMeta(
-                            name=f"{name_prefix}{node.name}",
+                            name=f"{meta_prefix}{node.name}",
                             local_name=node.name,
                             accelerate_hook=getattr(target, "_hf_hook", None),
                             node=node,
@@ -285,27 +306,27 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                                 for k, v in sub_nodes.items()
                                 if v._value is not NodeData._NO_VALUE
                             },
-                            parent=cur_name,
+                            parent=meta_name,
                             graph=target.graph,
-                            graph_module_name=f"{name_prefix}{node.target}",
+                            graph_module_name=f"{module_prefix}{node.target}",
                             code=self._code_for(
                                 target, node, cast(NodeData[NodeMeta], sub_nodes["output"])
                             ),
                         ),
-                        _path=f"{name_prefix}{node.name}",
+                        _path=f"{meta_prefix}{node.name}",
                     )
                 else:
                     namespace = cur_module.graph._graph_namespace
-                    node_meta[cur_name][self._name_for(node, namespace)] = NodeData(
+                    node_meta[meta_name][self._name_for(node, namespace)] = NodeData(
                         _original_type=Node,
                         _value=NodeMeta(
-                            name=f"{name_prefix}{self._name_for(node, namespace)}",
+                            name=f"{meta_prefix}{self._name_for(node, namespace)}",
                             local_name=self._name_for(node, namespace),
                             node=node,
-                            parent=cur_name,
+                            parent=meta_name,
                             code=self._code_for(cur_module, node),
                         ),
-                        _path=f"{name_prefix}{self._name_for(node, namespace)}",
+                        _path=f"{meta_prefix}{self._name_for(node, namespace)}",
                     )
 
         return NodeData(
