@@ -260,13 +260,13 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                     target := cur_module.get_submodule(node.target), GraphModule
                 ):
                     module_stack.append(
-                        (f"{meta_prefix}{node.name}", f"{module_prefix}{node.name}", target)
+                        (f"{meta_prefix}{node.name}", f"{module_prefix}{node.target}", target)
                     )
                 elif node.op == "call_function" and isinstance(node.target, ChildModuleWrapper):
                     module_stack.append(
                         (
                             f"{meta_prefix}{node.name}",
-                            f"{module_prefix}{node.name}",
+                            f"{module_prefix}{node.target}",
                             cur_module.get_submodule(node.target.module_name),
                         )
                     )

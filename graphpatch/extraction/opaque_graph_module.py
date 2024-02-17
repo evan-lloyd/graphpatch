@@ -3,7 +3,7 @@ from typing import Any
 
 from torch.fx.graph import Graph
 from torch.fx.graph_module import GraphModule
-from torch.nn import Module
+from torch.nn import Module, ModuleList
 
 from ..optional.dataclasses import dataclass
 
@@ -73,15 +73,28 @@ def opaque_graph_module(original_module):
     # Use a wrapper so that torch doesn't insert the original module into the module hierarchy.
     wrapped_original = OpaqueModuleWrapper(original_module)
 
+    # TODO: modify parameters
+
     call_forward = graph.call_function(wrapped_original, tuple(module_args.values()), module_kwargs)
     call_forward.meta["_graphpatch_hidden"] = True
 
+    # TODO: undo parameter modification
+
     # Insert submodules as siblings of the opaque module call (which is hidden); this gives simpler
-    # canonical names for them.
-    for name, _ in original_module.named_children():
-        call_child = graph.call_function(child_wrapper := ChildModuleWrapper(name), (), {})
-        # In some edge cases (eg, shadowing a previous operation), the name may get transformed
-        child_wrapper.node_name = call_child.name
+    # canonical names for them. Note that we do not actually call these modules here when executing
+    # the graph; they are implicitly called at the call_forward node by the original module.
+    child_modules = list(original_module.named_children())
+    while child_modules:
+        name, submodule = child_modules.pop()
+        # TODO: handle Sequential and ModuleDict
+        if isinstance(submodule, ModuleList):
+            child_modules.extend(
+                [(f"{name}_{i}", m) for i, m in enumerate(submodule.named_children())]
+            )
+        else:
+            call_child = graph.call_function(child_wrapper := ChildModuleWrapper(name), (), {})
+            # In some edge cases (eg, shadowing a previous operation), the name may get transformed
+            child_wrapper.node_name = call_child.name
 
     graph.output((call_forward,))
     return GraphModule(original_module, graph)

@@ -30,7 +30,6 @@ from .extraction_options import ExtractionOptions
 from .opaque_graph_module import opaque_graph_module
 
 CONTAINER_TYPES = (Sequential, ModuleList, ModuleDict)
-UNCOMPILABLE_BUILTINS = {LayerNorm}
 
 
 def match_shape(indexes: NodeData[int], *args: Any) -> Any:
@@ -322,6 +321,7 @@ def convert_to_graph_module(
             if not name[0].isalpha():
                 name = "sub" + name
 
+            # TODO: handle nested container modules gracefully
             # Bit of a quirk with compile(); the named_modules() iterator returns names like
             # module_list.0.foo, but the resulting modules will be named like module_list_0.foo
             name = re.sub(r"\.(\d+)", lambda match: f"_{match.group(1)}", name)
@@ -372,7 +372,7 @@ def extract(
         "": convert_to_graph_module(
             root_module,
             root_compilation_state,
-            root_module.__class__ in options.modules_to_skip_compiling or options.skip_compilation,
+            root_module.__class__ in options.classes_to_skip_compiling or options.skip_compilation,
             is_root=True,
         )
     }
@@ -385,7 +385,7 @@ def extract(
         sub_graph = convert_to_graph_module(
             module,
             state,
-            module.__class__ in options.modules_to_skip_compiling or options.skip_compilation,
+            module.__class__ in options.classes_to_skip_compiling or options.skip_compilation,
             is_root=False,
         )
 

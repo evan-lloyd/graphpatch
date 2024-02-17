@@ -11,11 +11,11 @@ class ExtractionOptions:
     """Options to control the behavior of `graphpatch` during graph extraction.
 
     Attributes:
-        error_on_compilation_failure: Treat failure to compile a submodule as an error, rather than
-            falling back to module-level patching.
-        modules_to_skip_compiling: Set of Module classes to leave uncompiled. These modules will
+        classes_to_skip_compiling: Set of Module classes to leave uncompiled. These modules will
             only be patchable at their inputs and outputs. May be useful for working around
             compilation issues.
+        error_on_compilation_failure: Treat failure to compile a submodule as an error, rather than
+            falling back to module-level patching.
         postprocessing_function: Optional function to call which will modify the generated
             :class:`torch.fx.GraphModule`. This function can modify the underlying
             :class:`torch.fx.Graph` in-place. The original module is passed for reference in case,
@@ -26,6 +26,6 @@ class ExtractionOptions:
     """
 
     error_on_compilation_failure: bool = False
-    modules_to_skip_compiling: Set[Type[Module]] = field(default_factory=set)
+    classes_to_skip_compiling: Set[Type[Module]] = field(default_factory=set)
     postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None
     skip_compilation: bool = False

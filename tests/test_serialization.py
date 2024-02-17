@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from graphpatch import PatchableGraph
-from graphpatch.extraction import graph_extraction
+from graphpatch.extraction import ExtractionOptions
 from graphpatch.optional.accelerate import ModelHook, add_hook_to_module
 
 from .util import (
@@ -74,11 +74,14 @@ def test_minimal_module_serialization(patchable_minimal_module, minimal_module_i
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
 
 
-def test_uncompilable_module_serialization(minimal_module, minimal_module_inputs, mocker):
+def test_uncompilable_module_serialization(minimal_module, minimal_module_inputs):
     # Need to handle this for GPT2 until we can get LayerNorm to compile; likely other builtins
     # have similar issues.
-    mocker.patch.object(graph_extraction, "UNCOMPILABLE_BUILTINS", {torch.nn.Linear})
-    patchable_minimal_module = PatchableGraph(minimal_module, minimal_module_inputs)
+    patchable_minimal_module = PatchableGraph(
+        minimal_module,
+        ExtractionOptions(classes_to_skip_compiling={torch.nn.Linear}),
+        minimal_module_inputs,
+    )
     deserialized = _roundtrip(patchable_minimal_module)
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
 

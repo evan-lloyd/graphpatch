@@ -173,9 +173,9 @@ def test_protected_names(patchable_protected_name_module, protected_name_module_
 
 
 def test_uncompiled_module_presentation(nested_module, nested_module_inputs):
+    # TODO: test!
     pg = PatchableGraph(
         nested_module,
-        ExtractionOptions(modules_to_skip_compiling={NestedModule}),
+        ExtractionOptions(classes_to_skip_compiling={NestedModule}),
         nested_module_inputs,
     )
-    breakpoint()
