@@ -1,6 +1,10 @@
 from itertools import chain, combinations
 
-from graphpatch.extraction import ExtractionOptions
+from graphpatch.extraction import (
+    CompiledGraphModule,
+    ExtractionOptions,
+    OpaqueGraphModule,
+)
 from graphpatch.extraction.graph_extraction import extract
 from tests.fixtures.nested_module import A, B, C, NestedModule
 
@@ -69,8 +73,9 @@ def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
     graph_module, meta = extract(graph_break_module, ExtractionOptions(), graph_break_module_inputs)
     validate_node_meta(meta, graph_module)
     assert_outputs_identical(graph_break_module, graph_module, graph_break_module_inputs)
-    breakpoint()
-    assert "opaque_module_call" in meta
+    assert isinstance(graph_module, OpaqueGraphModule)
+    # Child module should have been compiled despite failure at root.
+    assert isinstance(graph_module.linear, CompiledGraphModule)
 
 
 @requires_transformers

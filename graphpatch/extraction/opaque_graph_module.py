@@ -58,43 +58,46 @@ class ParameterWrapper:
         return
 
 
-def opaque_graph_module(original_module):
-    graph = Graph()
+class OpaqueGraphModule(GraphModule):
+    def __init__(self, original_module):
+        graph = Graph()
 
-    # Set up placeholder nodes from module's forward()
-    module_args = {}
-    module_kwargs = {}
-    for name, parameter in inspect.signature(original_module.forward).parameters.items():
-        if parameter.default is inspect._empty:
-            module_args[name] = graph.placeholder(name)
-        else:
-            module_kwargs[name] = graph.placeholder(name, default_value=parameter.default)
+        # Set up placeholder nodes from module's forward()
+        module_args = {}
+        module_kwargs = {}
+        for name, parameter in inspect.signature(original_module.forward).parameters.items():
+            if parameter.default is inspect._empty:
+                module_args[name] = graph.placeholder(name)
+            else:
+                module_kwargs[name] = graph.placeholder(name, default_value=parameter.default)
 
-    # Use a wrapper so that torch doesn't insert the original module into the module hierarchy.
-    wrapped_original = OpaqueModuleWrapper(original_module)
+        # Use a wrapper so that torch doesn't insert the original module into the module hierarchy.
+        wrapped_original = OpaqueModuleWrapper(original_module)
 
-    # TODO: modify parameters
+        # TODO: modify parameters
 
-    call_forward = graph.call_function(wrapped_original, tuple(module_args.values()), module_kwargs)
-    call_forward.meta["_graphpatch_hidden"] = True
+        call_forward = graph.call_function(
+            wrapped_original, tuple(module_args.values()), module_kwargs
+        )
+        call_forward.meta["_graphpatch_hidden"] = True
 
-    # TODO: undo parameter modification
+        # TODO: undo parameter modification
 
-    # Insert submodules as siblings of the opaque module call (which is hidden); this gives simpler
-    # canonical names for them. Note that we do not actually call these modules here when executing
-    # the graph; they are implicitly called at the call_forward node by the original module.
-    child_modules = list(original_module.named_children())
-    while child_modules:
-        name, submodule = child_modules.pop()
-        # TODO: handle Sequential and ModuleDict
-        if isinstance(submodule, ModuleList):
-            child_modules.extend(
-                [(f"{name}_{i}", m) for i, m in enumerate(submodule.named_children())]
-            )
-        else:
-            call_child = graph.call_function(child_wrapper := ChildModuleWrapper(name), (), {})
-            # In some edge cases (eg, shadowing a previous operation), the name may get transformed
-            child_wrapper.node_name = call_child.name
+        # Insert submodules as siblings of the opaque module call (which is hidden); this gives simpler
+        # canonical names for them. Note that we do not actually call these modules here when executing
+        # the graph; they are implicitly called at the call_forward node by the original module.
+        child_modules = list(original_module.named_children())
+        while child_modules:
+            name, submodule = child_modules.pop()
+            # TODO: handle Sequential and ModuleDict
+            if isinstance(submodule, ModuleList):
+                child_modules.extend(
+                    [(f"{name}_{i}", m) for i, m in enumerate(submodule.named_children())]
+                )
+            else:
+                call_child = graph.call_function(child_wrapper := ChildModuleWrapper(name), (), {})
+                # In some edge cases (eg, shadowing a previous operation), the name may get transformed
+                child_wrapper.node_name = call_child.name
 
-    graph.output((call_forward,))
-    return GraphModule(original_module, graph)
+        graph.output((call_forward,))
+        return super().__init__(original_module, graph)

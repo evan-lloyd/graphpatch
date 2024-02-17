@@ -100,7 +100,11 @@ class _BaseMeta:
 
 @dataclass(kw_only=True)
 class NodeMeta(_BaseMeta):
-    """Meta-info to associate with a non-graph node in a GraphModule."""
+    """Meta-info to associate with a non-graph node in a GraphModule.
+
+    Attributes:
+        node: torch.fx.Node instance this meta-info is associated to.
+    """
 
     node: Node
     is_graph: ClassVar[bool] = False
@@ -127,7 +131,13 @@ class GraphMeta(_BaseMeta):
 
     Attributes:
         accelerate_hook: The accelerate ModuleHook associated with this GraphModule, if any.
-        nodes:
+        node: torch.fx.Node instance this meta-info is associated to. None for the root.
+        nodes: Dictionary mapping node names to child meta-info.
+        graph: torch.fx.Graph instance this meta-info is associated to.
+        graph_module_name: Name of the graph_module within the module hierarchy this meta-info is
+            associated to.
+        graph_module_class_name: Name of the class of the graph_module, so we can easily distinguish
+            between opaque and compiled graphs when needed.
     """
 
     is_graph: ClassVar[bool] = True
@@ -136,6 +146,7 @@ class GraphMeta(_BaseMeta):
     nodes: Dict[str, Union["NodeMeta", "GraphMeta"]]
     graph: Graph
     graph_module_name: str
+    graph_module_class_name: str
 
     def __str__(self) -> str:
         return ""
@@ -165,6 +176,7 @@ class GraphMeta(_BaseMeta):
             code=self.code,
             graph=graph_copy,
             graph_module_name=self.graph_module_name,
+            graph_module_class_name=self.graph_module_class_name,
         )
 
 
@@ -309,6 +321,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                             parent=meta_name,
                             graph=target.graph,
                             graph_module_name=f"{module_prefix}{node.target}",
+                            graph_module_class_name=target.__class__.__name__,
                             code=self._code_for(
                                 target, node, cast(NodeData[NodeMeta], sub_nodes["output"])
                             ),
@@ -347,6 +360,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 parent="",
                 graph=data.graph,
                 graph_module_name="",
+                graph_module_class_name=data.__class__.__name__,
             ),
         )
 

@@ -12,7 +12,7 @@ from torch._dynamo.allowed_functions import (
     _disallowed_function_ids,
 )
 from torch.fx.graph_module import GraphModule
-from torch.nn import LayerNorm, Module, ModuleDict, ModuleList, Sequential
+from torch.nn import Module, ModuleDict, ModuleList, Sequential
 
 from .. import hacks
 from ..meta import (
@@ -27,9 +27,13 @@ from ..optional.dataclasses import dataclass, field
 from .accelerate import detach_accelerate_hooks
 from .bitsandbytes import wrap_bits_and_bytes
 from .extraction_options import ExtractionOptions
-from .opaque_graph_module import opaque_graph_module
+from .opaque_graph_module import OpaqueGraphModule
 
 CONTAINER_TYPES = (Sequential, ModuleList, ModuleDict)
+
+
+class CompiledGraphModule(GraphModule):
+    pass
 
 
 def match_shape(indexes: NodeData[int], *args: Any) -> Any:
@@ -289,6 +293,10 @@ def convert_to_graph_module(
     def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
         nonlocal graph_module
         graph_module = gm
+        # There is no hook to choose a subclass of GraphModule to create during compilation, so
+        # dynamically make it a subclass of CompiledGraphModule. GraphModules are always created by
+        # torch as the sole instance of a dynamically generated class, so this is safe.
+        gm.__class__.__bases__ = (CompiledGraphModule,) + gm.__class__.__bases__
         return gm
 
     arg_tracker = compilation_state.self_args
@@ -355,7 +363,7 @@ def convert_to_graph_module(
         if skip_compilation:
             # Fall back to running the original module
             arg_tracker.output = module(*arg_tracker.args, **arg_tracker.kwargs)
-            graph_module = opaque_graph_module(module)
+            graph_module = OpaqueGraphModule(module)
 
     return graph_module
 

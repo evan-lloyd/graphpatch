@@ -23,7 +23,13 @@ from torch.fx.node import Node, Node as FXNode
 from torch.nn import Module, ModuleList, Parameter
 from typing_extensions import TypedDict
 
-from .extraction import ExtractionOptions, detach_accelerate_hooks, extract
+from .extraction import (
+    CompiledGraphModule,
+    ExtractionOptions,
+    OpaqueGraphModule,
+    detach_accelerate_hooks,
+    extract,
+)
 from .meta import (
     GraphMeta,
     NodeData,
@@ -267,7 +273,11 @@ class PatchableGraph(Module):
             for prefix, modules in local_graph_modules_by_prefix.items():
                 local_submodules[prefix] = ModuleList(module for _, module in sorted(modules))
 
-            graph_module = GraphModule(
+            # Choose graph module subclass constructor based on the saved class name.
+            graph_module_subclass = {
+                subclass.__name__: subclass for subclass in (CompiledGraphModule, OpaqueGraphModule)
+            }.get(meta.graph_module_class_name, GraphModule)
+            graph_module = graph_module_subclass(
                 {
                     **local_state,
                     **local_submodules,
