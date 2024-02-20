@@ -315,16 +315,18 @@ def convert_to_graph_module(
             )
         )
 
+        for submodule in maybe_wrapped_module.modules():
+            hook = tracer_stack.enter_context(detach_accelerate_hooks(submodule))
+            if submodule is maybe_wrapped_module:
+                compilation_state.accelerate_hook = hook
+
         if is_root:
             submodule_iterator = maybe_wrapped_module.named_modules()
         else:
             submodule_iterator = maybe_wrapped_module.named_children()
         for name, submodule in submodule_iterator:
-            hook = tracer_stack.enter_context(detach_accelerate_hooks(submodule))
-            if submodule is maybe_wrapped_module:
-                compilation_state.accelerate_hook = hook
+            if submodule is module:
                 continue
-
             # Need to mirror torch.compile() behavior, which adds this prefix in this situation.
             if not name[0].isalpha():
                 name = "sub" + name
