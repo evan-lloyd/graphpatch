@@ -1,19 +1,17 @@
 import inspect
+from contextlib import contextmanager
 from copy import copy, deepcopy
 from typing import Any, Callable, Tuple
-from contextlib import contextmanager
 
 from torch.fx.graph import Graph
 from torch.fx.graph_module import GraphModule
-from torch.nn import Module, ModuleList
+from torch.nn import Module, ModuleList, Sequential
 
 from ..optional.dataclasses import dataclass
 
 
 def _unbound_method(function_or_method: Callable):
-    if hasattr(function_or_method, "__func__"):
-        return function_or_method.__func__
-    return function_or_method
+    return getattr(function_or_method, "__func__", function_or_method)
 
 
 @contextmanager
@@ -63,11 +61,21 @@ class OpaqueModuleWrapper(_OpaqueModuleWrapper):
     def __call__(self, *args, **kwargs) -> Any:
         _graphpatch_args = kwargs.pop("_graphpatch_args", None)
 
-        def pass_patch_args(fn):
-            def _inner(*args, **kwargs):
-                return fn(*args, **kwargs, _graphpatch_args=_graphpatch_args)
+        # Pass the patching arguments down to submodules when in a patching context by
+        # monkeypatching their forward() methods. Normally we handle this by manipulating the call
+        # site in the parent graph module, but since this is an opaque module we don't have one.
+        if _graphpatch_args is not None:
 
-            return _inner
+            def pass_patch_args(fn):
+                def _inner(*args, **kwargs):
+                    return fn(*args, **kwargs, _graphpatch_args=_graphpatch_args)
+
+                return _inner
+
+        else:
+
+            def pass_patch_args(fn):
+                return fn
 
         num_parameters = len(self.parameter_names)
 
@@ -126,7 +134,7 @@ class OpaqueGraphModule(GraphModule):
             else:
                 module_kwargs[name] = graph.placeholder(name, default_value=arg.default)
 
-        # TODO: we should probably just getattr
+        # TODO: we should probably just getattr. also buffers
         parameter_nodes = []
         for name, _ in original_module.named_parameters(recurse=False):
             parameter_nodes.append(
@@ -151,10 +159,10 @@ class OpaqueGraphModule(GraphModule):
         child_modules = list(original_module.named_children())
         while child_modules:
             name, submodule = child_modules.pop()
-            # TODO: handle Sequential and ModuleDict
-            if isinstance(submodule, ModuleList):
+            # TODO: handle ModuleDict
+            if isinstance(submodule, (ModuleList, Sequential)):
                 child_modules.extend(
-                    [(f"{name}_{i}", m) for i, m in enumerate(submodule.named_children())]
+                    [(f"{name}.{i}", m) for i, m in enumerate(submodule.named_children())]
                 )
             else:
                 call_child = graph.call_function(child_wrapper := ChildModuleWrapper(name), (), {})

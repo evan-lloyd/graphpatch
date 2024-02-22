@@ -55,11 +55,10 @@ def test_extract_deeply_nested_module(
 def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
     # Try every possible combination of opaque/compiled modules--we must always get an equivalent
     # module!
-    module_types = {NestedModule, A, B, C}
+    module_types = (NestedModule, A, B, C)
     for uncompiled_subset in chain.from_iterable(
         combinations(module_types, subset_len) for subset_len in range(len(module_types) + 1)
     ):
-        print(uncompiled_subset)
         graph_module, meta = extract(
             nested_module,
             ExtractionOptions(classes_to_skip_compiling=uncompiled_subset),

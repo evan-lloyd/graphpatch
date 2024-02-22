@@ -110,6 +110,9 @@ class CompilationState:
     original_module: Module
     local_name: Optional[str] = None
     parent_name: Optional[str] = None
+    original_name: Optional[str] = None
+    container_name: Optional[str] = None
+    container_index: Union[str, int, None] = None
 
 
 @dataclass
@@ -298,6 +301,7 @@ def convert_to_graph_module(
         # dynamically make it a subclass of CompiledGraphModule. GraphModules are always created by
         # torch as the sole instance of a dynamically generated class, so this is safe.
         gm.__class__.__bases__ = (CompiledGraphModule,) + gm.__class__.__bases__
+        gm.__class__.__name__ = "CompiledGraphModule"
         return gm
 
     arg_tracker = compilation_state.self_args
@@ -321,13 +325,12 @@ def convert_to_graph_module(
             if submodule is maybe_wrapped_module:
                 compilation_state.accelerate_hook = hook
 
-        if is_root:
-            submodule_iterator = maybe_wrapped_module.named_modules()
-        else:
-            submodule_iterator = maybe_wrapped_module.named_children()
-        for name, submodule in submodule_iterator:
-            if submodule is module:
-                continue
+        submodule_stack = [(None, None) + t for t in maybe_wrapped_module.named_children()]
+        while submodule_stack:
+            container_name, container_index, name, submodule = submodule_stack.pop()
+
+            original_name = name
+
             # Need to mirror torch.compile() behavior, which adds this prefix in this situation.
             if not name[0].isalpha():
                 name = "sub" + name
@@ -339,16 +342,32 @@ def convert_to_graph_module(
 
             [*parent_name, local_name] = name.split(".")
             parent_name = "_".join(parent_name)
-            name = name.replace(".", "_")
+            state_name = name.replace(".", "_")
 
             if is_root:
-                compilation_state.child_state[name] = CompilationState(
-                    original_module=submodule, local_name=local_name, parent_name=parent_name
+                submodule_stack.extend(
+                    [
+                        (
+                            name if is_container(submodule) else None,
+                            n if is_container(submodule) else None,
+                            f"{name}.{n}",
+                            child,
+                        )
+                        for n, child in submodule.named_children()
+                    ]
+                )
+                compilation_state.child_state[state_name] = CompilationState(
+                    original_module=submodule,
+                    local_name=local_name,
+                    parent_name=parent_name,
+                    original_name=original_name,
+                    container_name=container_name,
+                    container_index=container_index,
                 )
                 tracer_stack.enter_context(
                     tracer_hook(
                         submodule,
-                        compilation_state.child_state[name].self_args,
+                        compilation_state.child_state[state_name].self_args,
                         hook,
                     )
                 )
@@ -391,7 +410,22 @@ def extract(
     # Turn all children into graph modules themselves.
     for name, state in root_compilation_state.child_state.items():
         module = state.original_module
-        if module is root_module or is_container(module):
+        if module is root_module:
+            continue
+
+        # For opaque modules, we need to *not* unroll containers, since the original module will
+        # be expecting them to still exist.
+        if is_container(module):
+            if isinstance(graph_modules_by_name[state.parent_name], OpaqueGraphModule):
+                if isinstance(module, (ModuleList, Sequential)):
+                    container = module.__class__([Module() for _ in range(len(module))])
+                else:
+                    container = module.__class__()
+                setattr(
+                    graph_modules_by_name[state.parent_name],
+                    state.local_name,
+                    container,
+                )
             continue
         sub_graph = convert_to_graph_module(
             module,
@@ -400,8 +434,21 @@ def extract(
             is_root=False,
         )
 
+        if (
+            isinstance(graph_modules_by_name[state.parent_name], OpaqueGraphModule)
+            and state.container_name is not None
+        ):
+            container = graph_modules_by_name[""].get_submodule(state.container_name)
+            container_index = (
+                int(state.container_index)
+                if isinstance(container, (ModuleList, Sequential))
+                else state.container_index
+            )
+            container[container_index] = sub_graph
+        else:
+            setattr(graph_modules_by_name[state.parent_name], state.local_name, sub_graph)
+
         graph_modules_by_name[name] = sub_graph
-        setattr(graph_modules_by_name[state.parent_name], state.local_name, sub_graph)
 
     # Postprocess after all modules have been converted. Reverse order so children are postprocessed
     # before their parents, which matters for cloned graphs.
