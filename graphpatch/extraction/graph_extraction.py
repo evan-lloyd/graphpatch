@@ -272,6 +272,7 @@ def postprocess_graph(
         setattr(
             graph_module,
             module_name,
+            # TODO: respect Compiled/Opaque class
             ModuleList(
                 [module] + [GraphModule(module, deepcopy(module.graph)) for _ in calling_nodes[1:]]
             ),

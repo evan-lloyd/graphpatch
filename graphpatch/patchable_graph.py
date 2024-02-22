@@ -30,6 +30,7 @@ from .extraction import (
     detach_accelerate_hooks,
     extract,
 )
+from .extraction.opaque_graph_module import OpaqueModuleWrapper
 from .meta import (
     GraphMeta,
     NodeData,
@@ -537,6 +538,14 @@ class PatchableGraph(Module):
             if isinstance(meta, NodeMeta) and isinstance(original_meta, NodeMeta):
                 meta.shape = original_meta.shape
 
+    def _add_patch_args(
+        self, meta: NodeMeta, graph_module: GraphModule, patch_args_node: FXNode
+    ) -> None:
+        """Adds patch args into the call to the opaque module wrapper."""
+        new_kwargs = dict(**meta.node.kwargs)
+        new_kwargs["_graphpatch_args"] = patch_args_node
+        meta.node.kwargs = new_kwargs
+
     def _wrap_graph(
         self, meta: GraphMeta, graph_module: GraphModule, patch_args_node: FXNode
     ) -> None:
@@ -674,6 +683,12 @@ class PatchableGraph(Module):
                     new_kwargs = {k: v for k, v in meta.node.kwargs.items()}
                     new_kwargs["_graphpatch_args"] = context_nodes[meta.parent]
                     meta.node.kwargs = new_kwargs
+            # Need to pass patching arguments down to opaque modules at their real call sites.
+            elif isinstance(meta, NodeMeta) and isinstance(meta.node.target, OpaqueModuleWrapper):
+                self._add_patch_args(
+                    meta, meta.node.target.graph_module, context_nodes[meta.parent]
+                )
+            # Handle Compiled children
             return meta
 
         def wrap_nodes(meta: Union[NodeMeta, GraphMeta]) -> Union[NodeMeta, GraphMeta]:

@@ -8,6 +8,7 @@ from graphpatch import (
     RecordPatch,
     ReplacePatch,
     ZeroPatch,
+    ExtractionOptions,
 )
 
 
@@ -25,6 +26,26 @@ def test_patch_module_output(patchable_minimal_module, minimal_module_inputs):
         {"output": ReplacePatch(value=3, slice=(slice(None), slice(None)))}
     ):
         patched_output = patchable_minimal_module(minimal_module_inputs)
+
+    assert (patched_output - 3).count_nonzero() == 0
+
+
+def test_patch_opaque_module_input(patchable_opaque_minimal_module, minimal_module_inputs):
+    with patchable_opaque_minimal_module.patch({"linear.input": ZeroPatch()}):
+        patched_output = patchable_opaque_minimal_module(minimal_module_inputs)
+
+    assert patched_output.equal(
+        patchable_opaque_minimal_module._graph_module.linear(
+            torch.zeros_like(minimal_module_inputs)
+        )
+    )
+
+
+def test_patch_opaque_module_output(patchable_opaque_minimal_module, minimal_module_inputs):
+    with patchable_opaque_minimal_module.patch(
+        {"output": ReplacePatch(value=3, slice=(slice(None), slice(None)))}
+    ):
+        patched_output = patchable_opaque_minimal_module(minimal_module_inputs)
 
     assert (patched_output - 3).count_nonzero() == 0
 

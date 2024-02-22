@@ -96,6 +96,7 @@ class _BaseMeta:
     shape: Optional[NodeData[NodeShape]] = None
     parent: str
     code: WrappedCode
+    hidden: bool
 
 
 @dataclass(kw_only=True)
@@ -121,6 +122,7 @@ class NodeMeta(_BaseMeta):
                 parent=self.parent,
                 node=memo[self.node],
                 code=self.code,
+                hidden=self.hidden,
             )
         return cast(NodeMeta, memo[id(self)])
 
@@ -177,6 +179,7 @@ class GraphMeta(_BaseMeta):
             graph=graph_copy,
             graph_module_name=self.graph_module_name,
             graph_module_class_name=self.graph_module_class_name,
+            hidden=self.hidden,
         )
 
 
@@ -295,8 +298,8 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 module_prefix = f"{module_name}."
 
             for node in cur_module.graph.nodes:
-                if node.meta.get("_graphpatch_hidden", False):
-                    continue
+                # if node.meta.get("_graphpatch_hidden", False):
+                #    continue
                 if (
                     # Real call to submodule
                     node.op == "call_module"
@@ -325,6 +328,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                             code=self._code_for(
                                 target, node, cast(NodeData[NodeMeta], sub_nodes["output"])
                             ),
+                            hidden=node.meta.get("_graphpatch_hidden", False),
                         ),
                         _path=f"{meta_prefix}{node.name}",
                     )
@@ -338,6 +342,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                             node=node,
                             parent=meta_name,
                             code=self._code_for(cur_module, node),
+                            hidden=node.meta.get("_graphpatch_hidden", False),
                         ),
                         _path=f"{meta_prefix}{self._name_for(node, namespace)}",
                     )
@@ -361,6 +366,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 graph=data.graph,
                 graph_module_name="",
                 graph_module_class_name=data.__class__.__name__,
+                hidden=node.meta.get("_graphpatch_hidden", False),
             ),
         )
 
