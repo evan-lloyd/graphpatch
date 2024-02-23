@@ -103,6 +103,9 @@ def wrap_node_path(meta: NodeData[Union[GraphMeta, NodeMeta]]) -> NodePath:
         path: str,
         value: MaybeNodeDataType[Union[GraphMeta, NodeMeta]],
     ) -> MaybeNodeDataType[Union[GraphMeta, NodeMeta]]:
+        # Filter out hidden nodes from the pretty printed tree.
+        if isinstance(value, (GraphMeta, NodeMeta)) and value.hidden:
+            return NodeData._NO_VALUE
         return value
 
     node_path = cast(

@@ -226,9 +226,24 @@ class NodeData(Generic[NodeDataType]):
             if node._value is not NodeData._NO_VALUE:
                 node._value = fn(node._value)
 
-    def filter(self, predicate, node_constructor, root_prefix):
-        # TODO
-        pass
+    def filter(
+        self,
+        predicate: Callable[[str, MaybeNodeDataType[NodeDataType]], bool],
+        node_constructor: Optional[Callable[..., "NodeData[OtherNodeDataType]"]] = None,
+        root_prefix: str = "",
+    ):
+        """Returns a new NodeData tree with the same structure as this one, but with all values
+        failing predicate removed."""
+
+        return self.map(
+            lambda path, value: (
+                value
+                if (value is not NodeData._NO_VALUE and predicate(path, value))
+                else NodeData._NO_VALUE
+            ),
+            node_constructor,
+            root_prefix,
+        )
 
     def map(
         self,
@@ -237,7 +252,8 @@ class NodeData(Generic[NodeDataType]):
         root_prefix: str = "",
     ) -> "NodeData[OtherNodeDataType]":
         """Returns a new NodeData tree with the same structure as this one, but with all values
-        replaced with fn(previous_value), which may return a different type of data."""
+        replaced with fn(previous_value), which may return a different type of data. If fn returns
+        NodeData._NO_VALUE, omit it from the result unless it has children with values."""
 
         def default_node_constructor(**kwargs: Any) -> NodeData[OtherNodeDataType]:
             return NodeData[OtherNodeDataType](**kwargs)
@@ -265,8 +281,12 @@ class NodeData(Generic[NodeDataType]):
             ] = NodeData._NO_VALUE
             if node._children is not NodeData._NO_VALUE:
                 children = {
-                    k: new_nodes[f"{path + '.' if path else ''}{k}"] for k in node._children
+                    k: new_nodes[child_path]
+                    for k in node._children
+                    if (child_path := f"{path + '.' if path else ''}{k}") in new_nodes
                 }
+                if len(children) == 0:
+                    children = NodeData._NO_VALUE
             if value is not NodeData._NO_VALUE or children is not NodeData._NO_VALUE:
                 new_nodes[path] = node_constructor(
                     _value=value,
@@ -274,9 +294,7 @@ class NodeData(Generic[NodeDataType]):
                     _original_type=node._original_type,
                     _path=path,
                 )
-        # Placate mypy; we'll always have data at the root.
-        root = new_nodes[root_prefix]
-        assert isinstance(root, NodeData)
+        root = new_nodes.get(root_prefix, NodeData._NO_VALUE)
         return root
 
     def replace(self, path: Optional[str], fn: Callable[[NodeDataType], NodeDataType]) -> None:

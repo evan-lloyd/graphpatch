@@ -167,6 +167,13 @@ def test_map(data_to_wrap):
     assert unwrapped == ({"foo": ["1", "2", "3"]}, ("5", "6", ("7", {"bar": ("8", "9")})))
 
 
+def test_filter(data_to_wrap):
+    wrapped = wrap_node_data(data_to_wrap)
+    filtered = wrapped.filter(lambda _, x: x > 2 and x < 8)
+    unwrapped = filtered.unwrap()
+    assert unwrapped == ({"foo": [3]}, (5, 6, (7,)))
+
+
 def test_replace(data_to_wrap):
     wrapped = wrap_node_data(data_to_wrap)
     wrapped.replace("sub_0.foo.sub_1", lambda _: 5)

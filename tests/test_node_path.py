@@ -14,9 +14,11 @@ from tests.fixtures.nested_module import NestedModule
 
 class MockNodeMeta(NodeMeta):
     shape: Optional[NodeData[int]]
+    hidden: bool = False
 
     def __init__(self, shape):
         self.shape = shape
+        self.hidden = False
 
 
 @pytest.fixture

@@ -298,8 +298,6 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 module_prefix = f"{module_name}."
 
             for node in cur_module.graph.nodes:
-                # if node.meta.get("_graphpatch_hidden", False):
-                #    continue
                 if (
                     # Real call to submodule
                     node.op == "call_module"

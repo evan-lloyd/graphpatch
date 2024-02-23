@@ -161,7 +161,8 @@ class PatchableGraph(Module):
         self._patch_context: Optional[Dict[str, List[Patch[Tensor]]]] = None
         self._graph_module = graph_module
         self._meta = meta
-        self._original_graph = deepcopy(meta)
+        # TODO: we need to make this serializable without filtering
+        self._original_graph = deepcopy(meta.filter(lambda _, value: not value.hidden))
         # In torch >= 2.1.0, FakeTensors get attached in each FXNode's meta, but they are
         # unpicklable.
         for node_meta in self._original_graph.values():
@@ -275,6 +276,7 @@ class PatchableGraph(Module):
                 local_submodules[prefix] = ModuleList(module for _, module in sorted(modules))
 
             # Choose graph module subclass constructor based on the saved class name.
+            # TODO: we can't actually construct an OpaqueGraphModule like this!
             graph_module_subclass = {
                 subclass.__name__: subclass for subclass in (CompiledGraphModule, OpaqueGraphModule)
             }.get(meta.graph_module_class_name, GraphModule)
@@ -285,6 +287,7 @@ class PatchableGraph(Module):
                     "_graphpatch_output_indexes": _graphpatch_output_indexes[name],
                 },
                 meta.graph,
+                graph_module_subclass.__name__,
             )
             # GraphModule constructor fails to use our ModuleList in case of cloned graphs (probably
             # an annoying order-of-operations thing, since it copies over attributes ordered by
@@ -687,7 +690,12 @@ class PatchableGraph(Module):
             return meta
 
         def wrap_nodes(meta: Union[NodeMeta, GraphMeta]) -> Union[NodeMeta, GraphMeta]:
-            if meta.node is None or meta.node.op in ("placeholder", "output") or meta.is_graph:
+            if (
+                meta.node is None
+                or meta.node.op in ("placeholder", "output")
+                or meta.is_graph
+                or meta.hidden
+            ):
                 return meta
             self._replace_node(
                 meta.node,
