@@ -161,8 +161,7 @@ class PatchableGraph(Module):
         self._patch_context: Optional[Dict[str, List[Patch[Tensor]]]] = None
         self._graph_module = graph_module
         self._meta = meta
-        # TODO: we need to make this serializable without filtering
-        self._original_graph = deepcopy(meta.filter(lambda _, value: not value.hidden))
+        self._original_graph = deepcopy(meta)
         # In torch >= 2.1.0, FakeTensors get attached in each FXNode's meta, but they are
         # unpicklable.
         for node_meta in self._original_graph.values():
@@ -183,10 +182,7 @@ class PatchableGraph(Module):
         Future versions of graphpatch will likely remove this method in favor of a more secure
         serialization scheme.
         """
-        uncompiled_submodules = self._uncompiled_submodules()
         with ExitStack() as hook_stack:
-            for module in uncompiled_submodules.values():
-                hook_stack.enter_context(detach_accelerate_hooks(module))
             self._is_saving = True
             try:
                 torch.save(self, *args, **kwargs)
@@ -200,7 +196,6 @@ class PatchableGraph(Module):
         parameter_names: Set[str],
         _original_graph: NodeData[Union[NodeMeta, GraphMeta]],
         _graphpatch_output_indexes: Dict[str, NodeData[int]],
-        uncompiled_submodules: Dict[str, Module],
     ) -> "PatchableGraph":
         deserialized_instance = cls.__new__(cls)
         super().__init__(deserialized_instance)
@@ -217,7 +212,7 @@ class PatchableGraph(Module):
         state_entries_to_parameters: Dict[Any, Parameter] = {}
         for qualified_name, state_entry in state_dict.items():
             [*parent_path, target] = qualified_name.split(".")
-            if state_entry in state_entries_to_parameters:
+            if isinstance(state_entry, Tensor) and state_entry in state_entries_to_parameters:
                 parameter = state_entries_to_parameters[state_entry]
             elif qualified_name in parameter_names:
                 parameter = Parameter(
@@ -227,7 +222,6 @@ class PatchableGraph(Module):
                 state_entries_to_parameters[state_entry] = parameter
             else:
                 parameter = state_entry
-                state_entries_to_parameters[state_entry] = parameter
             state_by_submodule[".".join(parent_path)][target] = parameter
 
         # GraphModule is not built to handle nested graphs, so re-inflate each sub-graph
@@ -308,9 +302,6 @@ class PatchableGraph(Module):
 
         return deserialized_instance
 
-    def _uncompiled_submodules(self) -> Dict[str, Module]:
-        return {}
-
     def __reduce__(self) -> Tuple[Callable[..., "PatchableGraph"], Tuple[Any, ...]]:
         """Set up custom serialization for when user calls torch.save(), since our node wrappers are
         unpicklable.
@@ -325,21 +316,11 @@ class PatchableGraph(Module):
         # don't want to persist autograd state.
         state_dict = self.state_dict(keep_vars=True)
 
-        # Eventually, we should figure out how to compile everything. For now, we can serialize
-        # the uncompiled ones separately.
-        uncompiled_submodules = self._uncompiled_submodules()
-        # Pop out of state_dict so we don't serialize them twice.
-        for name in uncompiled_submodules:
-            for key in list(state_dict.keys()):
-                if key.startswith(name):
-                    state_dict.pop(key)
-
         # Handle edge case with non-state attributes, like variance_epsilon in LlamaRMSNorm. We can
         # find the ones that matter by searching all our subgraphs for references.
         for node in self._original_graph.values():
             if isinstance(node, NodeMeta) and node.node.op == "get_attr":
-                target = node.node.target
-                assert isinstance(target, str)
+                target = cast(str, node.node.target)
                 parent = cast(GraphMeta, self._original_graph[node.parent])
                 parent_graph = parent.graph_module_name
                 key = f"_graph_module.{parent_graph + ('.' if parent_graph else '')}{target}"
@@ -360,7 +341,6 @@ class PatchableGraph(Module):
                     for name, module in self.named_modules()
                     if hasattr(module, "_graphpatch_output_indexes")
                 },
-                uncompiled_submodules,
             ),
         )
 

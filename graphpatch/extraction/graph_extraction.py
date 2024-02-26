@@ -43,6 +43,14 @@ def match_shape(indexes: NodeData[int], *args: Any) -> Any:
     ).unwrap()
 
 
+def clone_graph_module(
+    module: Union[CompiledGraphModule, OpaqueGraphModule]
+) -> Union[CompiledGraphModule, OpaqueGraphModule]:
+    if isinstance(module, OpaqueGraphModule):
+        return OpaqueGraphModule(module)
+    return CompiledGraphModule(module, deepcopy(module.graph), "CompiledGraphModule")
+
+
 @contextmanager
 def eval_mode(module: Module) -> Iterator[None]:
     """Set a module into eval mode, so we skip including training-only things like dropouts in
@@ -275,10 +283,7 @@ def postprocess_graph(
         setattr(
             graph_module,
             module_name,
-            # TODO: respect Compiled/Opaque class
-            ModuleList(
-                [module] + [GraphModule(module, deepcopy(module.graph)) for _ in calling_nodes[1:]]
-            ),
+            ModuleList([module] + [clone_graph_module(module) for _ in calling_nodes[1:]]),
         )
         # Update the call_module nodes to refer to a specific instance in the list.
         for i, node in enumerate(calling_nodes):

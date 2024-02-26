@@ -122,13 +122,24 @@ class ParameterWrapper:
 
 
 class OpaqueGraphModule(GraphModule):
-    def __init__(self, original_module: Module):
+    """OpaqueGraphModule constructs a GraphModule from a :class:`torch.nn.Module` without using
+    :func:`torch.compile`. This results in a graph that can only be patched at submodule inputs,
+    outputs, buffers, and parameters. An OpaqueGraphModule may have CompiledGraphModules as
+    submodules, which can be patched normally, but note that if this module makes multiple calls
+    to these children, patches will be applied to each such invocation.
+    """
+
+    _graphpatch_original_module: OpaqueModuleWrapper
+
+    def _construct_graph(self) -> Graph:
         graph = Graph()
 
         # Set up placeholder nodes from module's forward()
         module_args = {}
         module_kwargs = {}
-        for name, arg in inspect.signature(original_module.forward).parameters.items():
+        for name, arg in inspect.signature(
+            self._graphpatch_original_module.module.forward
+        ).parameters.items():
             if arg.default is inspect._empty:
                 module_args[name] = graph.placeholder(name)
             else:
@@ -136,17 +147,15 @@ class OpaqueGraphModule(GraphModule):
 
         # TODO: we should probably just getattr. also buffers
         parameter_nodes = []
-        for name, _ in original_module.named_parameters(recurse=False):
+        for name, _ in self._graphpatch_original_module.module.named_parameters(recurse=False):
             parameter_nodes.append(
-                graph.call_function(ParameterWrapper(name, original_module), (), {})
+                graph.call_function(
+                    ParameterWrapper(name, self._graphpatch_original_module.module), (), {}
+                )
             )
 
-        wrapped_original = OpaqueModuleWrapper(
-            self, original_module, tuple(n.name for n in parameter_nodes)
-        )
-
         call_forward = graph.call_function(
-            wrapped_original,
+            self._graphpatch_original_module,
             tuple(parameter_nodes) + tuple(module_args.values()),
             module_kwargs,
         )
@@ -156,7 +165,7 @@ class OpaqueGraphModule(GraphModule):
         # simpler canonical names for them. Note that we do not actually call these modules here
         # when executing the graph; they are implicitly called at the call_forward node by the
         # original module.
-        child_modules = list(original_module.named_children())
+        child_modules = list(self._graphpatch_original_module.module.named_children())
         while child_modules:
             name, submodule = child_modules.pop()
             # TODO: handle ModuleDict
@@ -171,14 +180,26 @@ class OpaqueGraphModule(GraphModule):
                 child_wrapper.node_name = call_child.name
 
         graph.output((call_forward,))
+        return graph
 
+    def __init__(self, original_module: Module):
+        if isinstance(original_module, OpaqueGraphModule):
+            self._graphpatch_original_module = original_module._graphpatch_original_module
+            graph = deepcopy(original_module.graph)
+        else:
+            self._graphpatch_original_module = OpaqueModuleWrapper(
+                self,
+                original_module,
+                tuple(n for n, _ in original_module.named_parameters(recurse=False)),
+            )
+            graph = self._construct_graph()
         super().__init__(original_module, graph, "OpaqueGraphModule")
 
         # Clone attributes from the original module. We skip submodules, because those will be
         # replaced by GraphModules immediately afterwards. Make shallow copies of parameters/buffers
         # out of memory concerns (TODO: make configurable?)
         for k, v in original_module.__dict__.items():
-            if k in ("_modules", "_parameters", "_buffers"):
+            if k in ("_modules", "_parameters", "_buffers", "_graphpatch_original_module"):
                 continue
             self.__dict__[k] = deepcopy(v)
 
