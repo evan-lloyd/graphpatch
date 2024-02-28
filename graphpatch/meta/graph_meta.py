@@ -49,13 +49,13 @@ class NodeShapeWrapper(NodeDataWrapper[NodeShape]):
     def handle_leaf(self, data: Any, path: str) -> NodeData[NodeShape]:
         if isinstance(data, Tensor):
             return self.make_wrapper(
-                _original_type=data.__class__,
+                _original_type=data.__class__.__name__,
                 _value=NodeShape(_shape=data.shape, _data_type="Tensor"),
                 _path=path,
             )
 
         return self.make_wrapper(
-            _original_type=data.__class__,
+            _original_type=data.__class__.__name__,
             _value=NodeShape(_shape=None, _data_type=data.__class__.__name__),
             _path=path,
         )
@@ -307,7 +307,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                     target = data.get_submodule(f"{module_prefix}{node.target}")
                     sub_nodes = node_meta[f"{meta_prefix}{node.name}"]
                     node_meta[meta_name][node.name] = NodeData(
-                        _original_type=Graph,
+                        _original_type="Graph",
                         _children=sub_nodes,
                         _value=GraphMeta(
                             name=f"{meta_prefix}{node.name}",
@@ -333,7 +333,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 else:
                     namespace = cur_module.graph._graph_namespace
                     node_meta[meta_name][self._name_for(node, namespace)] = NodeData(
-                        _original_type=Node,
+                        _original_type="Node",
                         _value=NodeMeta(
                             name=f"{meta_prefix}{self._name_for(node, namespace)}",
                             local_name=self._name_for(node, namespace),
@@ -346,7 +346,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                     )
 
         return NodeData(
-            _original_type=Graph,
+            _original_type="Graph",
             _children=node_meta[""],
             _path="",
             _value=GraphMeta(
@@ -393,18 +393,18 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[int]):
                 self.id_map[id(data)] = self.cur_index
                 self.cur_index += 1
             return self.make_wrapper(
-                _value=self.id_map[id(data)], _original_type=data.__class__, _path=path
+                _value=self.id_map[id(data)], _original_type=data.__class__.__name__, _path=path
             )
         return NodeData._UNHANDLED_VALUE
 
     def handle_leaf(self, data: Any, path: str) -> NodeData[int]:
         if not isinstance(data, Tensor):
-            return self.make_wrapper(_original_type=data.__class__, _value=-1, _path=path)
+            return self.make_wrapper(_original_type=data.__class__.__name__, _value=-1, _path=path)
         if id(data) not in self.id_map:
             self.id_map[id(data)] = self.cur_index
             self.cur_index += 1
         return self.make_wrapper(
-            _original_type=data.__class__, _value=self.id_map[id(data)], _path=path
+            _original_type=data.__class__.__name__, _value=self.id_map[id(data)], _path=path
         )
 
 

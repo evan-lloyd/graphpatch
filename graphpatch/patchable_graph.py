@@ -30,7 +30,6 @@ from .extraction import (
     detach_accelerate_hooks,
     extract,
 )
-from .extraction.opaque_graph_module import ChildModuleWrapper, OpaqueModuleWrapper
 from .meta import (
     GraphMeta,
     NodeData,
@@ -203,8 +202,6 @@ class PatchableGraph(Module):
         deserialized_instance._original_graph = deepcopy(_original_graph)
         deserialized_instance._meta = _original_graph
 
-        # NB: state_dict uses the pytorch module hierarchy, which differs from our meta hierarchy,
-        # since nodes do not always have the same name as their module.
         state_by_submodule: Dict[str, Dict[str, Any]] = defaultdict(dict)
         # For cloned graphs (and probably tied weights?) we will have multiple instances of the same
         # object in our state dict. Make sure we maintain that relationship by only constructing
@@ -269,8 +266,6 @@ class PatchableGraph(Module):
             for prefix, modules in local_graph_modules_by_prefix.items():
                 local_submodules[prefix] = ModuleList(module for _, module in sorted(modules))
 
-            # Choose graph module subclass constructor based on the saved class name.
-            # TODO: we can't actually construct an OpaqueGraphModule like this!
             graph_module_subclass = {
                 subclass.__name__: subclass for subclass in (CompiledGraphModule, OpaqueGraphModule)
             }.get(meta.graph_module_class_name, GraphModule)
@@ -281,7 +276,7 @@ class PatchableGraph(Module):
                     "_graphpatch_output_indexes": _graphpatch_output_indexes[name],
                 },
                 meta.graph,
-                graph_module_subclass.__name__,
+                meta.graph_module_class_name,
             )
             # GraphModule constructor fails to use our ModuleList in case of cloned graphs (probably
             # an annoying order-of-operations thing, since it copies over attributes ordered by
@@ -318,17 +313,22 @@ class PatchableGraph(Module):
 
         # Handle edge case with non-state attributes, like variance_epsilon in LlamaRMSNorm. We can
         # find the ones that matter by searching all our subgraphs for references.
-        for node in self._original_graph.values():
-            if isinstance(node, NodeMeta) and node.node.op == "get_attr":
-                target = cast(str, node.node.target)
-                parent = cast(GraphMeta, self._original_graph[node.parent])
-                parent_graph = parent.graph_module_name
-                key = f"_graph_module.{parent_graph + ('.' if parent_graph else '')}{target}"
-                if key in state_dict:
-                    continue
-                parent = cast(GraphMeta, self._original_graph[node.parent])
-                graph_module = self._graph_module.get_submodule(parent.graph_module_name)
-                state_dict[key] = getattr(graph_module, target)
+        # for node in self._original_graph.values():
+        #     if (
+        #         isinstance(node, NodeMeta)
+        #         and node.node.op == "get_attr"
+        #         # Don't want to pickle OpaqueGraphModule itself.
+        #         and node.node.target != "_graphpatch_self"
+        #     ):
+        #         target = cast(str, node.node.target)
+        #         parent = cast(GraphMeta, self._original_graph[node.parent])
+        #         parent_graph = parent.graph_module_name
+        #         key = f"_graph_module.{parent_graph + ('.' if parent_graph else '')}{target}"
+        #         if key in state_dict:
+        #             continue
+        #         parent = cast(GraphMeta, self._original_graph[node.parent])
+        #         graph_module = self._graph_module.get_submodule(parent.graph_module_name)
+        #         state_dict[key] = getattr(graph_module, target)
 
         return (
             self._unpickle,
@@ -665,7 +665,8 @@ class PatchableGraph(Module):
                     new_kwargs["_graphpatch_args"] = context_nodes[meta.parent]
                     meta.node.kwargs = new_kwargs
             # Need to pass patching arguments down to opaque modules at their real call sites.
-            elif isinstance(meta.node.target, OpaqueModuleWrapper):
+            # TODO: should probably be an attribute on meta?
+            elif meta.node.target == "_opaque_module_call":
                 self._add_patch_args(meta, context_nodes[meta.parent])
             return meta
 

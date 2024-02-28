@@ -74,9 +74,7 @@ def test_minimal_module_serialization(patchable_minimal_module, minimal_module_i
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
 
 
-def test_uncompilable_module_serialization(minimal_module, minimal_module_inputs):
-    # Need to handle this for GPT2 until we can get LayerNorm to compile; likely other builtins
-    # have similar issues.
+def test_opaque_module_serialization(minimal_module, minimal_module_inputs):
     patchable_minimal_module = PatchableGraph(
         minimal_module,
         ExtractionOptions(classes_to_skip_compiling={torch.nn.Linear}),

@@ -33,6 +33,10 @@ CONTAINER_TYPES = (Sequential, ModuleList, ModuleDict)
 
 
 class CompiledGraphModule(GraphModule):
+    def __reduce__(self, *args, **kwargs):
+        print("they're reducing her! and then they're going to reduce me!")
+        return super().__reduce__(*args, **kwargs)
+
     pass
 
 
