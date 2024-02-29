@@ -1,5 +1,7 @@
 from itertools import chain, combinations
 
+from torch.nn import Linear
+
 from graphpatch.extraction import (
     CompiledGraphModule,
     ExtractionOptions,
@@ -9,7 +11,7 @@ from graphpatch.extraction.graph_extraction import extract
 from tests.fixtures.nested_module import A, B, C, NestedModule
 
 from .util import (
-    assert_outputs_identical,
+    assert_results_identical,
     requires_accelerate,
     requires_bitsandbytes,
     requires_gpu,
@@ -23,13 +25,13 @@ def test_extract_minimal_module(minimal_module, minimal_module_inputs):
     graph_module, meta = extract(minimal_module, ExtractionOptions(), minimal_module_inputs)
 
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(minimal_module, graph_module, minimal_module_inputs)
+    assert_results_identical(minimal_module, graph_module, minimal_module_inputs)
 
 
 def test_extract_nested_module(nested_module, nested_module_inputs):
     graph_module, meta = extract(nested_module, ExtractionOptions(), nested_module_inputs)
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(nested_module, graph_module, nested_module_inputs)
+    assert_results_identical(nested_module, graph_module, nested_module_inputs)
 
 
 def test_extract_tuple_output_module(tuple_output_module, tuple_output_module_inputs):
@@ -37,7 +39,7 @@ def test_extract_tuple_output_module(tuple_output_module, tuple_output_module_in
         tuple_output_module, ExtractionOptions(), tuple_output_module_inputs
     )
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(tuple_output_module, graph_module, tuple_output_module_inputs)
+    assert_results_identical(tuple_output_module, graph_module, tuple_output_module_inputs)
 
 
 def test_extract_deeply_nested_module(
@@ -47,7 +49,7 @@ def test_extract_deeply_nested_module(
         deeply_nested_output_module, ExtractionOptions(), deeply_nested_output_module_inputs
     )
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(
+    assert_results_identical(
         deeply_nested_output_module, graph_module, deeply_nested_output_module_inputs
     )
 
@@ -55,7 +57,7 @@ def test_extract_deeply_nested_module(
 def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
     # Try every possible combination of opaque/compiled modules--we must always get an equivalent
     # module!
-    module_types = (NestedModule, A, B, C)
+    module_types = (NestedModule, A, B, C, Linear)
     for uncompiled_subset in chain.from_iterable(
         combinations(module_types, subset_len) for subset_len in range(len(module_types) + 1)
     ):
@@ -65,14 +67,14 @@ def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
             nested_module_inputs,
         )
         validate_node_meta(meta, graph_module)
-        assert_outputs_identical(nested_module, graph_module, nested_module_inputs)
+        assert_results_identical(nested_module, graph_module, nested_module_inputs)
 
 
 def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
     # With default settings, we should silently get an opaque graph module back.
     graph_module, meta = extract(graph_break_module, ExtractionOptions(), graph_break_module_inputs)
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(graph_break_module, graph_module, graph_break_module_inputs)
+    assert_results_identical(graph_break_module, graph_module, graph_break_module_inputs)
     assert isinstance(graph_module, OpaqueGraphModule)
     # Child module should have been compiled despite failure at root.
     assert isinstance(graph_module.linear, CompiledGraphModule)
@@ -82,7 +84,7 @@ def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
 def test_extract_pretrained_module(pretrained_module, pretrained_module_inputs):
     graph_module, meta = extract(pretrained_module, ExtractionOptions(), pretrained_module_inputs)
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(pretrained_module, graph_module, pretrained_module_inputs)
+    assert_results_identical(pretrained_module, graph_module, pretrained_module_inputs)
 
 
 @requires_multi_gpu
@@ -95,7 +97,7 @@ def test_extract_multiple_device_module(
         accelerate_pretrained_module, ExtractionOptions(), accelerate_pretrained_module_inputs
     )
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(
+    assert_results_identical(
         accelerate_pretrained_module, graph_module, accelerate_pretrained_module_inputs
     )
 
@@ -111,7 +113,7 @@ def test_extract_quantized_pretrained_module(
         quantized_pretrained_module, ExtractionOptions(), quantized_pretrained_module_inputs
     )
     validate_node_meta(meta, graph_module)
-    assert_outputs_identical(
+    assert_results_identical(
         quantized_pretrained_module,
         graph_module,
         quantized_pretrained_module_inputs,

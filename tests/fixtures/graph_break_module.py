@@ -14,6 +14,9 @@ class GraphBreakModule(Module):
         super().__init__()
         self.linear = Linear(*GraphBreakModule._shape)
 
+    def member_function(self, n):
+        return ones(self._shape) - n
+
     def forward(self, x, foo=3):
         x = self.linear(x)
         y = self.linear(x)
@@ -25,7 +28,7 @@ class GraphBreakModule(Module):
 
         graph_break()
 
-        return y + 5
+        return y + 5 * self.member_function(foo)
 
 
 @pytest.fixture

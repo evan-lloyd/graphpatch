@@ -1,4 +1,5 @@
 import os
+import re
 
 import pytest
 import torch
@@ -103,6 +104,61 @@ def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, i
             )
 
     return output_1, output_2
+
+
+def _unroll_container_names(name):
+    # TODO: unroll ModuleDict
+    return re.sub(r"\.(\d+)", lambda match: f"_{match.group(1)}", name)
+
+
+def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=None):
+    for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
+        assert cur_1.requires_grad == cur_2.requires_grad, f"requires_grad mismatch at {prefix_1}"
+        if not cur_1.requires_grad:
+            continue
+        module_1.zero_grad()
+        module_2.zero_grad()
+        loss_1 = cur_1.sum()
+        loss_2 = cur_2.sum()
+        loss_1.backward(retain_graph=True)
+        loss_2.backward(retain_graph=True)
+
+        params_1 = {_unroll_container_names(k): v for k, v in module_1.named_parameters()}
+        params_2 = {_unroll_container_names(k): v for k, v in module_2.named_parameters()}
+        for name in params_1.keys():
+            # Can happen if module makes multiple calls so that our compiled version clones it. In
+            # that case we can just check the first instance.
+            if name not in params_2:
+                [*path, param_name] = name.split(".")
+                param_2_name = f"{'.'.join(path)}_0.{param_name}"
+            else:
+                param_2_name = name
+            assert (
+                params_1[name].requires_grad == params_2[param_2_name].requires_grad
+            ), f"requires_grad mismatch for {name} at {prefix_1}"
+            if not params_1[name].requires_grad:
+                continue
+            assert (params_1[name].grad is None) == (
+                params_2[param_2_name].grad is None
+            ), f"Gradient exists/doesn't exist for {name} at {prefix_1}"
+            if params_1[name].grad is None:
+                continue
+            if tolerance is not None:
+                assert params_1[name].grad.allclose(params_2[param_2_name].grad, rtol=tolerance), (
+                    f"Gradient difference greater than tolerance at {prefix_1};"
+                    f" norm: {torch.linalg.norm(cur_1 - cur_2)}"
+                )
+            else:
+                assert params_1[name].grad.equal(
+                    params_2[param_2_name].grad
+                ), f"Gradient mismatch for {name} at {prefix_1}"
+
+
+def assert_results_identical(module_1, module_2, *test_inputs, tolerance=None, input_kwargs=None):
+    output_1, output_2 = assert_outputs_identical(
+        module_1, module_2, *test_inputs, tolerance=tolerance, input_kwargs=input_kwargs
+    )
+    assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=tolerance)
 
 
 def validate_node_meta(meta, graph_module):

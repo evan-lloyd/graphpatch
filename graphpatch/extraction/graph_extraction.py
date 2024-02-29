@@ -394,7 +394,11 @@ def convert_to_graph_module(
         if skip_compilation:
             # Fall back to running the original module
             arg_tracker.output = module(*arg_tracker.args, **arg_tracker.kwargs)
-            graph_module = OpaqueGraphModule(module)
+
+    # Need to construct OpaqueGraphModule outside of torch.inference_mode(), otherwise is_inference
+    # will be pinned to True for all parameters which breaks autograd.
+    if skip_compilation:
+        graph_module = OpaqueGraphModule(module)
 
     return graph_module
 

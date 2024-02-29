@@ -8,9 +8,8 @@ from graphpatch.extraction import ExtractionOptions
 from graphpatch.optional.accelerate import ModelHook, add_hook_to_module
 
 from .util import (
-    assert_on_nested_tensors,
-    assert_outputs_identical,
     assert_patchable_graphs_identical,
+    assert_results_identical,
     requires_accelerate,
     requires_bitsandbytes,
     requires_gpu,
@@ -31,36 +30,8 @@ def _serialization_asserts(original_module, deserialized_module, test_inputs):
     # Object should match
     assert_patchable_graphs_identical(original_module, deserialized_module)
 
-    # ...forward() should work, and give the same result
-    output_1, output_2 = assert_outputs_identical(original_module, deserialized_module, test_inputs)
-
-    # ...backward() should work, and give the same result
-    for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
-        assert cur_1.requires_grad == cur_2.requires_grad, f"requires_grad mismatch at {prefix_1}"
-        if not cur_1.requires_grad:
-            continue
-        original_module.zero_grad()
-        deserialized_module.zero_grad()
-        loss_1 = cur_1.sum()
-        loss_2 = cur_2.sum()
-        loss_1.backward(retain_graph=True)
-        loss_2.backward(retain_graph=True)
-        params_1 = dict(original_module.named_parameters())
-        params_2 = dict(deserialized_module.named_parameters())
-        for name in params_1.keys():
-            assert (
-                params_1[name].requires_grad == params_2[name].requires_grad
-            ), f"requires_grad mismatch for {name} at {prefix_1}"
-            if not params_1[name].requires_grad:
-                continue
-            assert (params_1[name].grad is None) == (
-                params_2[name].grad is None
-            ), f"Gradient exists/doesn't exist for {name} at {prefix_1}"
-            if params_1[name].grad is None:
-                continue
-            assert params_1[name].grad.equal(
-                params_2[name].grad
-            ), f"Gradient mismatch for {name} at {prefix_1}"
+    # ...forward() and backward() should work, and give the same result
+    assert_results_identical(original_module, deserialized_module, test_inputs)
 
 
 def test_torch_save_raises(patchable_minimal_module):
