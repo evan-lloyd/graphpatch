@@ -21,6 +21,7 @@ from torch.fx.graph import CodeGen, _Namespace
 from torch.fx.graph_module import GraphModule, _forward_from_src
 from torch.fx.node import Node, Node as FXNode
 from torch.nn import Module, ModuleList, Parameter
+from torch.serialization import FILE_LIKE
 from typing_extensions import TypedDict
 
 from .extraction import (
@@ -40,6 +41,7 @@ from .meta import (
     wrap_node_shape,
 )
 from .optional.accelerate import add_hook_to_module
+from .optional.typing_extensions import TypeAlias
 from .patch import Patch
 
 GraphPatchArgs = TypedDict(
@@ -47,6 +49,8 @@ GraphPatchArgs = TypedDict(
     {"_trace_output_shape": bool, "patch": Mapping[str, List[Patch[Tensor]]]},
     total=False,
 )
+
+FileLike: TypeAlias = FILE_LIKE
 
 
 def _make_patch_wrapper(
@@ -171,22 +175,27 @@ class PatchableGraph(Module):
         self._node_path = wrap_node_path(self._meta)
         self._is_saving = False
 
+    @staticmethod
+    def load(file: FileLike) -> "PatchableGraph":
+        """Wrapper around :func:`torch.load()`. All the normal caveats around pickling apply; you
+        should not load() anything you downloaded from the Internet.
+
+        Future versions of graphpatch will likely implement a more secure serialization scheme.
+        """
+        return torch.load(file)
+
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Wrapper around :func:`torch.save()` because some PatchableGraph internals need to be
+        """Wrapper around :func:`torch.save()` because some PatchableGraph internals may need to be
         handled specially before pickling. You will get an exception asking you to use this method
         if you call :func:`torch.save()` directly on a PatchableGraph instance.
-        All the normal caveats around pickling apply; you should not :func:`torch.load()` anything
-        you downloaded from the Internet.
 
-        Future versions of graphpatch will likely remove this method in favor of a more secure
-        serialization scheme.
+        Future versions of graphpatch will likely implement a more secure serialization scheme.
         """
-        with ExitStack() as hook_stack:
-            self._is_saving = True
-            try:
-                torch.save(self, *args, **kwargs)
-            finally:
-                self._is_saving = False
+        self._is_saving = True
+        try:
+            torch.save(self, *args, **kwargs)
+        finally:
+            self._is_saving = False
 
     @classmethod
     def _unpickle(
@@ -284,7 +293,7 @@ class PatchableGraph(Module):
             for prefix in local_graph_modules_by_prefix:
                 setattr(graph_module, prefix, local_submodules[prefix])
 
-            submodules_by_parent[parent_name][target] = graph_module
+            submodules_by_parent[parent_name][str(target)] = graph_module
             if meta.accelerate_hook is not None:
                 add_hook_to_module(graph_module, meta.accelerate_hook)
 
@@ -313,22 +322,22 @@ class PatchableGraph(Module):
 
         # Handle edge case with non-state attributes, like variance_epsilon in LlamaRMSNorm. We can
         # find the ones that matter by searching all our subgraphs for references.
-        # for node in self._original_graph.values():
-        #     if (
-        #         isinstance(node, NodeMeta)
-        #         and node.node.op == "get_attr"
-        #         # Don't want to pickle OpaqueGraphModule itself.
-        #         and node.node.target != "_graphpatch_self"
-        #     ):
-        #         target = cast(str, node.node.target)
-        #         parent = cast(GraphMeta, self._original_graph[node.parent])
-        #         parent_graph = parent.graph_module_name
-        #         key = f"_graph_module.{parent_graph + ('.' if parent_graph else '')}{target}"
-        #         if key in state_dict:
-        #             continue
-        #         parent = cast(GraphMeta, self._original_graph[node.parent])
-        #         graph_module = self._graph_module.get_submodule(parent.graph_module_name)
-        #         state_dict[key] = getattr(graph_module, target)
+        for node in self._original_graph.values():
+            if (
+                isinstance(node, NodeMeta)
+                and node.node.op == "get_attr"
+                # Don't want to pickle OpaqueGraphModule itself.
+                and node.node.target != "_graphpatch_self"
+            ):
+                target = cast(str, node.node.target)
+                parent = cast(GraphMeta, self._original_graph[node.parent])
+                parent_graph = parent.graph_module_name
+                key = f"_graph_module.{parent_graph + ('.' if parent_graph else '')}{target}"
+                if key in state_dict:
+                    continue
+                parent = cast(GraphMeta, self._original_graph[node.parent])
+                graph_module = self._graph_module.get_submodule(parent.graph_module_name)
+                state_dict[key] = getattr(graph_module, target)
 
         return (
             self._unpickle,

@@ -9,10 +9,13 @@ from graphpatch import PatchableGraph
 class GraphBreakModule(Module):
     _shape = (3, 3)
     bar = 5
+    shadowed_class_var = 1
 
     def __init__(self):
         super().__init__()
         self.linear = Linear(*GraphBreakModule._shape)
+        self.instance_value = 7
+        self.shadowed_class_var = 8
 
     def member_function(self, n):
         return ones(self._shape) - n
@@ -24,7 +27,7 @@ class GraphBreakModule(Module):
 
         graph_break()
 
-        y = x + y + z + self.bar
+        y = x + y + z + self.bar + self.instance_value + self.shadowed_class_var
 
         graph_break()
 

@@ -20,7 +20,7 @@ from torch.fx.graph_module import GraphModule
 from torch.fx.node import Node
 from torch.nn import Module
 
-from ..extraction.opaque_graph_module import ChildModuleWrapper
+from ..extraction.opaque_graph_module import SubmoduleWrapper
 from ..optional.accelerate import ModelHook
 from ..optional.dataclasses import dataclass
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
@@ -194,14 +194,12 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
         # node.target is always a string for placeholders.
         name = cast(str, node.target) if node.op == "placeholder" else node.name
 
-        # Disallow special names to protect our REPL functionality. Borrowing the "sub_"
-        # behavior torch already uses for leading underscores on submodules. Use the graph
-        # namespace to avoid edge case of collisions with existing nodes.
+        # Disallow special names to protect our REPL functionality, by adding an extra underscore.
         if name in _GRAPHPATCH_RESERVED_NAMES:
             # The node itself will be cached in the namespace during compilation, which we can bust
             # by registering vs (self, node). This will also cache for multiple calls to _name_for
             # as is desirable.
-            name = namespace.create_name("sub_" + name[1:], (self, node))
+            name = namespace.create_name("_" + name, (self, node))
         return name
 
     def _code_for(
@@ -277,7 +275,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                     module_stack.append(
                         (f"{meta_prefix}{node.name}", f"{module_prefix}{node.target}", target)
                     )
-                elif node.op == "call_function" and isinstance(node.target, ChildModuleWrapper):
+                elif node.op == "call_function" and isinstance(node.target, SubmoduleWrapper):
                     module_stack.append(
                         (
                             f"{meta_prefix}{node.name}",
@@ -302,7 +300,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                     # Real call to submodule
                     node.op == "call_module"
                     # Dummy call from opaque module to submodule, which we should display as a graph
-                    or (node.op == "call_function" and isinstance(node.target, ChildModuleWrapper))
+                    or (node.op == "call_function" and isinstance(node.target, SubmoduleWrapper))
                 ):
                     target = data.get_submodule(f"{module_prefix}{node.target}")
                     sub_nodes = node_meta[f"{meta_prefix}{node.name}"]

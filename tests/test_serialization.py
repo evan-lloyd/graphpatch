@@ -45,7 +45,7 @@ def test_minimal_module_serialization(patchable_minimal_module, minimal_module_i
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
 
 
-def test_opaque_module_serialization(minimal_module, minimal_module_inputs):
+def test_opaque_submodule_serialization(minimal_module, minimal_module_inputs):
     patchable_minimal_module = PatchableGraph(
         minimal_module,
         ExtractionOptions(classes_to_skip_compiling={torch.nn.Linear}),
@@ -53,6 +53,11 @@ def test_opaque_module_serialization(minimal_module, minimal_module_inputs):
     )
     deserialized = _roundtrip(patchable_minimal_module)
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
+
+
+def test_uncompilable_module_serialization(patchable_graph_break_module, graph_break_module_inputs):
+    deserialized = _roundtrip(patchable_graph_break_module)
+    _serialization_asserts(patchable_graph_break_module, deserialized, graph_break_module_inputs)
 
 
 @requires_accelerate
