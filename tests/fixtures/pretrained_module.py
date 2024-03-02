@@ -1,7 +1,7 @@
 import torch
 from pytest import fixture
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 from graphpatch.optional.transformers import AutoModel
 
 from .pretrained.test_model_tokenizer import DummyTokenizer
@@ -23,8 +23,12 @@ def pretrained_module_inputs(pretrained_tokenizer):
 
 
 @fixture
-def patchable_pretrained_module(pretrained_module, pretrained_module_inputs):
-    return PatchableGraph(pretrained_module, pretrained_module_inputs)
+def patchable_pretrained_module(request, pretrained_module, pretrained_module_inputs):
+    return PatchableGraph(
+        pretrained_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        pretrained_module_inputs,
+    )
 
 
 @fixture
@@ -39,9 +43,13 @@ def accelerate_pretrained_module_inputs(pretrained_module_inputs):
 
 @fixture
 def patchable_accelerate_pretrained_module(
-    accelerate_pretrained_module, accelerate_pretrained_module_inputs
+    request, accelerate_pretrained_module, accelerate_pretrained_module_inputs
 ):
-    return PatchableGraph(accelerate_pretrained_module, accelerate_pretrained_module_inputs)
+    return PatchableGraph(
+        accelerate_pretrained_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        accelerate_pretrained_module_inputs,
+    )
 
 
 @fixture
@@ -61,6 +69,10 @@ def quantized_pretrained_module_inputs(pretrained_module_inputs):
 
 @fixture
 def patchable_quantized_pretrained_module(
-    quantized_pretrained_module, quantized_pretrained_module_inputs
+    request, quantized_pretrained_module, quantized_pretrained_module_inputs
 ):
-    return PatchableGraph(quantized_pretrained_module, quantized_pretrained_module_inputs)
+    return PatchableGraph(
+        quantized_pretrained_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        quantized_pretrained_module_inputs,
+    )

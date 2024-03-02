@@ -2,7 +2,7 @@ import pytest
 from torch import ones
 from torch.nn import LayerNorm, Module
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 
 
 class LayerNormModule(Module):
@@ -27,5 +27,9 @@ def layer_norm_module_inputs():
 
 
 @pytest.fixture
-def patchable_layer_norm_module(layer_norm_module, layer_norm_module_inputs):
-    return PatchableGraph(layer_norm_module, layer_norm_module_inputs)
+def patchable_layer_norm_module(request, layer_norm_module, layer_norm_module_inputs):
+    return PatchableGraph(
+        layer_norm_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        layer_norm_module_inputs,
+    )

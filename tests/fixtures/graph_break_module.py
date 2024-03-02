@@ -1,9 +1,9 @@
 import pytest
 from torch import ones
-from torch.nn import Linear, Module
 from torch._dynamo import graph_break
+from torch.nn import Linear, Module
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 
 
 class GraphBreakModule(Module):
@@ -45,5 +45,9 @@ def graph_break_module_inputs():
 
 
 @pytest.fixture
-def patchable_graph_break_module(graph_break_module, graph_break_module_inputs):
-    return PatchableGraph(graph_break_module, graph_break_module_inputs)
+def patchable_graph_break_module(request, graph_break_module, graph_break_module_inputs):
+    return PatchableGraph(
+        graph_break_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        graph_break_module_inputs,
+    )

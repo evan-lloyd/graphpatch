@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 from graphpatch.optional.bitsandbytes import AVAILABLE as BNB_AVAILABLE, Linear8bitLt
 
 if BNB_AVAILABLE:
@@ -27,5 +27,9 @@ if BNB_AVAILABLE:
         return torch.ones(*QuantizedModule._shape, device="cuda", dtype=torch.float16).t()
 
     @pytest.fixture
-    def patchable_quantized_module(quantized_module, quantized_module_inputs):
-        return PatchableGraph(quantized_module, quantized_module_inputs)
+    def patchable_quantized_module(request, quantized_module, quantized_module_inputs):
+        return PatchableGraph(
+            quantized_module,
+            ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+            quantized_module_inputs,
+        )

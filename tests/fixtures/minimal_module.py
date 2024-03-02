@@ -27,12 +27,9 @@ def minimal_module_inputs():
 
 
 @pytest.fixture
-def patchable_minimal_module(minimal_module, minimal_module_inputs):
-    return PatchableGraph(minimal_module, minimal_module_inputs)
-
-
-@pytest.fixture
-def patchable_opaque_minimal_module(minimal_module, minimal_module_inputs):
+def patchable_minimal_module(request, minimal_module, minimal_module_inputs):
     return PatchableGraph(
-        minimal_module, ExtractionOptions(skip_compilation=True), minimal_module_inputs
+        minimal_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        minimal_module_inputs,
     )

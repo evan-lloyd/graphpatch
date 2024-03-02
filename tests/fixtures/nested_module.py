@@ -2,7 +2,7 @@ import pytest
 import torch
 from torch.nn import Linear, Module, ModuleList
 
-from graphpatch.patchable_graph import PatchableGraph
+from graphpatch.patchable_graph import ExtractionOptions, PatchableGraph
 
 
 class C(Module):
@@ -68,5 +68,9 @@ def nested_module_inputs():
 
 
 @pytest.fixture
-def patchable_nested_module(nested_module, nested_module_inputs):
-    return PatchableGraph(nested_module, nested_module_inputs)
+def patchable_nested_module(request, nested_module, nested_module_inputs):
+    return PatchableGraph(
+        nested_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        nested_module_inputs,
+    )

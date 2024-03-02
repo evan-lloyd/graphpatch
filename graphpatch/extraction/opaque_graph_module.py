@@ -1,6 +1,6 @@
 import inspect
 from contextlib import contextmanager
-from copy import copy, deepcopy
+from copy import deepcopy
 from enum import Enum
 from types import MethodType
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 from torch import Tensor
 from torch.fx.graph import Graph
 from torch.fx.graph_module import GraphModule
-from torch.nn import Module, ModuleList, Sequential
+from torch.nn import Module, ModuleList, Parameter, Sequential
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 
 MethodBindingType = Enum("MethodBindingType", ("_none", "_instance", "_class"))
@@ -94,6 +94,9 @@ def _patched_attributes(module: Module, patches):
         original = {}
         for name, value in patches.items():
             original[name] = getattr(module, name)
+            # Module will throw an exception if we try to overwrite a parameter with a Tensor.
+            if isinstance(original[name], Parameter):
+                value = Parameter(value)
             setattr(module, name, value)
         yield
     finally:

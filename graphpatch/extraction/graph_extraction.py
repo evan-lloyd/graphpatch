@@ -33,10 +33,6 @@ CONTAINER_TYPES = (Sequential, ModuleList, ModuleDict)
 
 
 class CompiledGraphModule(GraphModule):
-    def __reduce__(self, *args, **kwargs):
-        print("they're reducing her! and then they're going to reduce me!")
-        return super().__reduce__(*args, **kwargs)
-
     pass
 
 
@@ -222,6 +218,7 @@ def postprocess_graph(
         match_shape_node = graph_module.graph.call_function(
             match_shape, (output_index_node,) + output_node.args[0]
         )
+        print(len(match_shape_node.args))
         match_shape_node.meta["_graphpatch_hidden"] = True
         output_node.args = (match_shape_node,)
 

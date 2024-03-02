@@ -2,7 +2,7 @@ import pytest
 from torch import ones
 from torch.nn import Linear, Module
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 
 
 class ProtectedNameModule(Module):
@@ -28,5 +28,9 @@ def protected_name_module_inputs():
 
 
 @pytest.fixture
-def patchable_protected_name_module(protected_name_module, protected_name_module_inputs):
-    return PatchableGraph(protected_name_module, protected_name_module_inputs)
+def patchable_protected_name_module(request, protected_name_module, protected_name_module_inputs):
+    return PatchableGraph(
+        protected_name_module,
+        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        protected_name_module_inputs,
+    )
