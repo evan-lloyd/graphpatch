@@ -228,15 +228,16 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
             match_shape_node = list(node._input_nodes.keys())[0]
             output_args = match_shape_node.args[1:]
 
-            def pretty_print_output(
-                path: str, index: Any
-            ) -> Union[Literal[NodeData.Sentinels._NO_VALUE], WrappedCode]:
-                if not isinstance(index, int):
-                    return NodeData._NO_VALUE
-                return WrappedCode(cast(Node, output_args[index]).name)
+            def pretty_print_output(path: str, index: OutputArgumentIndex) -> WrappedCode:
+                if index.index is None:
+                    return WrappedCode("")
+                return WrappedCode(cast(Node, output_args[index.index]).name)
 
-            mapped = module._graphpatch_output_indexes.map(pretty_print_output)
-            code = f"return {mapped.unwrap()}"
+            if module._graphpatch_output_indexes._value.should_unwrap:
+                mapped = module._graphpatch_output_indexes.map(pretty_print_output)
+                code = f"return {mapped.unwrap()}"
+            else:
+                code = f"return {match_shape_node.args[0]}"
         else:
             code = str(node.meta.get("stack_trace", "<no source available>"))
 
@@ -371,24 +372,38 @@ def wrap_graph_module(graph_module: GraphModule) -> NodeData[Union[GraphMeta, No
     return GraphMetaWrapper(NodeData[Union[GraphMeta, NodeMeta]]).wrap(graph_module)
 
 
-class OutputArgumentIndexWrapper(NodeDataWrapper[int]):
+@dataclass
+class OutputArgumentIndex:
+    index: Optional[int]
+    should_unwrap: bool
+
+
+class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
     """Maps the true structure of a module's output to each node's depth-first index, matching the
     flattening order of torch.compile(). This lets us recreate the original output shape despite
     torch.compile()'s flattening.
     """
 
-    def __init__(self, child_output_ids: Set[int], *args: Any, **kwargs: Any):
-        super().__init__(NodeData[int], *args, **kwargs)
-        self.cur_index: int = 0
-        self.id_map: Dict[int, int] = {}
-        self.child_output_ids: Set[int] = child_output_ids
+    child_output_ids: Set[int]
+    cur_index: int
+    id_map: Dict[int, int]
+    should_unwrap: bool
+
+    # TODO: why varargs?
+    def __init__(self, child_output_ids: Set[int], should_unwrap: bool, *args: Any, **kwargs: Any):
+        super().__init__(NodeData[OutputArgumentIndex], *args, **kwargs)
+        self.child_output_ids = child_output_ids
+        self.cur_index = 0
+        self.id_map = {}
+        self.should_unwrap = should_unwrap
 
     def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:
         # Short-circuit in case a child module outputs a container; we don't want to dig into the
         # container elements, since the whole container will be passed as one unit.
         if id(data) in self.child_output_ids:
             if id(data) not in self.id_map:
-                self.id_map[id(data)] = self.cur_index
+                # TODO: should_unwrap=False? does this actually work?
+                self.id_map[id(data)] = OutputArgumentIndex(self.cur_index, self.should_unwrap)
                 self.cur_index += 1
             return self.make_wrapper(
                 _value=self.id_map[id(data)], _original_type=data.__class__.__name__, _path=path
@@ -396,15 +411,24 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[int]):
         return NodeData._UNHANDLED_VALUE
 
     def handle_leaf(self, data: Any, path: str) -> NodeData[int]:
+        # TODO: handle other value types; should determine whether the value came from a node in
+        # the graph (add it), or not (don't)
         if not isinstance(data, Tensor):
-            return self.make_wrapper(_original_type=data.__class__.__name__, _value=-1, _path=path)
+            return self.make_wrapper(
+                _original_type=data.__class__.__name__, _value=NodeData._NO_VALUE, _path=path
+            )
         if id(data) not in self.id_map:
-            self.id_map[id(data)] = self.cur_index
+            self.id_map[id(data)] = OutputArgumentIndex(self.cur_index, self.should_unwrap)
             self.cur_index += 1
         return self.make_wrapper(
             _original_type=data.__class__.__name__, _value=self.id_map[id(data)], _path=path
         )
 
 
-def wrap_output_argument_index(data: Any, child_output_ids: Set[int]) -> NodeData[int]:
-    return OutputArgumentIndexWrapper(child_output_ids).wrap(data)
+def wrap_output_argument_index(
+    data: Any, child_output_ids: Set[int], should_unwrap: bool
+) -> NodeData[int]:
+    wrapper = OutputArgumentIndexWrapper(child_output_ids, should_unwrap).wrap(data)
+    if wrapper._value is NodeData._NO_VALUE:
+        wrapper._value = OutputArgumentIndex(None, should_unwrap)
+    return wrapper

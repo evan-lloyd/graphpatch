@@ -186,11 +186,10 @@ def test_patch_output_tuple(pg, tuple_output_module_inputs):
 
 @_opaque_and_compiled("patchable_tuple_output_module")
 def test_patch_with_node_paths(pg, tuple_output_module_inputs):
-    node_path = pg.graph
     with pg.patch(
         {
             "output|sub_0": [AddPatch(value=torch.ones((1,)))],
-            node_path.output.sub_1: [ZeroPatch()],
+            pg.graph.output.sub_1: [ZeroPatch()],
         }
     ):
         patched_output = pg(tuple_output_module_inputs)

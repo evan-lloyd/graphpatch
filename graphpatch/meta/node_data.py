@@ -247,7 +247,7 @@ class NodeData(Generic[NodeDataType]):
 
     def map(
         self,
-        fn: Callable[[str, MaybeNodeDataType[NodeDataType]], MaybeNodeDataType[OtherNodeDataType]],
+        fn: Callable[[str, "NodeData[NodeDataType]"], "NodeData[OtherNodeDataType]"],
         node_constructor: Optional[Callable[..., "NodeData[OtherNodeDataType]"]] = None,
         root_prefix: str = "",
     ) -> "NodeData[OtherNodeDataType]":
@@ -275,7 +275,10 @@ class NodeData(Generic[NodeDataType]):
             )
         # Process bottom-up, so children will be constructed by the time we reach their parents.
         for path, node in reversed(node_stack):
-            value = fn(path, node._value)
+            if node._value is not NodeData._NO_VALUE:
+                value = fn(path, node._value)
+            else:
+                value = NodeData._NO_VALUE
             children: Union[
                 Dict[str, MaybeNodeData[OtherNodeDataType]], Literal[NodeData.Sentinels._NO_VALUE]
             ] = NodeData._NO_VALUE

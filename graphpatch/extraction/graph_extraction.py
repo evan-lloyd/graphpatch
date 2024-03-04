@@ -19,6 +19,7 @@ from ..meta import (
     GraphMeta,
     NodeData,
     NodeMeta,
+    OutputArgumentIndex,
     wrap_graph_module,
     wrap_output_argument_index,
 )
@@ -36,10 +37,13 @@ class CompiledGraphModule(GraphModule):
     pass
 
 
-def match_shape(indexes: NodeData[int], *args: Any) -> Any:
+def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
+    if not indexes._value.should_unwrap:
+        return args[0]
+
     """Unflatten the args to an output node to match the original output shape."""
     return indexes.map(
-        lambda _, index: args[index] if isinstance(index, int) else NodeData._NO_VALUE
+        lambda _, index: args[index.index] if isinstance(index.index, int) else NodeData._NO_VALUE
     ).unwrap()
 
 
@@ -123,11 +127,6 @@ class CompilationState:
     container_index: Union[str, int, None] = None
 
 
-@dataclass
-class GraphModuleWrapper:
-    graph_module: Optional[GraphModule] = None
-
-
 @contextmanager
 def tracer_hook(
     module: Module, arg_tracker: ArgTracker, accelerate_hook: Optional[ModelHook]
@@ -205,6 +204,9 @@ def postprocess_graph(
         wrap_output_argument_index(
             compilation_state.self_args.output,
             set(id(v.self_args.output) for v in compilation_state.child_state.values()),
+            # Do not unwrap values at runtime if this is an opaque module, since we'll only have
+            # one input node.
+            should_unwrap=not isinstance(graph_module, OpaqueGraphModule),
         ),
     )
 
@@ -218,7 +220,6 @@ def postprocess_graph(
         match_shape_node = graph_module.graph.call_function(
             match_shape, (output_index_node,) + output_node.args[0]
         )
-        print(len(match_shape_node.args))
         match_shape_node.meta["_graphpatch_hidden"] = True
         output_node.args = (match_shape_node,)
 
