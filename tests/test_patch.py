@@ -244,7 +244,7 @@ def test_patch_with_node_path_exceptions(pg, tuple_output_module_inputs, mocker)
 def test_patch_deeply_nested_output_model(pg, deeply_nested_output_module_inputs):
     with pg.patch(
         {
-            (pg.graph.child_a.grandchildren_b_1.output).sub_0.sub_0.sub_0.sub_0.sub_0: [
+            pg.graph.child_a.grandchildren_b_1.output.sub_0.sub_0.sub_0.sub_0.sub_0: [
                 pre_activation := ProbePatch(),
                 ZeroPatch(),
                 post_activation := ProbePatch(),

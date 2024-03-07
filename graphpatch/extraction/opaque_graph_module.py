@@ -3,13 +3,26 @@ from contextlib import contextmanager
 from copy import deepcopy
 from enum import Enum
 from types import MethodType
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 from torch import Tensor
 from torch.fx.graph import Graph
 from torch.fx.graph_module import GraphModule
-from torch.nn import Module, ModuleList, Parameter, Sequential
+from torch.nn import Module, ModuleDict, ModuleList, Parameter, Sequential
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
+
+if TYPE_CHECKING:
+    from ..meta import OutputArgumentIndex
 
 MethodBindingType = Enum("MethodBindingType", ("_none", "_instance", "_class"))
 
@@ -24,7 +37,7 @@ _UNPATCHABLE_MODULE_ATTRIBUTES = frozenset(
         *(k for k in Module.__dict__),
         *(k for k in Module.__annotations__),
         "___needs_generation_tag_patch",
-        # Python internals not covered by the above
+        # Python internals not covered by the above.
         "__class__",
     }
 )
@@ -129,7 +142,7 @@ def _patched_methods(module: Module, patches):
     finally:
         for name in patches.keys():
             original_method = original.get(name, None)
-            # Hit an exception before we could record this one
+            # Hit an exception before we could record this one.
             if original_method is None:
                 continue
             if original_method is nonexistent and hasattr(module, name):
@@ -138,17 +151,31 @@ def _patched_methods(module: Module, patches):
                 object.__setattr__(module, name, original_method)
 
 
+class InvocationTrackingModuleList(ModuleList):
+    _graphpatch_invocation_index: int
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._graphpatch_invocation_index = 0
+
+    def forward(self, *args, **kwargs) -> Any:
+        # TODO: surely any sane module will never vary how many times it calls its submodules
+        # and the modulo doesn't matter? But we may want to make this configurable between
+        # round-robin or throwing an exception, possibly a global "strict" mode?
+        index = self._graphpatch_invocation_index % len(self._modules)
+        self._graphpatch_invocation_index = index + 1
+        return self[index](*args, **kwargs)
+
+
 class SubmoduleWrapper:
     """Dummy function to call to place submodules of opaque modules within the graph; the actual
     calls will happen within the opaque module.
     """
 
     module_name: str
-    node_name: str
 
     def __init__(self, module_name: str):
         self.module_name = module_name
-        self.node_name = module_name
         self.__name__ = module_name
         self.__module__ = "opaque_module_submodule"
 
@@ -161,8 +188,10 @@ class SubmoduleWrapper:
 
 _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS = (
     "_graphpatch_attribute_names",
+    "_graphpatch_num_invocations",
     "_graphpatch_opaque_module_class",
     "_graphpatch_opaque_module_methods",
+    "_graphpatch_output_indexes",
     # Not using _graphpatch_self, since we'll create a fresh instance when we deserialize.
 )
 
@@ -171,11 +200,12 @@ class OpaqueGraphModule(GraphModule):
     """OpaqueGraphModule constructs a GraphModule from a :class:`torch.nn.Module` without using
     :func:`torch.compile`. This results in a graph that can only be patched at submodule inputs,
     outputs, buffers, parameters, and attributes. An OpaqueGraphModule may have CompiledGraphModules
-    as submodules, which can be patched normally, but note that if this module makes multiple calls
-    to these children, patches will be applied to each such invocation.
+    as submodules, which can be patched normally.
     """
 
+    _graphpatch_output_indexes: "OutputArgumentIndex"
     _graphpatch_attribute_names: Tuple[str]
+    _graphpatch_num_invocations: int
     _graphpatch_opaque_module_class: Type[Module]
     _graphpatch_opaque_module_methods: Dict[str, Callable]
     _graphpatch_self: "OpaqueGraphModule"
@@ -262,28 +292,39 @@ class OpaqueGraphModule(GraphModule):
         # simpler canonical names for them. Note that we do not actually call these modules here
         # when executing the graph; they are implicitly called at the call_forward node by the
         # original module.
-        child_modules = list(module.named_children())
-        while child_modules:
-            name, submodule = child_modules.pop()
-            # TODO: handle ModuleDict
-            if isinstance(submodule, (ModuleList, Sequential)):
-                child_modules.extend(
-                    [(f"{name}.{i}", m) for i, m in enumerate(submodule.named_children())]
-                )
-            else:
-                call_child = graph.call_function(child_wrapper := SubmoduleWrapper(name), (), {})
-                # In some edge cases (eg, shadowing a previous operation), the name may get
-                # transformed
-                child_wrapper.node_name = call_child.name
+        for name, _ in self._children_with_container_passthrough(module.named_children()):
+            graph.call_function(SubmoduleWrapper(name))
 
         graph.output((call_forward,))
         return graph
+
+    @staticmethod
+    def _children_with_container_passthrough(
+        children: Iterator[Tuple[str, Module]]
+    ) -> Iterator[Tuple[str, Module]]:
+        child_modules = list(children)
+        while child_modules:
+            name, submodule = child_modules.pop()
+            if isinstance(submodule, (ModuleList, Sequential, ModuleDict)):
+                child_modules.extend(
+                    reversed([(f"{name}.{n}", m) for n, m in submodule.named_children()])
+                )
+            else:
+                yield name, submodule
+
+    def named_children(self) -> Iterator[Tuple[str, Module]]:
+        # We want OpaqueGraphModule to behave as if its containers don't exist, instead directly
+        # owning the contained submodules. This lets us keep the hierarchy that the original module
+        # code was expecting, while looking to the rest of our own code as if we had unrolled the
+        # containers as we do with CompiledGraphModule.
+        return self._children_with_container_passthrough(super().named_children())
 
     def __init__(
         self,
         root: Union[Module, Dict[str, Any]],
         graph: Optional[Graph] = None,
         class_name: str = "OpaqueGraphModule",
+        num_invocations: int = 1,
     ):
         # Deserializing from pickle.
         if isinstance(root, dict):
@@ -310,6 +351,7 @@ class OpaqueGraphModule(GraphModule):
             self._graphpatch_opaque_module_class = root.__class__
             self.graph = self._construct_graph(root)
             self._graphpatch_opaque_module_methods = {}
+            self._graphpatch_num_invocations = num_invocations
             for name, method in _module_methods(root):
                 self._graphpatch_opaque_module_methods[name] = MethodWrapper(method)
 

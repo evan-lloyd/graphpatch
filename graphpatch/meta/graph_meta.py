@@ -6,7 +6,6 @@ from typing import (
     DefaultDict,
     Dict,
     List,
-    Literal,
     Optional,
     Set,
     Tuple,
@@ -20,7 +19,7 @@ from torch.fx.graph_module import GraphModule
 from torch.fx.node import Node
 from torch.nn import Module
 
-from ..extraction.opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
+from ..extraction.opaque_graph_module import SubmoduleWrapper
 from ..optional.accelerate import ModelHook
 from ..optional.dataclasses import dataclass
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
@@ -389,9 +388,8 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
     id_map: Dict[int, int]
     should_unwrap: bool
 
-    # TODO: why varargs?
-    def __init__(self, child_output_ids: Set[int], should_unwrap: bool, *args: Any, **kwargs: Any):
-        super().__init__(NodeData[OutputArgumentIndex], *args, **kwargs)
+    def __init__(self, child_output_ids: Set[int], should_unwrap: bool):
+        super().__init__(NodeData[OutputArgumentIndex])
         self.child_output_ids = child_output_ids
         self.cur_index = 0
         self.id_map = {}
