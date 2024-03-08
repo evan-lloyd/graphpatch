@@ -17,9 +17,10 @@ from typing import (
 
 from torch import Tensor
 from torch.fx.graph import Graph
-from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList, Parameter, Sequential
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
+
+from .graphpatch_module import GraphPatchModule
 
 if TYPE_CHECKING:
     from ..meta import OutputArgumentIndex
@@ -196,7 +197,7 @@ _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS = (
 )
 
 
-class OpaqueGraphModule(GraphModule):
+class OpaqueGraphModule(GraphPatchModule):
     """OpaqueGraphModule constructs a GraphModule from a :class:`torch.nn.Module` without using
     :func:`torch.compile`. This results in a graph that can only be patched at submodule inputs,
     outputs, buffers, parameters, and attributes. An OpaqueGraphModule may have CompiledGraphModules
@@ -237,6 +238,8 @@ class OpaqueGraphModule(GraphModule):
                 return fn
 
         num_attributes = len(self._graphpatch_attribute_names)
+
+        # TODO: "self" shouldn't be the proxy. maybe a dummy module? or regular object?
 
         # Set "self" up as a proxy for the original module. We copy over all methods from the
         # original instance (needed if, for example, the original forward calls other methods),
