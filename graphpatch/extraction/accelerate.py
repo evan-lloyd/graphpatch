@@ -12,13 +12,16 @@ def detach_accelerate_hooks(module: Module) -> Iterator[Optional[ModelHook]]:
     torch.compile(). Return the hook object so we can apply it to the compiled graph.
     """
 
-    hook = getattr(module, "_hf_hook", None)
-    if hook is not None:
-        remove_hook_from_module(module)
-        # Instance-level forward function doesn't play nice with torch.compile
-        del module.forward
+    hooks = {}
+    for name, submodule in module.named_modules():
+        hooks[name] = getattr(submodule, "_hf_hook", None)
+        if hooks[name] is not None:
+            remove_hook_from_module(module)
+            # Instance-level forward function doesn't play nice with torch.compile
+            del module.forward
     try:
-        yield hook
+        yield hooks[""]
     finally:
-        if hook is not None:
-            add_hook_to_module(module, hook)
+        for name, submodule in module.named_modules():
+            if hooks[name] is not None:
+                add_hook_to_module(submodule, hooks[name])

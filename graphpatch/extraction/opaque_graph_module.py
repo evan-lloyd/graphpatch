@@ -189,7 +189,6 @@ class SubmoduleWrapper:
 
 _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS = (
     "_graphpatch_attribute_names",
-    "_graphpatch_num_invocations",
     "_graphpatch_opaque_module_class",
     "_graphpatch_opaque_module_methods",
     "_graphpatch_output_indexes",
@@ -206,7 +205,6 @@ class OpaqueGraphModule(GraphPatchModule):
 
     _graphpatch_output_indexes: "OutputArgumentIndex"
     _graphpatch_attribute_names: Tuple[str]
-    _graphpatch_num_invocations: int
     _graphpatch_opaque_module_class: Type[Module]
     _graphpatch_opaque_module_methods: Dict[str, Callable]
     _graphpatch_self: "OpaqueGraphModule"
@@ -327,7 +325,6 @@ class OpaqueGraphModule(GraphPatchModule):
         root: Union[Module, Dict[str, Any]],
         graph: Optional[Graph] = None,
         class_name: str = "OpaqueGraphModule",
-        num_invocations: int = 1,
     ):
         # Deserializing from pickle.
         if isinstance(root, dict):
@@ -354,7 +351,6 @@ class OpaqueGraphModule(GraphPatchModule):
             self._graphpatch_opaque_module_class = root.__class__
             self.graph = self._construct_graph(root)
             self._graphpatch_opaque_module_methods = {}
-            self._graphpatch_num_invocations = num_invocations
             for name, method in _module_methods(root):
                 self._graphpatch_opaque_module_methods[name] = MethodWrapper(method)
 

@@ -22,21 +22,27 @@ from .util import (
 
 
 def test_extract_minimal_module(minimal_module, minimal_module_inputs):
-    graph_module, meta = extract(minimal_module, ExtractionOptions(), minimal_module_inputs)
+    graph_module, meta = extract(
+        minimal_module, ExtractionOptions(error_on_compilation_failure=True), minimal_module_inputs
+    )
 
     validate_node_meta(meta, graph_module)
     assert_results_identical(minimal_module, graph_module, minimal_module_inputs)
 
 
 def test_extract_nested_module(nested_module, nested_module_inputs):
-    graph_module, meta = extract(nested_module, ExtractionOptions(), nested_module_inputs)
+    graph_module, meta = extract(
+        nested_module, ExtractionOptions(error_on_compilation_failure=True), nested_module_inputs
+    )
     validate_node_meta(meta, graph_module)
     assert_results_identical(nested_module, graph_module, nested_module_inputs)
 
 
 def test_extract_tuple_output_module(tuple_output_module, tuple_output_module_inputs):
     graph_module, meta = extract(
-        tuple_output_module, ExtractionOptions(), tuple_output_module_inputs
+        tuple_output_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        tuple_output_module_inputs,
     )
     validate_node_meta(meta, graph_module)
     assert_results_identical(tuple_output_module, graph_module, tuple_output_module_inputs)
@@ -46,7 +52,9 @@ def test_extract_deeply_nested_module(
     deeply_nested_output_module, deeply_nested_output_module_inputs
 ):
     graph_module, meta = extract(
-        deeply_nested_output_module, ExtractionOptions(), deeply_nested_output_module_inputs
+        deeply_nested_output_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        deeply_nested_output_module_inputs,
     )
     validate_node_meta(meta, graph_module)
     assert_results_identical(
@@ -63,7 +71,9 @@ def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
     ):
         graph_module, meta = extract(
             nested_module,
-            ExtractionOptions(classes_to_skip_compiling=uncompiled_subset),
+            ExtractionOptions(
+                classes_to_skip_compiling=uncompiled_subset, error_on_compilation_failure=True
+            ),
             nested_module_inputs,
         )
         validate_node_meta(meta, graph_module)
@@ -72,7 +82,11 @@ def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
 
 def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
     # With default settings, we should silently get an opaque graph module back.
-    graph_module, meta = extract(graph_break_module, ExtractionOptions(), graph_break_module_inputs)
+    graph_module, meta = extract(
+        graph_break_module,
+        ExtractionOptions(),
+        graph_break_module_inputs,
+    )
     validate_node_meta(meta, graph_module)
     assert_results_identical(graph_break_module, graph_module, graph_break_module_inputs)
     assert isinstance(graph_module, OpaqueGraphModule)
@@ -82,7 +96,11 @@ def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
 
 @requires_transformers
 def test_extract_pretrained_module(pretrained_module, pretrained_module_inputs):
-    graph_module, meta = extract(pretrained_module, ExtractionOptions(), pretrained_module_inputs)
+    graph_module, meta = extract(
+        pretrained_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        pretrained_module_inputs,
+    )
     validate_node_meta(meta, graph_module)
     assert_results_identical(pretrained_module, graph_module, pretrained_module_inputs)
 
@@ -94,7 +112,9 @@ def test_extract_multiple_device_module(
     accelerate_pretrained_module, accelerate_pretrained_module_inputs
 ):
     graph_module, meta = extract(
-        accelerate_pretrained_module, ExtractionOptions(), accelerate_pretrained_module_inputs
+        accelerate_pretrained_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        accelerate_pretrained_module_inputs,
     )
     validate_node_meta(meta, graph_module)
     assert_results_identical(
@@ -110,7 +130,9 @@ def test_extract_quantized_pretrained_module(
     quantized_pretrained_module, quantized_pretrained_module_inputs
 ):
     graph_module, meta = extract(
-        quantized_pretrained_module, ExtractionOptions(), quantized_pretrained_module_inputs
+        quantized_pretrained_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        quantized_pretrained_module_inputs,
     )
     validate_node_meta(meta, graph_module)
     assert_results_identical(

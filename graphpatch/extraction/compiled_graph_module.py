@@ -1,7 +1,9 @@
+from typing import Any, Tuple
+
 from torch import compile
 from torch.fx import Graph, GraphModule
+from torch.nn import Module
 
-from .compilation_context import CompilationContext
 from .graphpatch_module import GraphPatchModule
 
 
@@ -9,7 +11,7 @@ class CompiledGraphModule(GraphPatchModule):
     pass
 
 
-def compile_module(context: CompilationContext, *args, **kwargs) -> CompiledGraphModule:
+def compile_module(module: Module, *args, **kwargs) -> Tuple[CompiledGraphModule, Any]:
     graph_module = GraphModule({}, Graph())
 
     def callback(gm: GraphModule, *args, **kwargs) -> GraphModule:
@@ -22,12 +24,9 @@ def compile_module(context: CompilationContext, *args, **kwargs) -> CompiledGrap
         gm.__class__.__name__ = CompiledGraphModule.__name__
         return gm
 
-    with context:
-        # We need to actually run inference to generate a GraphModule, which gets passed to
-        # our callback above.
-        context.compilation_state.self_args.invocations[-1].output = compile(
-            backend=callback, dynamic=True, fullgraph=True
-        )(context.original_module)(*args, **kwargs)
+    # We need to actually run inference to generate a GraphModule, which gets passed to
+    # our callback above.
+    compile(backend=callback, dynamic=True, fullgraph=True)(module)(*args, **kwargs)
 
     if not isinstance(graph_module, CompiledGraphModule):
         raise ValueError("Compilation callback was never called.")
