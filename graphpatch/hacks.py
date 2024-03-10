@@ -270,11 +270,12 @@ def set_dynamo_config():
             setattr(torch._dynamo.config, key, value)
 
 
+@contextmanager
 def dynamo_hacks_for_current_torch_version():
-    hack_stack = ExitStack()
-    if TORCH_VERSION >= (2, 1):
-        hack_stack.enter_context(set_dynamo_config())
-        hack_stack.enter_context(make_dynamo_ignore_hooks())
-        hack_stack.enter_context(monkeypatch_dynamic_shapes())
-    hack_stack.enter_context(monkeypatch_graph_names())
-    return hack_stack
+    with ExitStack() as hack_stack:
+        if TORCH_VERSION >= (2, 1):
+            hack_stack.enter_context(set_dynamo_config())
+            hack_stack.enter_context(make_dynamo_ignore_hooks())
+            hack_stack.enter_context(monkeypatch_dynamic_shapes())
+        hack_stack.enter_context(monkeypatch_graph_names())
+        yield

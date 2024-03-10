@@ -26,8 +26,8 @@ def compile_module(module: Module, *args, **kwargs) -> Tuple[CompiledGraphModule
 
     # We need to actually run inference to generate a GraphModule, which gets passed to
     # our callback above.
-    compile(backend=callback, dynamic=True, fullgraph=True)(module)(*args, **kwargs)
+    output = compile(backend=callback, dynamic=True, fullgraph=True)(module)(*args, **kwargs)
 
     if not isinstance(graph_module, CompiledGraphModule):
         raise ValueError("Compilation callback was never called.")
-    return graph_module
+    return graph_module, output

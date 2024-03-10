@@ -1,41 +1,23 @@
 import inspect
-import re
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import torch
 from torch._dynamo.allowed_functions import (
     _allowed_function_ids,
     _disallowed_function_ids,
 )
+from torch._subclasses.fake_tensor import is_fake
 from torch.nn import Module, ModuleDict, ModuleList, Sequential
 
 from .. import hacks
 from ..optional.accelerate import ModelHook
+from .accelerate import detach_accelerate_hooks
 from .bitsandbytes import wrap_bits_and_bytes
 from .graphpatch_module import GraphPatchModule
 
 CONTAINER_TYPES = (Sequential, ModuleList, ModuleDict)
-
-
-def children_with_container_passthrough(
-    children: Iterator[Tuple[str, Module]], separator: str = "."
-) -> Iterator[Tuple[str, Module]]:
-    child_modules = [(t[0],) + (t[0],) + (t[1],) for t in children]
-    while child_modules:
-        torch_qual_name, unrolled_qual_name, submodule = child_modules.pop()
-        if isinstance(submodule, (ModuleList, Sequential, ModuleDict)):
-            child_modules.extend(
-                reversed(
-                    [
-                        (f"{torch_qual_name}.{n}", f"{torch_qual_name}_{n}", m)
-                        for n, m in submodule.named_children()
-                    ]
-                )
-            )
-        else:
-            yield torch_qual_name, unrolled_qual_name, submodule
 
 
 @dataclass
@@ -45,26 +27,20 @@ class ModuleInvocation:
     output: Any = None
 
 
-@dataclass
-class SubmoduleInfo:
-    parent_qual_name: str
-    qual_name: str
-    local_name: str
-    invocations: List[ModuleInvocation]
-
-
 class ExtractionState:
     original_module: Module
     extracted_module: Optional[GraphPatchModule]
-    children: List[SubmoduleInfo]
     invocations: List[ModuleInvocation]
+    children: Dict[str, "ExtractionState"]
+    name: str
 
-    def __init__(self, original_module: Module):
+    def __init__(self, name: str, original_module: Module):
         self.original_module = original_module
         self.accelerate_hook = getattr(original_module, "_hf_hook", None)
         self.extracted_module = None
-        self.children = []
         self.invocations = []
+        self.children = {}
+        self.name = name
 
 
 @contextmanager
@@ -87,8 +63,12 @@ def tracer_hook(
     ) -> Any:
         if accelerate_hook is not None:
             output = accelerate_hook.post_forward(module, output)
-        cur_invocation = invocations[-1]
-        cur_invocation.output = output
+
+        # Disregard the symbolic tracing step when recording invocations.
+        if is_fake(output):
+            invocations.pop()
+        else:
+            invocations[-1].output = output
         return output
 
     pre_handle = None
@@ -102,14 +82,6 @@ def tracer_hook(
             pre_handle.remove()
         if post_handle is not None:
             post_handle.remove()
-
-
-def is_container(module: Union[Module, Type[Module]]) -> bool:
-    if isinstance(module, type):
-        model_class = module
-    else:
-        model_class = module.__class__
-    return model_class in CONTAINER_TYPES
 
 
 @contextmanager
@@ -176,65 +148,24 @@ def compilation_context(module: Module):
                 module_class=module.__class__,
             )
         )
+        for m in module.modules():
+            context_stack.enter_context(detach_accelerate_hooks(m))
         torch._dynamo.reset()
         yield module
 
 
 @contextmanager
-def root_context(extraction_state: Dict[str, ExtractionState]):
+def root_context(root_module: Module, extraction_state: Dict[str, ExtractionState]):
     with ExitStack() as context_stack:
         for name, state in extraction_state.items():
+            if name == "":
+                continue
             context_stack.enter_context(
                 tracer_hook(
-                    state.original_module,
+                    # Root module may have been bits-and-bytes wrapped.
+                    state.original_module if name != "" else root_module,
                     state.invocations,
                     state.accelerate_hook,
                 )
             )
         yield
-    # with ExitStack() as context_stack:
-    #     submodule_stack = [(None, None) + t for t in module.named_children()]
-    #     while submodule_stack:
-    #         container_name, container_index, name, submodule = submodule_stack.pop()
-
-    #         original_name = name
-
-    #         # Need to mirror torch.compile() behavior, which adds this prefix in this situation.
-    #         if not name[0].isalpha():
-    #             name = "sub" + name
-
-    #         # TODO: handle nested container modules gracefully
-    #         # Bit of a quirk with compile(); the named_modules() iterator returns names like
-    #         # module_list.0.foo, but the resulting modules will be named like module_list_0.foo
-    #         name = re.sub(r"\.(\d+)", lambda match: f"_{match.group(1)}", name)
-
-    #         [*parent_name, local_name] = name.split(".")
-    #         parent_name = "_".join(parent_name)
-    #         state_name = name.replace(".", "_")
-    #         submodule_stack.extend(
-    #             [
-    #                 (
-    #                     name if is_container(submodule) else None,
-    #                     n if is_container(submodule) else None,
-    #                     f"{original_name}.{n}",
-    #                     child,
-    #                 )
-    #                 for n, child in submodule.named_children()
-    #             ]
-    #         )
-    #         # self.compilation_state.child_state[state_name] = CompilationState(
-    #         #     original_module=submodule,
-    #         #     local_name=local_name,
-    #         #     parent_name=parent_name,
-    #         #     original_name=original_name,
-    #         #     container_name=container_name,
-    #         #     container_index=container_index,
-    #         # )
-    #         context_stack.enter_context(
-    #             tracer_hook(
-    #                 submodule,
-    #                 extraction_state[state_name].invocations,
-    #                 extraction_state[state_name].accelerate_hook,
-    #             )
-    #         )
-    #         yield

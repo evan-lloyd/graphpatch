@@ -1,10 +1,9 @@
 import inspect
 import warnings
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import ExitStack
 from copy import deepcopy
 from typing import Any, Dict, Optional, Tuple, Type, Union
-from collections import deque
 
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList, Sequential
@@ -19,12 +18,10 @@ from ..meta import (
     wrap_output_argument_index,
 )
 from ..optional.accelerate import add_hook_to_module
-from .accelerate import detach_accelerate_hooks
 from .compiled_graph_module import CompiledGraphModule, compile_module
 from .extraction_context import (
     ExtractionState,
-    SubmoduleInfo,
-    children_with_container_passthrough,
+    ModuleInvocation,
     compilation_context,
     root_context,
 )
@@ -60,8 +57,7 @@ def clone_graph_module(
 ) -> Union[CompiledGraphModule, OpaqueGraphModule]:
     if isinstance(module, OpaqueGraphModule):
         return OpaqueGraphModule(module)
-    # TODO: make right class
-    return GraphModule(module, deepcopy(module.graph), "CompiledGraphModule")
+    return CompiledGraphModule(module, deepcopy(module.graph), "CompiledGraphModule")
 
 
 def _should_skip_compilation(options: ExtractionOptions, module: Module):
@@ -89,7 +85,11 @@ def postprocess_graph(state: ExtractionState):
         "_graphpatch_output_indexes",
         wrap_output_argument_index(
             state.invocations[-1].output,
-            set(id(v.invocations[-1].output) for v in state.children if len(v.invocations) > 0),
+            set(
+                id(v.invocations[-1].output)
+                for v in state.children.values()
+                if len(v.invocations) > 0
+            ),
             # Do not unwrap values at runtime if this is an opaque module, since we'll only have
             # one input node.
             should_unwrap=not isinstance(graph_module, OpaqueGraphModule),
@@ -185,33 +185,40 @@ def postprocess_graph(state: ExtractionState):
     # If this module is opaque we can't track multiple invocations by nodes; instead use the
     # recorded invocations on our children.
     if isinstance(graph_module, OpaqueGraphModule):
-        for submodule_info in state.children:
-            if len(submodule_info.invocations) < 2:
+        for name, submodule in graph_module.named_children():
+            # Handle nested containers within this graph.
+            [*parent_path, local_name] = name.split(".")
+            child_state = state
+            for next_item in parent_path + [local_name]:
+                child_state = child_state.children[next_item]
+
+            if len(child_state.invocations) < 2:
                 continue
+
             submodule_node = next(
                 n
                 for n in graph_module.graph.nodes
                 if n.op == "call_function"
                 and isinstance(n.target, SubmoduleWrapper)
-                and n.target.module_name == submodule_info.local_name
+                and n.target.module_name == name
             )
-            module_name = submodule_node.target.module_name
+            parent = graph_module.get_submodule(".".join(parent_path))
             setattr(
-                graph_module,
-                module_name,
+                parent,
+                local_name,
                 InvocationTrackingModuleList(
                     [submodule]
                     + [
                         clone_graph_module(submodule)
-                        for _ in range(len(submodule_info.invocations) - 1)
+                        for _ in range(len(child_state.invocations) - 1)
                     ]
                 ),
             )
-            submodule_node.target.module_name = f"{module_name}.0"
-            for i in range(1, len(submodule_info.invocations)):
+            submodule_node.target.module_name = f"{name}.0"
+            for i in range(1, len(child_state.invocations)):
                 with graph_module.graph.inserting_after(submodule_node):
                     submodule_node = graph_module.graph.call_function(
-                        SubmoduleWrapper(f"{module_name}.{i}")
+                        SubmoduleWrapper(f"{name}.{i}")
                     )
 
     # Hack for some weirdness around dynamic shape detection (currently only seen in GPT2-XL)
@@ -221,10 +228,6 @@ def postprocess_graph(state: ExtractionState):
     graph_module.recompile()
 
 
-def opaque_module(context: ExtractionState):
-    pass
-
-
 def extract(
     root_module: Module,
     options: ExtractionOptions,
@@ -232,42 +235,57 @@ def extract(
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     extraction_state: Dict[str, ExtractionState] = {
-        name: ExtractionState(submodule) for name, submodule in root_module.named_modules()
+        name: ExtractionState(name, submodule) for name, submodule in root_module.named_modules()
     }
+
+    # Set up parent/child relationship between state items.
+    for name, state in extraction_state.items():
+        if name == "":
+            continue
+        [*parent_path, local_name] = name.split(".")
+        parent_name = ".".join(parent_path)
+        extraction_state[parent_name].children[local_name] = state
 
     # Convert the module hierarchy into GraphModules.
     for state in extraction_state.values():
-        with ExitStack() as context_stack, detach_accelerate_hooks(state.original_module):
-            if is_container(state.original_module):
-                state.extracted_module = init_container(state.original_module)
-                continue
-            should_compile = not _should_skip_compilation(options, state.original_module)
+        if is_container(state.original_module):
+            state.extracted_module = init_container(state.original_module)
+            continue
 
-            if should_compile:
+        should_compile = not _should_skip_compilation(options, state.original_module)
+
+        if should_compile:
+            with ExitStack() as context_stack:
                 try:
                     module = context_stack.enter_context(compilation_context(state.original_module))
                     if state.original_module is root_module:
-                        context_stack.enter_context(root_context(extraction_state))
+                        context_stack.enter_context(root_context(module, extraction_state))
                         compile_args = trace_args
                         compile_kwargs = trace_kwargs
                     else:
                         compile_args = state.invocations[-1].args
                         compile_kwargs = state.invocations[-1].kwargs
-                    state.extracted_module = compile_module(module, *compile_args, **compile_kwargs)
+                    state.extracted_module, output = compile_module(
+                        module, *compile_args, **compile_kwargs
+                    )
+                    # Root doesn't get a tracer hook, so we need to record its invocation manually.
+                    if state.original_module is root_module:
+                        state.invocations = [ModuleInvocation(trace_args, trace_kwargs, output)]
+
                 except Exception as exc:
                     if options.error_on_compilation_failure:
                         raise
                     print(f"Warning: compilation failed due to {exc}")
                     should_compile = False
-                    context_stack = ExitStack()
 
-            # Either we wanted to skip compilation, or we fell back to doing so.
-            if not should_compile:
-                # We only need to run inference on the root.
-                if state.original_module is root_module:
-                    context_stack.enter_context(root_context(extraction_state))
-                    state.original_module(*trace_args, **trace_kwargs)
-                state.extracted_module = OpaqueGraphModule(state.original_module)
+        # Either we wanted to skip compilation, or we fell back to doing so.
+        if not should_compile:
+            # We only need to run inference on the root.
+            if state.original_module is root_module:
+                with root_context(root_module, extraction_state):
+                    output = state.original_module(*trace_args, **trace_kwargs)
+                    state.invocations = [ModuleInvocation(trace_args, trace_kwargs, output)]
+            state.extracted_module = OpaqueGraphModule(state.original_module)
 
     # Set up the GraphModule hierarchy.
     for torch_qual_name, state in extraction_state.items():
@@ -288,7 +306,8 @@ def extract(
             child_name, child = child_queue.popleft()
             if is_container(child):
                 child_queue.extend((f"{child_name}.{n}", m) for n, m in child.named_children())
-                # Only need to pop containers that are direct descendants.
+                # Only need to pop containers that are direct descendants; nested containers
+                # will get popped when the root is popped.
                 if "." not in child_name:
                     delattr(state.extracted_module, child_name)
             else:

@@ -8,6 +8,7 @@ from graphpatch.extraction import (
     OpaqueGraphModule,
 )
 from graphpatch.extraction.graph_extraction import extract
+from graphpatch.extraction.opaque_graph_module import InvocationTrackingModuleList
 from tests.fixtures.nested_module import A, B, C, NestedModule
 
 from .util import (
@@ -91,7 +92,8 @@ def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
     assert_results_identical(graph_break_module, graph_module, graph_break_module_inputs)
     assert isinstance(graph_module, OpaqueGraphModule)
     # Child module should have been compiled despite failure at root.
-    assert isinstance(graph_module.linear, CompiledGraphModule)
+    assert isinstance(graph_module.linear, InvocationTrackingModuleList)
+    assert [isinstance(m, CompiledGraphModule) for m in graph_module.linear] == [True] * 3
 
 
 @requires_transformers
