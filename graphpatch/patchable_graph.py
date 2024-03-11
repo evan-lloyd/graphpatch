@@ -21,6 +21,7 @@ from torch.fx.graph import CodeGen, _Namespace
 from torch.fx.graph_module import GraphModule, _forward_from_src
 from torch.fx.node import Node, Node as FXNode
 from torch.nn import Module, ModuleList, Parameter
+from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 from torch.serialization import FILE_LIKE
 from typing_extensions import TypedDict
 
@@ -31,6 +32,7 @@ from .extraction import (
     detach_accelerate_hooks,
     extract,
 )
+from .extraction.opaque_graph_module import InvocationTrackingModuleList
 from .meta import (
     GraphMeta,
     NodeData,
@@ -180,16 +182,17 @@ class PatchableGraph(Module):
         """Wrapper around :func:`torch.load()`. All the normal caveats around pickling apply; you
         should not load() anything you downloaded from the Internet.
 
-        Future versions of graphpatch will likely implement a more secure serialization scheme.
+        Future versions of graphpatch will likely implement a more secure serialization scheme and
+        disable the built-in torch.load().
         """
         return torch.load(file)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Wrapper around :func:`torch.save()` because some PatchableGraph internals may need to be
-        handled specially before pickling. You will get an exception asking you to use this method
-        if you call :func:`torch.save()` directly on a PatchableGraph instance.
+        handled specially before pickling.
 
-        Future versions of graphpatch will likely implement a more secure serialization scheme.
+        Future versions of graphpatch will likely implement a more secure serialization scheme and
+        disable the built-in torch.save().
         """
         self._is_saving = True
         try:
@@ -203,7 +206,6 @@ class PatchableGraph(Module):
         state_dict: Dict[str, Any],
         parameter_names: Set[str],
         _original_graph: NodeData[Union[NodeMeta, GraphMeta]],
-        _graphpatch_output_indexes: Dict[str, NodeData[int]],
     ) -> "PatchableGraph":
         deserialized_instance = cls.__new__(cls)
         super().__init__(deserialized_instance)
@@ -253,28 +255,6 @@ class PatchableGraph(Module):
             local_submodules = submodules_by_parent[name]
             local_state = state_by_submodule[name]
 
-            # Edge case: when we clone graphs to handle multiple invocations of the same submodule,
-            # we need to recreate the ModuleList holding the clones. This is the only time a
-            # target will have a dot in its name.
-            local_graph_modules_by_prefix = defaultdict(list)
-            for key, module in list(local_submodules.items()):
-                [prefix, *index] = key.split(".")
-                if len(index) == 1:
-                    # We should retain the original order, which means we'll need to sort these
-                    # by index in the next step.
-                    local_graph_modules_by_prefix[prefix].append((int(index[0]), module))
-                    # We're implicitly including this submodule via the ModuleList, and we don't
-                    # want the GraphModule constructor to include it twice.
-                    del local_submodules[key]
-
-                    # Similarly, we need to relocate the key in our state so the GraphModule
-                    # constructor can find it.
-                    local_state[key] = state_by_submodule[f"{name}.{key}"]
-                    del state_by_submodule[f"{name}.{key}"]
-
-            for prefix, modules in local_graph_modules_by_prefix.items():
-                local_submodules[prefix] = ModuleList(module for _, module in sorted(modules))
-
             graph_module_subclass = {
                 subclass.__name__: subclass for subclass in (CompiledGraphModule, OpaqueGraphModule)
             }.get(meta.graph_module_class_name, GraphModule)
@@ -282,16 +262,10 @@ class PatchableGraph(Module):
                 {
                     **local_state,
                     **local_submodules,
-                    "_graphpatch_output_indexes": _graphpatch_output_indexes[name],
                 },
                 meta.graph,
                 meta.graph_module_class_name,
             )
-            # GraphModule constructor fails to use our ModuleList in case of cloned graphs (probably
-            # an annoying order-of-operations thing, since it copies over attributes ordered by
-            # when they appear in the graph code, and get_attr appears before call_module).
-            for prefix in local_graph_modules_by_prefix:
-                setattr(graph_module, prefix, local_submodules[prefix])
 
             submodules_by_parent[parent_name][str(target)] = graph_module
             if meta.accelerate_hook is not None:
@@ -345,11 +319,6 @@ class PatchableGraph(Module):
                 state_dict,
                 {name for name, _ in self.named_parameters()},
                 self._original_graph,
-                {
-                    name: module._graphpatch_output_indexes
-                    for name, module in self.named_modules()
-                    if hasattr(module, "_graphpatch_output_indexes")
-                },
             ),
         )
 

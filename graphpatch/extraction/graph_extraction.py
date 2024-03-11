@@ -1,4 +1,5 @@
 import inspect
+import re
 import warnings
 from collections import defaultdict, deque
 from contextlib import ExitStack
@@ -181,6 +182,10 @@ def postprocess_graph(state: ExtractionState):
         # Update the call_module nodes to refer to a specific instance in the list.
         for i, node in enumerate(calling_nodes):
             node.target = f"{module_name}.{i}"
+        graph_module._graphpatch_module_containers[module_name] = (
+            ModuleList,
+            tuple(str(i) for i in range(len(calling_nodes))),
+        )
 
     # If this module is opaque we can't track multiple invocations by nodes; instead use the
     # recorded invocations on our children.
@@ -220,6 +225,10 @@ def postprocess_graph(state: ExtractionState):
                     submodule_node = graph_module.graph.call_function(
                         SubmoduleWrapper(f"{name}.{i}")
                     )
+            graph_module._graphpatch_module_containers[name] = (
+                InvocationTrackingModuleList,
+                tuple(str(i) for i in range(len(child_state.invocations))),
+            )
 
     # Hack for some weirdness around dynamic shape detection (currently only seen in GPT2-XL)
     for node in graph_module.graph.nodes:
@@ -235,7 +244,12 @@ def extract(
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     extraction_state: Dict[str, ExtractionState] = {
-        name: ExtractionState(name, submodule) for name, submodule in root_module.named_modules()
+        # Need to mirror torch.compile() behavior of renaming modules that start with "_foo" as
+        # "sub_foo".
+        (
+            state_name := re.sub(r"(\.)_|(^)_", lambda m: f"{m.group(1) or ''}sub_", name)
+        ): ExtractionState(state_name, submodule)
+        for name, submodule in root_module.named_modules()
     }
 
     # Set up parent/child relationship between state items.
@@ -259,7 +273,7 @@ def extract(
                 try:
                     module = context_stack.enter_context(compilation_context(state.original_module))
                     if state.original_module is root_module:
-                        context_stack.enter_context(root_context(module, extraction_state))
+                        context_stack.enter_context(root_context(extraction_state))
                         compile_args = trace_args
                         compile_kwargs = trace_kwargs
                     else:
@@ -282,7 +296,7 @@ def extract(
         if not should_compile:
             # We only need to run inference on the root.
             if state.original_module is root_module:
-                with root_context(root_module, extraction_state):
+                with root_context(extraction_state):
                     output = state.original_module(*trace_args, **trace_kwargs)
                     state.invocations = [ModuleInvocation(trace_args, trace_kwargs, output)]
             state.extracted_module = OpaqueGraphModule(state.original_module)

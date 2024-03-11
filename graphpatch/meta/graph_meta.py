@@ -138,7 +138,7 @@ class GraphMeta(_BaseMeta):
         graph_module_name: Name of the graph_module within the module hierarchy this meta-info is
             associated to.
         graph_module_class_name: Name of the class of the graph_module, so we can easily distinguish
-            between opaque and compiled graphs when needed.
+            between opaque and compiled graphs when deserializing.
     """
 
     is_graph: ClassVar[bool] = True
@@ -198,7 +198,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
             # The node itself will be cached in the namespace during compilation, which we can bust
             # by registering vs (self, node). This will also cache for multiple calls to _name_for
             # as is desirable.
-            name = namespace.create_name("_" + name, (self, node))
+            name = namespace.create_name("sub" + name, (self, node))
         return name
 
     def _code_for(

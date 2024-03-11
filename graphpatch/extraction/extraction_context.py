@@ -155,15 +155,16 @@ def compilation_context(module: Module):
 
 
 @contextmanager
-def root_context(root_module: Module, extraction_state: Dict[str, ExtractionState]):
+def root_context(extraction_state: Dict[str, ExtractionState]):
     with ExitStack() as context_stack:
         for name, state in extraction_state.items():
+            # We don't want to add hooks to the root, as this would cause torch.compile() to include
+            # our tracing code in the resulting graph.
             if name == "":
                 continue
             context_stack.enter_context(
                 tracer_hook(
-                    # Root module may have been bits-and-bytes wrapped.
-                    state.original_module if name != "" else root_module,
+                    state.original_module,
                     state.invocations,
                     state.accelerate_hook,
                 )

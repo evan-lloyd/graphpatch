@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, cast
 
 from torch import compile
 from torch.fx import Graph, GraphModule
@@ -22,6 +22,8 @@ def compile_module(module: Module, *args, **kwargs) -> Tuple[CompiledGraphModule
         # by torch as the sole instance of a dynamically generated class, so this is safe.
         gm.__class__.__bases__ = (CompiledGraphModule,) + gm.__class__.__bases__
         gm.__class__.__name__ = CompiledGraphModule.__name__
+        cast(CompiledGraphModule, gm)._init_graphpatch_attributes()
+
         return gm
 
     # We need to actually run inference to generate a GraphModule, which gets passed to
