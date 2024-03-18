@@ -5,6 +5,8 @@ from torch.fx import Graph, GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 
+from .invocation_tracking_module_list import InvocationTrackingModuleList
+
 # TODO: resolve circular import more cleanly
 if TYPE_CHECKING:
     from ..meta import OutputArgumentIndex
@@ -40,8 +42,6 @@ class GraphPatchModule(GraphModule):
         graph: Graph,
         class_name: str,
     ):
-        from .opaque_graph_module import InvocationTrackingModuleList
-
         self._init_graphpatch_attributes()
 
         super().__init__(root, graph, class_name)

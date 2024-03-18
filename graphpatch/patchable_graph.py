@@ -20,8 +20,7 @@ from torch import Tensor, no_grad
 from torch.fx.graph import CodeGen, _Namespace
 from torch.fx.graph_module import GraphModule, _forward_from_src
 from torch.fx.node import Node, Node as FXNode
-from torch.nn import Module, ModuleList, Parameter
-from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
+from torch.nn import Module, Parameter
 from torch.serialization import FILE_LIKE
 from typing_extensions import TypedDict
 
@@ -32,7 +31,6 @@ from .extraction import (
     detach_accelerate_hooks,
     extract,
 )
-from .extraction.opaque_graph_module import InvocationTrackingModuleList
 from .meta import (
     GraphMeta,
     NodeData,

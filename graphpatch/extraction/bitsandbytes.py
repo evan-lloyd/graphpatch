@@ -39,15 +39,17 @@ def _wrapped_8bit(module: Linear8bitLt) -> Wrapped8BitLinear:
 
 
 @contextmanager
-def wrap_bits_and_bytes(module: Module) -> Iterator[Module]:
+def wrap_bits_and_bytes(state: Module) -> Iterator[Module]:
     """Wrap any bitsandbytes quantized linear modules, since they use Tensor subclasses which are
     incompatible with the current (2.1.0) torch.compile() implementation.
     """
     original_submodules = {}
-    original_module = module
+    module = state.wrapped_module
+    original_module = state.wrapped_module
     for name, submodule in original_module.named_modules():
         if submodule is module and isinstance(module, Linear8bitLt):
             module = _wrapped_8bit(module)
+            state.wrapped_module = module
             continue
         path = name.split(".")
         parent = module.get_submodule(".".join(path[:-1]))
@@ -55,7 +57,7 @@ def wrap_bits_and_bytes(module: Module) -> Iterator[Module]:
             original_submodules[name] = submodule
             setattr(parent, path[-1], _wrapped_8bit(submodule))
     try:
-        yield module
+        yield
     finally:
         for name, original in original_submodules.items():
             path = name.split(".")

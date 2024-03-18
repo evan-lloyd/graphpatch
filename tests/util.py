@@ -24,8 +24,8 @@ def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: Patchabl
         assert submodules_1[k].code == submodules_2[k].code, f"Graph code differs for {k}"
 
     # Parameters must be identical.
-    parameters_1 = dict(graph_1.named_parameters())
-    parameters_2 = dict(graph_2.named_parameters())
+    parameters_1 = dict(graph_1.named_parameters(remove_duplicate=False))
+    parameters_2 = dict(graph_2.named_parameters(remove_duplicate=False))
     assert set(parameters_1.keys()) == set(parameters_2.keys()), "Parameter sets differ"
     for k in parameters_1:
         assert parameters_1[k].equal(parameters_2[k]), f"Parameter mismatch for {k}"
@@ -123,8 +123,14 @@ def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance
         loss_1.backward(retain_graph=True)
         loss_2.backward(retain_graph=True)
 
-        params_1 = {_unroll_container_names(k): v for k, v in module_1.named_parameters()}
-        params_2 = {_unroll_container_names(k): v for k, v in module_2.named_parameters()}
+        params_1 = {
+            _unroll_container_names(k): v
+            for k, v in module_1.named_parameters(remove_duplicate=False)
+        }
+        params_2 = {
+            _unroll_container_names(k): v
+            for k, v in module_2.named_parameters(remove_duplicate=False)
+        }
         for name in params_1.keys():
             # Can happen if module makes multiple calls so that our compiled version clones it. In
             # that case we can just check the first instance.

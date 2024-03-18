@@ -5,6 +5,7 @@ from contextlib import ExitStack, contextmanager
 from functools import partial, partialmethod
 
 import torch
+from torch.nn import Sequential
 
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
@@ -194,6 +195,7 @@ def monkeypatch_graph_names():
         def replace(name):
             if not isinstance(name, str):
                 return name
+                # return f"_{name}"
             if name.startswith("self."):
                 name = name.replace("self.", "", 1)
             if name.startswith("L['self']."):
@@ -201,6 +203,7 @@ def monkeypatch_graph_names():
             return name
 
         names = list(map(replace, names))
+        # names = list(map(replace, filter(lambda n: n != "self", names)))
         return orig_method(self, target, *names, **kwargs)
 
     try:
@@ -277,5 +280,6 @@ def dynamo_hacks_for_current_torch_version():
             hack_stack.enter_context(set_dynamo_config())
             hack_stack.enter_context(make_dynamo_ignore_hooks())
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
+        # hack_stack.enter_context(do_not_inline_sequential())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield

@@ -8,7 +8,9 @@ from graphpatch.extraction import (
     OpaqueGraphModule,
 )
 from graphpatch.extraction.graph_extraction import extract
-from graphpatch.extraction.opaque_graph_module import InvocationTrackingModuleList
+from graphpatch.extraction.invocation_tracking_module_list import (
+    InvocationTrackingModuleList,
+)
 from tests.fixtures.nested_module import A, B, C, NestedModule
 
 from .util import (
@@ -61,6 +63,22 @@ def test_extract_deeply_nested_module(
     assert_results_identical(
         deeply_nested_output_module, graph_module, deeply_nested_output_module_inputs
     )
+
+
+def test_extract_container_module(container_module, container_module_inputs):
+    compiled_graph_module, meta = extract(
+        container_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        container_module_inputs,
+    )
+    validate_node_meta(meta, compiled_graph_module)
+    assert_results_identical(container_module, compiled_graph_module, container_module_inputs)
+
+    opaque_graph_module, meta = extract(
+        container_module, ExtractionOptions(skip_compilation=True), container_module_inputs
+    )
+    validate_node_meta(meta, opaque_graph_module)
+    assert_results_identical(container_module, opaque_graph_module, container_module_inputs)
 
 
 def test_extract_with_opaque_modules(nested_module, nested_module_inputs):

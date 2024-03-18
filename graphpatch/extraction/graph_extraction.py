@@ -28,18 +28,19 @@ from .extraction_context import (
 )
 from .extraction_options import ExtractionOptions
 from .graphpatch_module import GraphPatchModule
-from .opaque_graph_module import (
-    InvocationTrackingModuleList,
-    OpaqueGraphModule,
-    SubmoduleWrapper,
-)
+from .invocation_tracking_module_list import InvocationTrackingModuleList
+from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 
-CONTAINER_TYPES = (Sequential, ModuleList, ModuleDict)
+CONTAINER_TYPES = (ModuleList, ModuleDict, Sequential)
 
 
-def init_container(container: Union[Sequential, ModuleList, ModuleDict]):
-    if isinstance(container, (Sequential, ModuleList)):
+def init_container(container: Union[ModuleList, ModuleDict, Sequential]):
+    if isinstance(container, ModuleList):
         return container.__class__([Module() for _ in range(len(container))])
+    # We treat Sequential as a container (even though it has its own forward) because compile()
+    # is hard-coded to unroll it.
+    elif isinstance(container, Sequential):
+        return container.__class__(*[Module() for _ in range(len(container))])
     return container.__class__()
 
 
@@ -71,6 +72,21 @@ def is_container(module: Union[Module, Type[Module]]) -> bool:
     else:
         model_class = module.__class__
     return model_class in CONTAINER_TYPES
+
+
+def canonical_module_name(name: str):
+    # Need to mirror torch.compile() behavior of renaming modules that start with "_foo" as
+    # "sub_foo".
+    return re.sub(
+        r"(\.|^)_",
+        lambda m: f"{m.group(1) or ''}sub_",
+        name,
+    )
+    # return re.sub(
+    #     r"(\.|^)([^a-zA-Z])",
+    #     lambda m: f"{m.group(1) or ''}sub_{m.group(2) if m.group(2) != '_' else ''}",
+    #     name,
+    # )
 
 
 def postprocess_graph(state: ExtractionState):
@@ -244,13 +260,11 @@ def extract(
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     extraction_state: Dict[str, ExtractionState] = {
-        # Need to mirror torch.compile() behavior of renaming modules that start with "_foo" as
-        # "sub_foo".
-        (
-            state_name := re.sub(r"(\.)_|(^)_", lambda m: f"{m.group(1) or ''}sub_", name)
-        ): ExtractionState(state_name, submodule)
-        for name, submodule in root_module.named_modules()
+        (state_name := canonical_module_name(name)): ExtractionState(state_name, submodule)
+        for name, submodule in root_module.named_modules(remove_duplicate=False)
     }
+    # Root doesn't get a tracer hook, so we need to record its invocation manually.
+    extraction_state[""].invocations = [ModuleInvocation(trace_args, trace_kwargs, None)]
 
     # Set up parent/child relationship between state items.
     for name, state in extraction_state.items():
@@ -271,20 +285,15 @@ def extract(
         if should_compile:
             with ExitStack() as context_stack:
                 try:
-                    module = context_stack.enter_context(compilation_context(state.original_module))
+                    # TODO: refactor so order is not important
                     if state.original_module is root_module:
                         context_stack.enter_context(root_context(extraction_state))
-                        compile_args = trace_args
-                        compile_kwargs = trace_kwargs
-                    else:
-                        compile_args = state.invocations[-1].args
-                        compile_kwargs = state.invocations[-1].kwargs
-                    state.extracted_module, output = compile_module(
-                        module, *compile_args, **compile_kwargs
+                    context_stack.enter_context(compilation_context(state))
+                    state.extracted_module, state.invocations[-1].output = compile_module(
+                        state.wrapped_module,
+                        *state.invocations[-1].args,
+                        **state.invocations[-1].kwargs,
                     )
-                    # Root doesn't get a tracer hook, so we need to record its invocation manually.
-                    if state.original_module is root_module:
-                        state.invocations = [ModuleInvocation(trace_args, trace_kwargs, output)]
 
                 except Exception as exc:
                     if options.error_on_compilation_failure:
@@ -294,12 +303,15 @@ def extract(
 
         # Either we wanted to skip compilation, or we fell back to doing so.
         if not should_compile:
-            # We only need to run inference on the root.
+            # We still need to run inference on the root to record module invocations.
             if state.original_module is root_module:
                 with root_context(extraction_state):
-                    output = state.original_module(*trace_args, **trace_kwargs)
-                    state.invocations = [ModuleInvocation(trace_args, trace_kwargs, output)]
-            state.extracted_module = OpaqueGraphModule(state.original_module)
+                    state.invocations[-1].output = state.wrapped_module(
+                        *state.invocations[-1].args, **state.invocations[-1].kwargs
+                    )
+            state.extracted_module = OpaqueGraphModule(state.wrapped_module)
+
+    # breakpoint()
 
     # Set up the GraphModule hierarchy.
     for torch_qual_name, state in extraction_state.items():

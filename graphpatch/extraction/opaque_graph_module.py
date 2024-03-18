@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 
 from torch import Tensor
 from torch.fx.graph import Graph
-from torch.nn import Module, ModuleDict, ModuleList, Parameter
+from torch.nn import Module, ModuleDict, ModuleList, Parameter, Sequential
 
 from .graphpatch_module import GraphPatchModule
 
@@ -137,22 +137,6 @@ def _patched_methods(module: Module, patches):
                 object.__delattr__(module, name)
             elif original_method is not nonexistent:
                 object.__setattr__(module, name, original_method)
-
-
-class InvocationTrackingModuleList(ModuleList):
-    _graphpatch_invocation_index: int
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._graphpatch_invocation_index = 0
-
-    def forward(self, *args, **kwargs) -> Any:
-        # TODO: surely any sane module will never vary how many times it calls its submodules
-        # and the modulo doesn't matter? But we may want to make this configurable between
-        # round-robin or throwing an exception, possibly a global "strict" mode?
-        index = self._graphpatch_invocation_index % len(self._modules)
-        self._graphpatch_invocation_index = index + 1
-        return self[index](*args, **kwargs)
 
 
 class SubmoduleWrapper:
@@ -284,8 +268,9 @@ class OpaqueGraphModule(GraphPatchModule):
         # Insert submodules as siblings of the opaque module call (which is hidden); this gives
         # simpler canonical names for them. Note that we do not actually call these modules here
         # when executing the graph; they are implicitly called at the call_forward node by the
-        # original module.
-        for name, _ in OpaqueGraphModule._child_modules(module.named_children()):
+        # original module. NB: going to low-level _modules because named_children() unconfigurably
+        # skips duplicates, which we don't want.
+        for name, _ in OpaqueGraphModule._child_modules(module._modules.items()):
             graph.call_function(SubmoduleWrapper(name))
 
         graph.output((call_forward,))
@@ -300,20 +285,20 @@ class OpaqueGraphModule(GraphPatchModule):
             name, submodule = child_modules.popleft()
             yield name, submodule
 
-            if isinstance(submodule, (ModuleList, ModuleDict)):
+            if isinstance(submodule, (ModuleList, ModuleDict, Sequential)):
                 child_modules.extend(
-                    reversed([(f"{name}.{n}", m) for n, m in submodule.named_children()])
+                    reversed([(f"{name}.{n}", m) for n, m in submodule._modules.items()])
                 )
 
     @staticmethod
     def _child_modules(children: Iterator[Tuple[str, Module]]) -> Iterator[Tuple[str, Module]]:
         for name, submodule in OpaqueGraphModule._container_passthrough(children):
-            if not isinstance(submodule, (ModuleList, ModuleDict)):
+            if not isinstance(submodule, (ModuleList, ModuleDict, Sequential)):
                 yield name, submodule
 
     def _child_containers(self) -> Iterator[Tuple[str, Module]]:
-        for name, submodule in OpaqueGraphModule._container_passthrough(super().named_children()):
-            if isinstance(submodule, (ModuleList, ModuleDict)):
+        for name, submodule in OpaqueGraphModule._container_passthrough(self._modules.items()):
+            if isinstance(submodule, (ModuleList, ModuleDict, Sequential)):
                 yield name, submodule
 
     def named_children(self) -> Iterator[Tuple[str, Module]]:
@@ -321,7 +306,7 @@ class OpaqueGraphModule(GraphPatchModule):
         # owning the contained submodules. This lets us keep the hierarchy that the original module
         # code was expecting, while looking to the rest of our own code as if we had unrolled the
         # containers as we do with CompiledGraphModule.
-        return OpaqueGraphModule._child_modules(super().named_children())
+        return OpaqueGraphModule._child_modules(self._modules.items())
 
     def __init__(
         self,
