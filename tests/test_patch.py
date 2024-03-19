@@ -67,6 +67,18 @@ def test_patch_probe(pg, minimal_module_inputs):
     assert weight_probe.activation.equal(pg._graph_module.linear.weight)
 
 
+@_opaque_and_compiled("patchable_container_module")
+def test_patch_duplicate_modules(pg, container_module_inputs):
+    # breakpoint()
+    with pg.patch(
+        {"linear.weight": [weight_probe := ProbePatch()], "output": [output_probe := ProbePatch()]}
+    ):
+        patched_output = pg(container_module_inputs)
+
+    assert output_probe.activation.equal(patched_output)
+    assert weight_probe.activation.equal(pg._graph_module.linear.weight)
+
+
 @_opaque_and_compiled("patchable_minimal_module")
 def test_update_patch_context(pg, minimal_module_inputs):
     original_output = pg(minimal_module_inputs)

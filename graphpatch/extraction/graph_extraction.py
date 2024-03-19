@@ -311,8 +311,6 @@ def extract(
                     )
             state.extracted_module = OpaqueGraphModule(state.wrapped_module)
 
-    # breakpoint()
-
     # Set up the GraphModule hierarchy.
     for torch_qual_name, state in extraction_state.items():
         if torch_qual_name == "":

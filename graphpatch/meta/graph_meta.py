@@ -1,10 +1,12 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from copy import deepcopy
 from typing import (
     Any,
     ClassVar,
     DefaultDict,
+    Deque,
     Dict,
+    Iterator,
     List,
     Optional,
     Set,
@@ -21,7 +23,7 @@ from torch.nn import Module
 
 from ..extraction.opaque_graph_module import SubmoduleWrapper
 from ..optional.accelerate import ModelHook
-from ..optional.dataclasses import dataclass
+from ..optional.dataclasses import dataclass, field
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
 
 _GRAPHPATCH_RESERVED_NAMES = {"_code", "_shape"}
@@ -182,6 +184,26 @@ class GraphMeta(_BaseMeta):
         )
 
 
+@dataclass(kw_only=True)
+class ModuleName:
+    """Utility class to map the divergence between node names and names in the Module hierarchy."""
+
+    @staticmethod
+    def _prefix_for(name: str):
+        if name == "":
+            return ""
+        return f"{name}."
+
+    meta: str
+    meta_prefix: str = field(init=False)
+    module: str
+    module_prefix: str = field(init=False)
+
+    def __post_init__(self):
+        self.meta_prefix = ModuleName._prefix_for(self.meta)
+        self.module_prefix = ModuleName._prefix_for(self.module)
+
+
 class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
     def _name_for(self, node: Node, namespace: _Namespace) -> str:
         """torch.compile() will rename placeholder nodes if the function happens to have a parameter
@@ -193,7 +215,8 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
         # node.target is always a string for placeholders.
         name = cast(str, node.target) if node.op == "placeholder" else node.name
 
-        # Disallow special names to protect our REPL functionality, by adding an extra underscore.
+        # Disallow special names to protect our REPL functionality by adding the "sub_" prefix,
+        # which mirrors how torch.compile() handles node names that would be invalid identifiers.
         if name in _GRAPHPATCH_RESERVED_NAMES:
             # The node itself will be cached in the namespace during compilation, which we can bust
             # by registering vs (self, node). This will also cache for multiple calls to _name_for
@@ -242,73 +265,64 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
 
         return WrappedCode(code.strip())
 
+    def _graph_module_target(self, node: Node) -> Optional[GraphModule]:
+        if (
+            # Real call to submodule.
+            node.op == "call_module"
+            # Dummy call from opaque module to submodule, which we should display as a graph.
+            or (node.op == "call_function" and isinstance(node.target, SubmoduleWrapper))
+        ) and isinstance(
+            target := node.graph.owning_module.get_submodule(str(node.target)),
+            GraphModule,
+        ):
+            return target
+
+    def _graph_module_hierarchy(
+        self, root_module: GraphModule
+    ) -> Iterator[Tuple[ModuleName, GraphModule]]:
+        """Iterate through the GraphModule hierarchy such that children are returned before their
+        parents, but in the order in which they should be added to the graph.
+        """
+        queue: Deque[Tuple[ModuleName, GraphModule]] = deque(
+            [(ModuleName(meta="", module=""), root_module)]
+        )
+        stack: List[Tuple[ModuleName, GraphModule]] = []
+        while queue:
+            name, module = queue.popleft()
+
+            stack.append((name, module))
+
+            for node in reversed(module.graph.nodes):
+                if (target := self._graph_module_target(node)) is not None:
+                    queue.append(
+                        (
+                            ModuleName(
+                                meta=f"{name.meta_prefix}{node.name}",
+                                module=f"{name.module_prefix}{node.target}",
+                            ),
+                            target,
+                        )
+                    )
+        while stack:
+            yield stack.pop()
+
     def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:
         if not isinstance(data, GraphModule):
             return NodeData._UNHANDLED_VALUE
 
-        # Create meta nodes bottom-up, so we can construct this iteratively rather than recursively
+        # Create meta nodes bottom-up so we can construct this iteratively rather than recursively.
         node_meta: DefaultDict[str, Dict[str, NodeData[Union[GraphMeta, NodeMeta]]]] = defaultdict(
             dict
         )
-        graph_module_stack: List[Tuple[str, str, GraphModule]] = []
-        module_stack: List[Tuple[str, str, Module]] = [("", "", data)]
-        # First figure out the module hierarchy in terms of the name of the node that calls each
-        # submodule in its parent graph.
-        while module_stack:
-            meta_name, module_name, cur_module = module_stack.pop()
-            if not isinstance(cur_module, GraphModule):
-                continue
-            if meta_name == "":
-                meta_prefix = ""
-            else:
-                meta_prefix = f"{meta_name}."
-            if module_name == "":
-                module_prefix = ""
-            else:
-                module_prefix = f"{module_name}."
-
-            graph_module_stack.append((meta_name, module_name, cur_module))
-            for node in cur_module.graph.nodes:
-                if node.op == "call_module" and isinstance(
-                    target := cur_module.get_submodule(node.target), GraphModule
-                ):
-                    module_stack.append(
-                        (f"{meta_prefix}{node.name}", f"{module_prefix}{node.target}", target)
-                    )
-                elif node.op == "call_function" and isinstance(node.target, SubmoduleWrapper):
-                    module_stack.append(
-                        (
-                            f"{meta_prefix}{node.name}",
-                            f"{module_prefix}{node.target}",
-                            cur_module.get_submodule(node.target.module_name),
-                        )
-                    )
-
-        while graph_module_stack:
-            meta_name, module_name, cur_module = graph_module_stack.pop()
-            if meta_name == "":
-                meta_prefix = ""
-            else:
-                meta_prefix = f"{meta_name}."
-            if module_name == "":
-                module_prefix = ""
-            else:
-                module_prefix = f"{module_name}."
-
-            for node in cur_module.graph.nodes:
-                if (
-                    # Real call to submodule
-                    node.op == "call_module"
-                    # Dummy call from opaque module to submodule, which we should display as a graph
-                    or (node.op == "call_function" and isinstance(node.target, SubmoduleWrapper))
-                ):
-                    target = data.get_submodule(f"{module_prefix}{node.target}")
-                    sub_nodes = node_meta[f"{meta_prefix}{node.name}"]
-                    node_meta[meta_name][node.name] = NodeData(
+        for name, module in self._graph_module_hierarchy(data):
+            for node in module.graph.nodes:
+                if target := self._graph_module_target(node):
+                    sub_nodes = node_meta[f"{name.meta_prefix}{node.name}"]
+                    node_meta[name.meta][node.name] = NodeData(
                         _original_type="Graph",
                         _children=sub_nodes,
                         _value=GraphMeta(
-                            name=f"{meta_prefix}{node.name}",
+                            name=f"{name.meta_prefix}{node.name}",
                             local_name=node.name,
                             accelerate_hook=getattr(target, "_hf_hook", None),
                             node=node,
@@ -317,30 +331,30 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                                 for k, v in sub_nodes.items()
                                 if v._value is not NodeData._NO_VALUE
                             },
-                            parent=meta_name,
+                            parent=name.meta,
                             graph=target.graph,
-                            graph_module_name=f"{module_prefix}{node.target}",
+                            graph_module_name=f"{name.module_prefix}{node.target}",
                             graph_module_class_name=target.__class__.__name__,
                             code=self._code_for(
                                 target, node, cast(NodeData[NodeMeta], sub_nodes["output"])
                             ),
                             hidden=node.meta.get("_graphpatch_hidden", False),
                         ),
-                        _path=f"{meta_prefix}{node.name}",
+                        _path=f"{name.meta_prefix}{node.name}",
                     )
                 else:
-                    namespace = cur_module.graph._graph_namespace
-                    node_meta[meta_name][self._name_for(node, namespace)] = NodeData(
+                    namespace = module.graph._graph_namespace
+                    node_meta[name.meta][self._name_for(node, namespace)] = NodeData(
                         _original_type="Node",
                         _value=NodeMeta(
-                            name=f"{meta_prefix}{self._name_for(node, namespace)}",
+                            name=f"{name.meta_prefix}{self._name_for(node, namespace)}",
                             local_name=self._name_for(node, namespace),
                             node=node,
-                            parent=meta_name,
-                            code=self._code_for(cur_module, node),
+                            parent=name.meta,
+                            code=self._code_for(module, node),
                             hidden=node.meta.get("_graphpatch_hidden", False),
                         ),
-                        _path=f"{meta_prefix}{self._name_for(node, namespace)}",
+                        _path=f"{name.meta_prefix}{self._name_for(node, namespace)}",
                     )
 
         return NodeData(

@@ -286,9 +286,7 @@ class OpaqueGraphModule(GraphPatchModule):
             yield name, submodule
 
             if isinstance(submodule, (ModuleList, ModuleDict, Sequential)):
-                child_modules.extend(
-                    reversed([(f"{name}.{n}", m) for n, m in submodule._modules.items()])
-                )
+                child_modules.extend([(f"{name}.{n}", m) for n, m in submodule._modules.items()])
 
     @staticmethod
     def _child_modules(children: Iterator[Tuple[str, Module]]) -> Iterator[Tuple[str, Module]]:
