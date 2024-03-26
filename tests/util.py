@@ -4,6 +4,7 @@ import re
 import pytest
 import torch
 from torch.fx.graph_module import GraphModule
+from torch.nn import ModuleDict, ModuleList, Sequential
 
 from graphpatch import PatchableGraph
 from graphpatch.meta import GraphMeta
@@ -106,11 +107,6 @@ def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, i
     return output_1, output_2
 
 
-def _unroll_container_names(name):
-    # TODO: unroll ModuleDict
-    return re.sub(r"\.(\d+)", lambda match: f"_{match.group(1)}", name)
-
-
 def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=None):
     for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
         assert cur_1.requires_grad == cur_2.requires_grad, f"requires_grad mismatch at {prefix_1}"
@@ -123,20 +119,15 @@ def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance
         loss_1.backward(retain_graph=True)
         loss_2.backward(retain_graph=True)
 
-        params_1 = {
-            _unroll_container_names(k): v
-            for k, v in module_1.named_parameters(remove_duplicate=False)
-        }
-        params_2 = {
-            _unroll_container_names(k): v
-            for k, v in module_2.named_parameters(remove_duplicate=False)
-        }
+        params_1 = dict(module_1.named_parameters(remove_duplicate=False))
+        params_2 = dict(module_2.named_parameters(remove_duplicate=False))
+
         for name in params_1.keys():
             # Can happen if module makes multiple calls so that our compiled version clones it. In
             # that case we can just check the first instance.
             if name not in params_2:
                 [*path, param_name] = name.split(".")
-                param_2_name = f"{'.'.join(path)}_0.{param_name}"
+                param_2_name = f"{'.'.join(path)}.0.{param_name}"
             else:
                 param_2_name = name
             assert (

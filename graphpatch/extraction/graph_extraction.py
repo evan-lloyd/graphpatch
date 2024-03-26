@@ -1,10 +1,22 @@
 import inspect
 import re
 import warnings
-from collections import defaultdict, deque
+from collections import OrderedDict, defaultdict, deque
 from contextlib import ExitStack
 from copy import deepcopy
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import (
+    Any,
+    Deque,
+    Dict,
+    Generic,
+    Iterator,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList, Sequential
@@ -21,9 +33,11 @@ from ..meta import (
 from ..optional.accelerate import add_hook_to_module
 from .compiled_graph_module import CompiledGraphModule, compile_module
 from .extraction_context import (
+    DeduplicationWrapper,
     ExtractionState,
     ModuleInvocation,
     compilation_context,
+    deduplication_context,
     root_context,
 )
 from .extraction_options import ExtractionOptions
@@ -31,16 +45,16 @@ from .graphpatch_module import GraphPatchModule
 from .invocation_tracking_module_list import InvocationTrackingModuleList
 from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 
-CONTAINER_TYPES = (ModuleList, ModuleDict, Sequential)
+CONTAINER_TYPES = (ModuleList, ModuleDict)
 
 
-def init_container(container: Union[ModuleList, ModuleDict, Sequential]):
+def init_container(container: Union[ModuleList, ModuleDict]):
     if isinstance(container, ModuleList):
         return container.__class__([Module() for _ in range(len(container))])
     # We treat Sequential as a container (even though it has its own forward) because compile()
     # is hard-coded to unroll it.
-    elif isinstance(container, Sequential):
-        return container.__class__(*[Module() for _ in range(len(container))])
+    # elif isinstance(container, Sequential):
+    #     return container.__class__(*[Module() for _ in range(len(container))])
     return container.__class__()
 
 
@@ -76,17 +90,25 @@ def is_container(module: Union[Module, Type[Module]]) -> bool:
 
 def canonical_module_name(name: str):
     # Need to mirror torch.compile() behavior of renaming modules that start with "_foo" as
-    # "sub_foo".
-    return re.sub(
-        r"(\.|^)_",
-        lambda m: f"{m.group(1) or ''}sub_",
-        name,
-    )
+    # "sub_foo", similarly for any non-alpha character.
+    return name
     # return re.sub(
     #     r"(\.|^)([^a-zA-Z])",
     #     lambda m: f"{m.group(1) or ''}sub_{m.group(2) if m.group(2) != '_' else ''}",
     #     name,
     # )
+
+
+def retarget_submodule_calls(graph_module: GraphPatchModule):
+    # compile() unrolls all containers, modifying the module hierarchy. Our later code is much
+    # simplified if we instead retain the original hierarchy. This also looks nicer when the user
+    # inspects the returned GraphModule.
+    for node in graph_module.graph.nodes:
+        if node.op != "call_module":
+            continue
+        target_module = graph_module.get_submodule(node.target)
+        if isinstance(target_module, DeduplicationWrapper):
+            node.target = target_module._graphpatch_original_module_name
 
 
 def postprocess_graph(state: ExtractionState):
@@ -101,7 +123,7 @@ def postprocess_graph(state: ExtractionState):
         graph_module,
         "_graphpatch_output_indexes",
         wrap_output_argument_index(
-            state.invocations[-1].output,
+            state.invocations[-1].output if len(state.invocations) > 0 else None,
             set(
                 id(v.invocations[-1].output)
                 for v in state.children.values()
@@ -183,7 +205,7 @@ def postprocess_graph(state: ExtractionState):
     duplicate_graph_modules = defaultdict(list)
     for node in graph_module.graph.nodes:
         if node.op == "call_module":
-            duplicate_graph_modules[getattr(graph_module, node.target)].append(node)
+            duplicate_graph_modules[graph_module.get_submodule(node.target)].append(node)
     for submodule, calling_nodes in duplicate_graph_modules.items():
         if len(calling_nodes) < 2:
             continue
@@ -260,11 +282,12 @@ def extract(
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     extraction_state: Dict[str, ExtractionState] = {
-        (state_name := canonical_module_name(name)): ExtractionState(state_name, submodule)
+        name: ExtractionState(name, name, submodule)
         for name, submodule in root_module.named_modules(remove_duplicate=False)
     }
+    root_state = extraction_state[""]
     # Root doesn't get a tracer hook, so we need to record its invocation manually.
-    extraction_state[""].invocations = [ModuleInvocation(trace_args, trace_kwargs, None)]
+    root_state.invocations = [ModuleInvocation(trace_args, trace_kwargs, None)]
 
     # Set up parent/child relationship between state items.
     for name, state in extraction_state.items():
@@ -285,9 +308,18 @@ def extract(
         if should_compile:
             with ExitStack() as context_stack:
                 try:
-                    # TODO: refactor so order is not important
+                    if len(state.invocations) == 0:
+                        raise ValueError(
+                            f"Unable to compile {state.torch_name}; it was never called when"
+                            " evaluating the given example inputs."
+                        )
+
+                    # TODO: refactor so order is not important (we need to root_context *after*
+                    # any wrapping that might happen elsewhere so our tracers are on correct modules)
                     if state.original_module is root_module:
                         context_stack.enter_context(root_context(extraction_state))
+                    else:
+                        context_stack.enter_context(deduplication_context(state))
                     context_stack.enter_context(compilation_context(state))
                     state.extracted_module, state.invocations[-1].output = compile_module(
                         state.wrapped_module,
@@ -311,31 +343,19 @@ def extract(
                     )
             state.extracted_module = OpaqueGraphModule(state.wrapped_module)
 
-    # Set up the GraphModule hierarchy.
     for torch_qual_name, state in extraction_state.items():
+        # Reset _modules so we'll re-insert them in the order they originally appeared, which may
+        # be different than the order they were assigned by compile(). Also has the side-effect
+        # of removing "unrolled" module names which got added but are actually unused.
+        if isinstance(state.extracted_module, CompiledGraphModule):
+            retarget_submodule_calls(state.extracted_module)
+        state.extracted_module._modules = OrderedDict()
         if torch_qual_name == "":
             continue
         [*parent_path, local_name] = torch_qual_name.split(".")
         parent = ".".join(parent_path)
-        parent_module = extraction_state[""].extracted_module.get_submodule(parent)
-
+        parent_module = root_state.extracted_module.get_submodule(parent)
         setattr(parent_module, local_name, state.extracted_module)
-
-    # Unroll containers in compiled modules to match the compiled code.
-    for state in extraction_state.values():
-        if not isinstance(state.extracted_module, CompiledGraphModule):
-            continue
-        child_queue = deque(state.extracted_module.named_children())
-        while child_queue:
-            child_name, child = child_queue.popleft()
-            if is_container(child):
-                child_queue.extend((f"{child_name}.{n}", m) for n, m in child.named_children())
-                # Only need to pop containers that are direct descendants; nested containers
-                # will get popped when the root is popped.
-                if "." not in child_name:
-                    delattr(state.extracted_module, child_name)
-            else:
-                setattr(state.extracted_module, child_name.replace(".", "_"), child)
 
     # Postprocess after all modules have been converted. Reverse order so children are postprocessed
     # before their parents, which matters for cloned graphs.
@@ -347,13 +367,13 @@ def extract(
 
     # Escape hatch for modules that torch just refuses to compile correctly. Ideally as
     # compatibility improves we won't need this in the future!
-    graph_module = extraction_state[""].extracted_module
+    graph_module = root_state.extracted_module
     if options.postprocessing_function is not None:
         options.postprocessing_function(graph_module, root_module)
         graph_module.recompile()
 
     # Must happen *after* recompile, since that changes forward()
-    if extraction_state[""].accelerate_hook is not None:
-        add_hook_to_module(graph_module, extraction_state[""].accelerate_hook)
+    if root_state.accelerate_hook is not None:
+        add_hook_to_module(graph_module, root_state.accelerate_hook)
 
     return graph_module, wrap_graph_module(graph_module)

@@ -65,22 +65,6 @@ def test_extract_deeply_nested_module(
     )
 
 
-def test_extract_container_module(container_module, container_module_inputs):
-    compiled_graph_module, meta = extract(
-        container_module,
-        ExtractionOptions(error_on_compilation_failure=True),
-        container_module_inputs,
-    )
-    validate_node_meta(meta, compiled_graph_module)
-    assert_results_identical(container_module, compiled_graph_module, container_module_inputs)
-
-    opaque_graph_module, meta = extract(
-        container_module, ExtractionOptions(skip_compilation=True), container_module_inputs
-    )
-    validate_node_meta(meta, opaque_graph_module)
-    assert_results_identical(container_module, opaque_graph_module, container_module_inputs)
-
-
 def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
     # Try every possible combination of opaque/compiled modules--we must always get an equivalent
     # module!
@@ -97,6 +81,23 @@ def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
         )
         validate_node_meta(meta, graph_module)
         assert_results_identical(nested_module, graph_module, nested_module_inputs)
+
+
+def test_extract_container_module(container_module, container_module_inputs):
+    compiled_graph_module, meta = extract(
+        container_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        container_module_inputs,
+    )
+    validate_node_meta(meta, compiled_graph_module)
+    assert_results_identical(container_module, compiled_graph_module, container_module_inputs)
+
+    opaque_graph_module, meta = extract(
+        container_module, ExtractionOptions(skip_compilation=True), container_module_inputs
+    )
+    validate_node_meta(meta, opaque_graph_module)
+    assert_results_identical(container_module, opaque_graph_module, container_module_inputs)
+    breakpoint()
 
 
 def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):

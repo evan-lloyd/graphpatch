@@ -5,7 +5,6 @@ from contextlib import ExitStack, contextmanager
 from functools import partial, partialmethod
 
 import torch
-from torch.nn import Sequential
 
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
@@ -186,16 +185,45 @@ def monkeypatch_graph_names():
     backend/tracer.
     """
     from torch._dynamo.output_graph import OutputGraph
+    from torch._dynamo.source import GetItemSource, NNModuleSource
+    from torch._dynamo.variables import VariableTracker
+    from torch._dynamo.variables.nn_module import NNModuleVariable
+    from torch.nn import ModuleDict, ModuleList, Sequential
 
-    orig_method = OutputGraph.register_attr_or_module
+    orig_register_attr = OutputGraph.register_attr_or_module
+    orig_call_method = NNModuleVariable.call_method
 
-    def strip_self_from_names(*args, **kwargs):
+    def call_method(self, tx, name, args, kwargs, constant=False):
+        module = tx.output.get_submodule(self.module_key)
+        options = VariableTracker.propagate(self, args, kwargs.values())
+
+        # if isinstance(module, ModuleDict) and name == "__getitem__":
+        if name == "__getitem__":
+            # This frankly looks like a bug, where key gets overridden with the getitem arg, but was
+            # likely meant to be the name of the container. This results in names like "foo_foo"
+            # for calls like self.module_dict["foo"], whereas we want "module_dict_foo".
+            # https://github.com/pytorch/pytorch/blob/8549abc347c0dcef6770c522759e74d3ae20e3cd/torch/_dynamo/variables/nn_module.py#L590-L598
+            key = args[0].as_python_constant()
+            return tx.output.register_attr_or_module(
+                module[key],
+                self.module_key,
+                key,
+                source=NNModuleSource(GetItemSource(self.source, key)),
+                **options,
+            )
+
+        return orig_call_method(self, tx, name, args, kwargs, constant)
+
+    def demangle_names(*args, **kwargs):
         [self, target, *names] = args
+
+        # print(names, target.__class__)
 
         def replace(name):
             if not isinstance(name, str):
                 return name
-                # return f"_{name}"
+            # if name == "self":
+            #     name = "sub"
             if name.startswith("self."):
                 name = name.replace("self.", "", 1)
             if name.startswith("L['self']."):
@@ -203,14 +231,15 @@ def monkeypatch_graph_names():
             return name
 
         names = list(map(replace, names))
-        # names = list(map(replace, filter(lambda n: n != "self", names)))
-        return orig_method(self, target, *names, **kwargs)
+        return orig_register_attr(self, target, *names, **kwargs)
 
     try:
-        OutputGraph.register_attr_or_module = strip_self_from_names
+        OutputGraph.register_attr_or_module = demangle_names
+        NNModuleVariable.call_method = call_method
         yield
     finally:
-        OutputGraph.register_attr_or_module = orig_method
+        OutputGraph.register_attr_or_module = orig_register_attr
+        NNModuleVariable.call_method = orig_call_method
 
 
 @contextmanager
@@ -280,6 +309,5 @@ def dynamo_hacks_for_current_torch_version():
             hack_stack.enter_context(set_dynamo_config())
             hack_stack.enter_context(make_dynamo_ignore_hooks())
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
-        # hack_stack.enter_context(do_not_inline_sequential())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield

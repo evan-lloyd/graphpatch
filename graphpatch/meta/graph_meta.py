@@ -184,6 +184,13 @@ class GraphMeta(_BaseMeta):
         )
 
 
+class HierarchicalName(str):
+    def __add__(self, other: str):
+        if self == "":
+            return other
+        return f"{self}.{other}"
+
+
 @dataclass(kw_only=True)
 class ModuleName:
     """Utility class to map the divergence between node names and names in the Module hierarchy."""

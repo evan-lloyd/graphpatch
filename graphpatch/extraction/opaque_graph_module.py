@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 
 from torch import Tensor
 from torch.fx.graph import Graph
-from torch.nn import Module, ModuleDict, ModuleList, Parameter, Sequential
+from torch.nn import Module, ModuleDict, ModuleList, Parameter
 
 from .graphpatch_module import GraphPatchModule
 
@@ -109,12 +109,12 @@ def _patched_attributes(module: Module, patches):
 def _patched_children(module: Module, patch):
     try:
         original = {}
-        for name, submodule in module.named_children():
+        for name, submodule in module._modules.items():
             original[name] = submodule.forward
             submodule.forward = patch(submodule.forward)
         yield
     finally:
-        for name, submodule in module.named_children():
+        for name, submodule in module._modules.items():
             submodule.forward = original[name]
 
 
@@ -285,18 +285,18 @@ class OpaqueGraphModule(GraphPatchModule):
             name, submodule = child_modules.popleft()
             yield name, submodule
 
-            if isinstance(submodule, (ModuleList, ModuleDict, Sequential)):
+            if isinstance(submodule, (ModuleList, ModuleDict)):
                 child_modules.extend([(f"{name}.{n}", m) for n, m in submodule._modules.items()])
 
     @staticmethod
     def _child_modules(children: Iterator[Tuple[str, Module]]) -> Iterator[Tuple[str, Module]]:
         for name, submodule in OpaqueGraphModule._container_passthrough(children):
-            if not isinstance(submodule, (ModuleList, ModuleDict, Sequential)):
+            if not isinstance(submodule, (ModuleList, ModuleDict)):
                 yield name, submodule
 
     def _child_containers(self) -> Iterator[Tuple[str, Module]]:
         for name, submodule in OpaqueGraphModule._container_passthrough(self._modules.items()):
-            if isinstance(submodule, (ModuleList, ModuleDict, Sequential)):
+            if isinstance(submodule, (ModuleList, ModuleDict)):
                 yield name, submodule
 
     def named_children(self) -> Iterator[Tuple[str, Module]]:
@@ -338,10 +338,10 @@ class OpaqueGraphModule(GraphPatchModule):
                 name: (submodule.__class__, tuple(submodule._modules.keys()))
                 for name, submodule in self._child_containers()
             }
+            self._graphpatch_opaque_module_methods = {
+                name: MethodWrapper(method) for name, method in _module_methods(root)
+            }
             self.graph = self._construct_graph(root)
-            self._graphpatch_opaque_module_methods = {}
-            for name, method in _module_methods(root):
-                self._graphpatch_opaque_module_methods[name] = MethodWrapper(method)
 
         # We need to copy attributes even if cloning an existing OpaqueGraphModule.
         for name in self._graphpatch_attribute_names:

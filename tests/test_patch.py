@@ -69,7 +69,6 @@ def test_patch_probe(pg, minimal_module_inputs):
 
 @_opaque_and_compiled("patchable_container_module")
 def test_patch_duplicate_modules(pg, container_module_inputs):
-    # breakpoint()
     with pg.patch(
         {"linear.weight": [weight_probe := ProbePatch()], "output": [output_probe := ProbePatch()]}
     ):

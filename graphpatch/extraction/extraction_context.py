@@ -1,5 +1,4 @@
 import inspect
-from collections import Counter
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -17,8 +16,6 @@ from .accelerate import detach_accelerate_hooks
 # from .bitsandbytes import wrap_bits_and_bytes
 from .graphpatch_module import GraphPatchModule
 
-CONTAINER_TYPES = (ModuleList, ModuleDict, Sequential)
-
 
 @dataclass
 class ModuleInvocation:
@@ -34,8 +31,9 @@ class ExtractionState:
     invocations: List[ModuleInvocation]
     children: Dict[str, "ExtractionState"]
     name: str
+    torch_name: str
 
-    def __init__(self, name: str, original_module: Module):
+    def __init__(self, name: str, torch_name: str, original_module: Module):
         self.original_module = original_module
         # May get wrapped later when we enter extraction context.
         self.wrapped_module = original_module
@@ -44,15 +42,31 @@ class ExtractionState:
         self.invocations = []
         self.children = {}
         self.name = name
+        self.torch_name = torch_name
 
 
 class DeduplicationWrapper(Module):
-    def __init__(self, wrapped: Module):
+    _graphpatch_original_module_name: str
+
+    def __init__(self, wrapped: Module, original_name: str):
         super().__init__()
-        self.wrapped = wrapped
+        self._graphpatch_original_module_name = original_name
+        # Hide from the hierarchy in a tuple, since we want to monkeypatch in the wrapped _modules
+        # during inference.
+        self.wrapped = (wrapped,)
+
+    @contextmanager
+    def _substitute_modules(self) -> Iterator[None]:
+        orig_modules = self.wrapped[0]._modules
+        self.wrapped[0]._modules = self._modules
+        try:
+            yield
+        finally:
+            self.wrapped[0]._modules = orig_modules
 
     def forward(self, *args, **kwargs):
-        return self.wrapped(*args, **kwargs)
+        with self._substitute_modules():
+            return self.wrapped[0].forward(*args, **kwargs)
 
 
 def _iter_state_hierarchy(root_state: ExtractionState) -> Iterator[ExtractionState]:
@@ -67,19 +81,27 @@ def _iter_state_hierarchy(root_state: ExtractionState) -> Iterator[ExtractionSta
 def wrap_module_hierarchy(root_state: ExtractionState, fn: Callable[[ExtractionState], Module]):
     original_modules: Dict[str, Module] = {}
     for state in _iter_state_hierarchy(root_state):
-        original_modules[state.name] = state.wrapped_module
+        original_modules[state.torch_name] = state.wrapped_module
         state.wrapped_module = fn(state)
     for state in _iter_state_hierarchy(root_state):
-        for child_name, child_state in state.children.items():
-            setattr(state.wrapped_module, child_name, child_state.wrapped_module)
+        for child_state in state.children.values():
+            setattr(
+                state.wrapped_module,
+                child_state.torch_name.split(".")[-1],
+                child_state.wrapped_module,
+            )
     try:
         yield
     finally:
         for state in _iter_state_hierarchy(root_state):
-            state.wrapped_module = original_modules[state.name]
+            state.wrapped_module = original_modules[state.torch_name]
         for state in _iter_state_hierarchy(root_state):
-            for child_name, child_state in state.children.items():
-                setattr(state.wrapped_module, child_name, original_modules[child_state.name])
+            for child_state in state.children.values():
+                setattr(
+                    state.wrapped_module,
+                    child_state.torch_name.split(".")[-1],
+                    original_modules[child_state.torch_name],
+                )
 
 
 @contextmanager
@@ -128,9 +150,6 @@ def allow_modules(module_types: List[type]) -> Iterator[None]:
     """Use the undocumented _allowed_function_ids to prevent compile() from inlining the child
     modules, so we can independently compile them into separate GraphModules.
     """
-    # TODO: could there be an edge case where a module recursively includes submodules of its own
-    # type? (eg: nested Sequentials). how would we handle that, maybe make the root a clone of the class?
-
     _orig_allowed_function_ids = deepcopy(_allowed_function_ids.function_ids)
     _orig_skipfiles_allowlist = deepcopy(torch._dynamo.skipfiles.FILENAME_ALLOWLIST)
 
@@ -165,20 +184,25 @@ def compilation_context(root_state: ExtractionState):
 
 
 @contextmanager
+def deduplication_context(root_state: ExtractionState):
+    def deduplicate_modules(state: ExtractionState):
+        if state is root_state or isinstance(state.wrapped_module, (ModuleDict, ModuleList)):
+            return state.wrapped_module
+        if root_state.torch_name == "":
+            local_name = state.torch_name
+        else:
+            # Remove parent's prefix
+            local_name = state.torch_name.replace(root_state.torch_name + ".", "", 1)
+        return DeduplicationWrapper(state.wrapped_module, local_name)
+
+    with wrap_module_hierarchy(root_state, deduplicate_modules):
+        yield
+
+
+@contextmanager
 def root_context(extraction_state: Dict[str, ExtractionState]):
-    duplicate_modules = Counter(
-        m[1] for m in extraction_state[""].original_module.named_modules(remove_duplicate=False)
-    )
-
-    def deduplicate_modules(state):
-        if duplicate_modules[state.original_module] > 1:
-            return DeduplicationWrapper(state.wrapped_module)
-        return state.wrapped_module
-
     with ExitStack() as context_stack:
-        context_stack.enter_context(
-            wrap_module_hierarchy(extraction_state[""], deduplicate_modules)
-        )
+        context_stack.enter_context(deduplication_context(extraction_state[""]))
         for name, state in extraction_state.items():
             # We don't want to add hooks to the root, as this would cause torch.compile() to include
             # our tracing code in the resulting graph.

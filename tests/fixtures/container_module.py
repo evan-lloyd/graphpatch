@@ -13,10 +13,26 @@ class ContainerModule(Module):
         self.linear = Linear(*ContainerModule._shape)
         self.duped_linear = self.linear
         chained_linear = Linear(*ContainerModule._shape)
-        self.sequential = Sequential(chained_linear, chained_linear, chained_linear, chained_linear)
+        chained_sequential = Sequential(self.duped_linear, self.linear)
+        self.sequential = Sequential(
+            chained_linear, self.linear, chained_sequential, chained_linear
+        )
+        self.module_list = ModuleList(
+            [Linear(*ContainerModule._shape), Linear(*ContainerModule._shape)]
+        )
+        self.module_dict = ModuleDict(
+            {
+                "foo": self.linear,
+                "bar": ModuleDict({"baz": ModuleList([self.linear, self.linear, self.sequential])}),
+            }
+        )
 
     def forward(self, x):
-        y = self.duped_linear(x)
+        y = self.duped_linear(x) - self.module_dict["foo"](x)
+        for i in range(3):
+            y += self.module_dict["bar"]["baz"][i](x) * self.linear(x)
+        y += self.module_list[0](x)
+        y += self.module_list[1](x)
         return self.sequential(y) + self.linear(y)
 
 
