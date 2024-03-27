@@ -97,7 +97,6 @@ def test_extract_container_module(container_module, container_module_inputs):
     )
     validate_node_meta(meta, opaque_graph_module)
     assert_results_identical(container_module, opaque_graph_module, container_module_inputs)
-    breakpoint()
 
 
 def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):

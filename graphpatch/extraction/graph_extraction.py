@@ -282,7 +282,9 @@ def extract(
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     extraction_state: Dict[str, ExtractionState] = {
-        name: ExtractionState(name, name, submodule)
+        (graphpatch_name := hacks.override_reserved_name(name)): ExtractionState(
+            graphpatch_name, name, submodule
+        )
         for name, submodule in root_module.named_modules(remove_duplicate=False)
     }
     root_state = extraction_state[""]
@@ -349,7 +351,7 @@ def extract(
         # of removing "unrolled" module names which got added but are actually unused.
         if isinstance(state.extracted_module, CompiledGraphModule):
             retarget_submodule_calls(state.extracted_module)
-        state.extracted_module._modules = OrderedDict()
+            state.extracted_module._modules = OrderedDict()
         if torch_qual_name == "":
             continue
         [*parent_path, local_name] = torch_qual_name.split(".")

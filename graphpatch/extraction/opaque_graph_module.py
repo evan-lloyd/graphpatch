@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 
 from torch import Tensor
 from torch.fx.graph import Graph
-from torch.nn import Module, ModuleDict, ModuleList, Parameter
+from torch.nn import Module, ModuleDict, ModuleList
 
 from .graphpatch_module import GraphPatchModule
 
@@ -90,22 +90,6 @@ def _bind_method(module: Module, method: MethodWrapper) -> Callable:
 
 
 @contextmanager
-def _patched_attributes(module: Module, patches):
-    try:
-        original = {}
-        for name, value in patches.items():
-            original[name] = getattr(module, name)
-            # Module will throw an exception if we try to overwrite a parameter with a Tensor.
-            if isinstance(original[name], Parameter):
-                value = Parameter(value)
-            setattr(module, name, value)
-        yield
-    finally:
-        for name, value in original.items():
-            setattr(module, name, value)
-
-
-@contextmanager
 def _patched_children(module: Module, patch):
     try:
         original = {}
@@ -116,27 +100,6 @@ def _patched_children(module: Module, patch):
     finally:
         for name, submodule in module._modules.items():
             submodule.forward = original[name]
-
-
-@contextmanager
-def _patched_methods(module: Module, patches):
-    try:
-        nonexistent = object()
-        original = {}
-        for name, method in patches.items():
-            original[name] = getattr(module, name, nonexistent)
-            object.__setattr__(module, name, _bind_method(module, method))
-        yield
-    finally:
-        for name in patches.keys():
-            original_method = original.get(name, None)
-            # Hit an exception before we could record this one.
-            if original_method is None:
-                continue
-            if original_method is nonexistent and hasattr(module, name):
-                object.__delattr__(module, name)
-            elif original_method is not nonexistent:
-                object.__setattr__(module, name, original_method)
 
 
 class SubmoduleWrapper:
@@ -163,7 +126,7 @@ _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS = (
     "_graphpatch_module_containers",
     "_graphpatch_opaque_module_class",
     "_graphpatch_opaque_module_methods",
-    # Not using _graphpatch_self, since we'll create a fresh instance when we deserialize.
+    # Not using _graphpatch_self or proxy, since we'll create a fresh instance when we deserialize.
 )
 
 
@@ -180,6 +143,7 @@ class OpaqueGraphModule(GraphPatchModule):
     ]
     _graphpatch_opaque_module_class: Type[Module]
     _graphpatch_opaque_module_methods: Dict[str, Callable]
+    _graphpatch_opaque_module_proxy: Module
     _graphpatch_self: "OpaqueGraphModule"
 
     def get_extra_state(self) -> Any:
@@ -213,21 +177,14 @@ class OpaqueGraphModule(GraphPatchModule):
 
         num_attributes = len(self._graphpatch_attribute_names)
 
-        # TODO: "self" shouldn't be the proxy. maybe a dummy module? or regular object?
+        for i, name in enumerate(self._graphpatch_attribute_names):
+            object.__setattr__(self._graphpatch_opaque_module_proxy, name, args[i])
+        with _patched_children(self._graphpatch_opaque_module_proxy, pass_patch_args):
+            return self._graphpatch_opaque_module_proxy(*args[num_attributes:], **kwargs)
 
-        # Set "self" up as a proxy for the original module. We copy over all methods from the
-        # original instance (needed if, for example, the original forward calls other methods),
-        # but maintain our own attributes, including buffers and parameters.
-        with _patched_attributes(
-            self, {name: args[i] for i, name in enumerate(self._graphpatch_attribute_names)}
-        ), _patched_children(self, pass_patch_args), _patched_methods(
-            self, self._graphpatch_opaque_module_methods
-        ):
-            return self(*args[num_attributes:], **kwargs)
-
-    def __setattr__(self, name: str, value: Union[Tensor, Module]) -> None:
-        # Need to bypass Module's behavior, which would try to add _graphpatch_self to submodules.
-        if name == "_graphpatch_self":
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Need to bypass Module's behavior, which adds Module values to _modules.
+        if name in ("_graphpatch_self", "_graphpatch_opaque_module_proxy"):
             return object.__setattr__(self, name, value)
         super().__setattr__(name, value)
 
@@ -270,7 +227,7 @@ class OpaqueGraphModule(GraphPatchModule):
         # when executing the graph; they are implicitly called at the call_forward node by the
         # original module. NB: going to low-level _modules because named_children() unconfigurably
         # skips duplicates, which we don't want.
-        for name, _ in OpaqueGraphModule._child_modules(module._modules.items()):
+        for name, _ in self._child_modules(module._modules.items()):
             graph.call_function(SubmoduleWrapper(name))
 
         graph.output((call_forward,))
@@ -304,7 +261,21 @@ class OpaqueGraphModule(GraphPatchModule):
         # owning the contained submodules. This lets us keep the hierarchy that the original module
         # code was expecting, while looking to the rest of our own code as if we had unrolled the
         # containers as we do with CompiledGraphModule.
-        return OpaqueGraphModule._child_modules(self._modules.items())
+        return self._child_modules(self._modules.items())
+
+    def _initialize_proxy(self):
+        # Set up proxy for the original module. We copy over all methods from the original instance
+        # (needed if, for example, the original forward calls other methods), but maintain our own
+        # attributes, including buffers and parameters.
+        proxy = self._graphpatch_opaque_module_class.__new__(self._graphpatch_opaque_module_class)
+        Module.__init__(proxy)
+        # Deliberately not copying here; we want our proxy's submodules to always match ours.
+        proxy._modules = self._modules
+
+        for name, method in self._graphpatch_opaque_module_methods.items():
+            object.__setattr__(proxy, name, _bind_method(proxy, method))
+
+        self._graphpatch_opaque_module_proxy = proxy
 
     def __init__(
         self,
@@ -318,6 +289,9 @@ class OpaqueGraphModule(GraphPatchModule):
             # attempt to copy it in.
             root["_graphpatch_self"] = self
             super().__init__(root, graph, class_name)
+
+            self._initialize_proxy()
+
             # Register submodules.
             for node in self.graph.nodes:
                 if node.op == "call_function" and isinstance(node.target, SubmoduleWrapper):
@@ -330,6 +304,7 @@ class OpaqueGraphModule(GraphPatchModule):
         # Cloning an existing OpaqueGraphModule.
         if isinstance(root, OpaqueGraphModule):
             self.set_extra_state(deepcopy(root.get_extra_state()))
+            self._initialize_proxy()
             self.graph = deepcopy(root.graph)
         # Constructing from scratch.
         else:
@@ -341,6 +316,7 @@ class OpaqueGraphModule(GraphPatchModule):
             self._graphpatch_opaque_module_methods = {
                 name: MethodWrapper(method) for name, method in _module_methods(root)
             }
+            self._initialize_proxy()
             self.graph = self._construct_graph(root)
 
         # We need to copy attributes even if cloning an existing OpaqueGraphModule.

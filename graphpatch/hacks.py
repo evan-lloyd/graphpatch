@@ -1,6 +1,7 @@
 # mypy: ignore-errors
 
 import operator
+import re
 from contextlib import ExitStack, contextmanager
 from functools import partial, partialmethod
 
@@ -175,6 +176,37 @@ def monkeypatch_dynamic_shapes():
         for patched_obj, attr_map in orig_functions.items():
             for attr, fn in attr_map.items():
                 setattr(patched_obj, attr, fn)
+
+
+_RESERVED_NAMES = frozenset(
+    {
+        # GraphModule internals
+        "_code",
+        "code",
+        "_graph",
+        "graph",
+        "_tracer_cls",
+        "_tracer_extras",
+        "meta",
+        # NodePath reserved
+        "_code",
+        "_shape",
+    }
+)
+
+
+def override_reserved_name(name):
+    """Override names that would collide with GraphModule or GraphPatch internals. I'd rather
+    use some kind of wrapper to avoid the need to mess with names entirely, but I couldn't find a way
+    to do so without adding a ton of complexity.
+    """
+
+    def override(part):
+        if part in _RESERVED_NAMES or part.startswith("_graphpatch_"):
+            return f"{part}_"
+        return part
+
+    return ".".join(map(override, name.split(".")))
 
 
 @contextmanager

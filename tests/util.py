@@ -1,10 +1,8 @@
 import os
-import re
 
 import pytest
 import torch
 from torch.fx.graph_module import GraphModule
-from torch.nn import ModuleDict, ModuleList, Sequential
 
 from graphpatch import PatchableGraph
 from graphpatch.meta import GraphMeta

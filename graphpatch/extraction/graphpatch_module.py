@@ -1,8 +1,9 @@
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, Tuple, Type, Union
 
+from torch import Tensor
 from torch.fx import Graph, GraphModule
-from torch.nn import Module, ModuleDict, ModuleList
+from torch.nn import Module, ModuleDict, ModuleList, Parameter
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 
 from .invocation_tracking_module_list import InvocationTrackingModuleList

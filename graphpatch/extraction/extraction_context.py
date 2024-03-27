@@ -188,11 +188,11 @@ def deduplication_context(root_state: ExtractionState):
     def deduplicate_modules(state: ExtractionState):
         if state is root_state or isinstance(state.wrapped_module, (ModuleDict, ModuleList)):
             return state.wrapped_module
-        if root_state.torch_name == "":
-            local_name = state.torch_name
+        if root_state.name == "":
+            local_name = state.name
         else:
             # Remove parent's prefix
-            local_name = state.torch_name.replace(root_state.torch_name + ".", "", 1)
+            local_name = state.name.replace(root_state.name + ".", "", 1)
         return DeduplicationWrapper(state.wrapped_module, local_name)
 
     with wrap_module_hierarchy(root_state, deduplicate_modules):
