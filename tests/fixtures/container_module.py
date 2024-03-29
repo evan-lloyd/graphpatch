@@ -33,7 +33,7 @@ class ContainerModule(Module):
             y += self.module_dict["bar"]["baz"][i](x) * self.linear(x)
         y += self.module_list[0](x)
         y += self.module_list[1](x)
-        return self.sequential(y) + self.linear(y)
+        return self.sequential(y) + self.linear(y) + self.module_list[0](y)
 
 
 @pytest.fixture

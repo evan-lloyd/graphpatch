@@ -1,25 +1,19 @@
 import inspect
-import re
 import warnings
-from collections import OrderedDict, defaultdict, deque
+from collections import OrderedDict, defaultdict
 from contextlib import ExitStack
 from copy import deepcopy
 from typing import (
     Any,
-    Deque,
     Dict,
-    Generic,
-    Iterator,
-    NamedTuple,
     Optional,
     Tuple,
     Type,
-    TypeVar,
     Union,
 )
 
 from torch.fx.graph_module import GraphModule
-from torch.nn import Module, ModuleDict, ModuleList, Sequential
+from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
 from ..meta import (
@@ -209,9 +203,10 @@ def _clone_repeated_submodules(state: ExtractionState):
         # Replace the original module with a ModuleList so we don't have to worry about name
         # collisions.
         module_name = calling_nodes[0].target
+        [*parent_path, local_name] = module_name.split(".")
         setattr(
-            graph_module,
-            module_name,
+            graph_module.get_submodule(".".join(parent_path)),
+            local_name,
             ModuleList([submodule] + [clone_graph_module(submodule) for _ in calling_nodes[1:]]),
         )
         # Update the call_module nodes to refer to a specific instance in the list.
@@ -255,13 +250,14 @@ def _clone_repeated_submodules(state: ExtractionState):
                 ),
             )
             submodule_node.target = SubmoduleWrapper(f"{name}.0")
-            submodule_node.name = f"{name}_0"
+            node_name = name.replace(".", "_")
+            submodule_node.name = f"{node_name}_0"
             for i in range(1, len(child_state.invocations)):
                 with graph_module.graph.inserting_after(submodule_node):
                     submodule_node = graph_module.graph.call_function(
                         SubmoduleWrapper(f"{name}.{i}")
                     )
-                    submodule_node.name = f"{name}_{i}"
+                    submodule_node.name = f"{node_name}_{i}"
             graph_module._graphpatch_module_containers[name] = (
                 InvocationTrackingModuleList,
                 tuple(str(i) for i in range(len(child_state.invocations))),

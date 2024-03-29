@@ -1,5 +1,5 @@
 from collections import defaultdict
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from copy import copy, deepcopy
 from typing import (
     Any,
@@ -24,13 +24,7 @@ from torch.nn import Module, Parameter
 from torch.serialization import FILE_LIKE
 from typing_extensions import TypedDict
 
-from .extraction import (
-    CompiledGraphModule,
-    ExtractionOptions,
-    OpaqueGraphModule,
-    detach_accelerate_hooks,
-    extract,
-)
+from .extraction import ExtractionOptions, detach_accelerate_hooks, extract
 from .meta import (
     GraphMeta,
     NodeData,
