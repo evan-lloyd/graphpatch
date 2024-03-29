@@ -1,9 +1,9 @@
+from collections import deque
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Tuple, Type, Union
 
-from torch import Tensor
 from torch.fx import Graph, GraphModule
-from torch.nn import Module, ModuleDict, ModuleList, Parameter
+from torch.nn import Module, ModuleDict, ModuleList
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 
 from .invocation_tracking_module_list import InvocationTrackingModuleList
@@ -32,10 +32,40 @@ class GraphPatchModule(GraphModule):
         state = {k: getattr(self, k) for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS}
         return deepcopy(state)
 
-    def _init_graphpatch_attributes(self):
-        # Due to torch.compile() not accepting our CompiledGraphModule class, our actual __init__
-        # method gets bypassed, so create a hook here to call in the compilation callback.
-        self._graphpatch_module_containers = {}
+    @staticmethod
+    def _is_container(module: Module):
+        return isinstance(module, (ModuleList, ModuleDict)) and not isinstance(
+            module, InvocationTrackingModuleList
+        )
+
+    @staticmethod
+    def _container_passthrough(
+        children: Iterator[Tuple[str, Module]]
+    ) -> Iterator[Tuple[str, Module]]:
+        child_modules = deque(children)
+        while child_modules:
+            name, submodule = child_modules.popleft()
+            yield name, submodule
+
+            if GraphPatchModule._is_container(submodule):
+                child_modules.extend([(f"{name}.{n}", m) for n, m in submodule._modules.items()])
+
+    @staticmethod
+    def _child_modules(children: Iterator[Tuple[str, Module]]) -> Iterator[Tuple[str, Module]]:
+        for name, submodule in GraphPatchModule._container_passthrough(children):
+            if not GraphPatchModule._is_container(submodule):
+                yield name, submodule
+
+    def _child_containers(self) -> Iterator[Tuple[str, Module]]:
+        for name, submodule in GraphPatchModule._container_passthrough(self._modules.items()):
+            if self._is_container(submodule):
+                yield name, submodule
+
+    def _set_containers_for_serialization(self):
+        self._graphpatch_module_containers = {
+            name: (submodule.__class__, tuple(submodule._modules.keys()))
+            for name, submodule in self._child_containers()
+        }
 
     def __init__(
         self,
@@ -43,8 +73,6 @@ class GraphPatchModule(GraphModule):
         graph: Graph,
         class_name: str,
     ):
-        self._init_graphpatch_attributes()
-
         super().__init__(root, graph, class_name)
 
         # Deserializing from pickle.
@@ -63,3 +91,5 @@ class GraphPatchModule(GraphModule):
                 [*parent_path, local_name] = name.split(".")
                 parent_module = self.get_submodule(".".join(parent_path))
                 setattr(parent_module, local_name, root[name])
+        else:
+            self._set_containers_for_serialization()

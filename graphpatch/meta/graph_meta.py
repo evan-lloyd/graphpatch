@@ -11,6 +11,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Type,
     Union,
     cast,
 )
@@ -19,9 +20,9 @@ from torch import Size, Tensor
 from torch.fx.graph import Graph, _Namespace
 from torch.fx.graph_module import GraphModule
 from torch.fx.node import Node
-from torch.nn import Module
 
-from ..extraction.opaque_graph_module import SubmoduleWrapper
+from ..extraction.compiled_graph_module import CompiledGraphModule
+from ..extraction.opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 from ..optional.accelerate import ModelHook
 from ..optional.dataclasses import dataclass, field
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
@@ -106,10 +107,12 @@ class NodeMeta(_BaseMeta):
 
     Attributes:
         node: torch.fx.Node instance this meta-info is associated to.
+        parameter_expected: Does torch expect the output of this node to be a Parameter?
     """
 
     node: Node
     is_graph: ClassVar[bool] = False
+    parameter_expected: bool
 
     def __str__(self) -> str:
         return ""
@@ -124,6 +127,7 @@ class NodeMeta(_BaseMeta):
                 node=memo[self.node],
                 code=self.code,
                 hidden=self.hidden,
+                parameter_expected=self.parameter_expected,
             )
         return cast(NodeMeta, memo[id(self)])
 
@@ -139,8 +143,8 @@ class GraphMeta(_BaseMeta):
         graph: torch.fx.Graph instance this meta-info is associated to.
         graph_module_name: Name of the graph_module within the module hierarchy this meta-info is
             associated to.
-        graph_module_class_name: Name of the class of the graph_module, so we can easily distinguish
-            between opaque and compiled graphs when deserializing.
+        graph_module_class: Class of the graph_module, so we can easily distinguish between opaque
+            and compiled graphs when deserializing.
     """
 
     is_graph: ClassVar[bool] = True
@@ -149,7 +153,7 @@ class GraphMeta(_BaseMeta):
     nodes: Dict[str, Union["NodeMeta", "GraphMeta"]]
     graph: Graph
     graph_module_name: str
-    graph_module_class_name: str
+    graph_module_class: str
 
     def __str__(self) -> str:
         return ""
@@ -179,16 +183,9 @@ class GraphMeta(_BaseMeta):
             code=self.code,
             graph=graph_copy,
             graph_module_name=self.graph_module_name,
-            graph_module_class_name=self.graph_module_class_name,
+            graph_module_class=self.graph_module_class,
             hidden=self.hidden,
         )
-
-
-class HierarchicalName(str):
-    def __add__(self, other: str):
-        if self == "":
-            return other
-        return f"{self}.{other}"
 
 
 @dataclass(kw_only=True)
@@ -266,11 +263,20 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 mapped = module._graphpatch_output_indexes.map(pretty_print_output)
                 code = f"return {mapped.unwrap()}"
             else:
-                code = f"return {match_shape_node.args[0]}"
+                code = f"return {match_shape_node.args[1]}"
         else:
             code = str(node.meta.get("stack_trace", "<no source available>"))
 
         return WrappedCode(code.strip())
+
+    def _graph_module_class_for(
+        self, module: Union[CompiledGraphModule, OpaqueGraphModule]
+    ) -> Union[Type[CompiledGraphModule], Type[OpaqueGraphModule]]:
+        # NB: we can't just return __class__ because torch creates a unique subclass per instance,
+        # which isn't picklable.
+        if isinstance(module, OpaqueGraphModule):
+            return OpaqueGraphModule
+        return CompiledGraphModule
 
     def _graph_module_target(self, node: Node) -> Optional[GraphModule]:
         if (
@@ -341,7 +347,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                             parent=name.meta,
                             graph=target.graph,
                             graph_module_name=f"{name.module_prefix}{node.target}",
-                            graph_module_class_name=target.__class__.__name__,
+                            graph_module_class=self._graph_module_class_for(target),
                             code=self._code_for(
                                 target, node, cast(NodeData[NodeMeta], sub_nodes["output"])
                             ),
@@ -360,6 +366,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                             parent=name.meta,
                             code=self._code_for(module, node),
                             hidden=node.meta.get("_graphpatch_hidden", False),
+                            parameter_expected=False,
                         ),
                         _path=f"{name.meta_prefix}{self._name_for(node, namespace)}",
                     )
@@ -382,7 +389,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 parent="",
                 graph=data.graph,
                 graph_module_name="",
-                graph_module_class_name=data.__class__.__name__,
+                graph_module_class=self._graph_module_class_for(data),
                 hidden=node.meta.get("_graphpatch_hidden", False),
             ),
         )

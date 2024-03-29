@@ -119,16 +119,15 @@ def postprocess_graph(state: ExtractionState):
     # shape and returning its output.
     # NB: we add an attribute to the graph_module rather than passing it to our function via closure
     # because the latter method would not be picklable
+    child_output_ids = set()
+    for child in state.children.values():
+        child_output_ids.update(set(id(invocation.output) for invocation in child.invocations))
     setattr(
         graph_module,
         "_graphpatch_output_indexes",
         wrap_output_argument_index(
             state.invocations[-1].output if len(state.invocations) > 0 else None,
-            set(
-                id(v.invocations[-1].output)
-                for v in state.children.values()
-                if len(v.invocations) > 0
-            ),
+            child_output_ids,
             # Do not unwrap values at runtime if this is an opaque module, since we'll only have
             # one input node.
             should_unwrap=not isinstance(graph_module, OpaqueGraphModule),
@@ -346,9 +345,9 @@ def extract(
             state.extracted_module = OpaqueGraphModule(state.wrapped_module)
 
     for torch_qual_name, state in extraction_state.items():
-        # Reset _modules so we'll re-insert them in the order they originally appeared, which may
-        # be different than the order they were assigned by compile(). Also has the side-effect
-        # of removing "unrolled" module names which got added but are actually unused.
+        # Undo the unrolling of containers performed by compile(), so we'll end up with the same
+        # module hierarchy as originally. Reset _modules so we'll additionally restore the original
+        # ordering.
         if isinstance(state.extracted_module, CompiledGraphModule):
             retarget_submodule_calls(state.extracted_module)
             state.extracted_module._modules = OrderedDict()
@@ -358,6 +357,12 @@ def extract(
         parent = ".".join(parent_path)
         parent_module = root_state.extracted_module.get_submodule(parent)
         setattr(parent_module, local_name, state.extracted_module)
+
+    # With the container hierarchy finalized, we can set up additional attributes needed for
+    # eventual serialization.
+    for state in extraction_state.values():
+        if isinstance(state.extracted_module, GraphPatchModule):
+            state.extracted_module._set_containers_for_serialization()
 
     # Postprocess after all modules have been converted. Reverse order so children are postprocessed
     # before their parents, which matters for cloned graphs.

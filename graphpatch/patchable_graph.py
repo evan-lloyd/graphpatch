@@ -76,6 +76,7 @@ def _make_patch_wrapper(
         # TODO: it should be possible to extract shapes during the initial graph extraction
         if patch_args.get("_trace_output_shape", False):
             node.shape = wrap_node_shape(output)
+            node.parameter_expected = isinstance(output, Parameter)
 
         if not patches:
             return output
@@ -88,7 +89,13 @@ def _make_patch_wrapper(
         for patch in patches:
             wrapped_output.replace(patch.path, patch)
 
-        return wrapped_output.unwrap()
+        unwrapped_output = wrapped_output.unwrap()
+
+        # User convenience for patches that replace Parameters, allowing bare Tensors to be passed
+        # without torch raising an exception.
+        if node.parameter_expected and not isinstance(unwrapped_output, Parameter):
+            return Parameter(unwrapped_output)
+        return unwrapped_output
 
     return patch_wrapper
 
@@ -253,16 +260,13 @@ class PatchableGraph(Module):
             local_submodules = submodules_by_parent[name]
             local_state = state_by_submodule[name]
 
-            graph_module_subclass = {
-                subclass.__name__: subclass for subclass in (CompiledGraphModule, OpaqueGraphModule)
-            }.get(meta.graph_module_class_name, GraphModule)
-            graph_module = graph_module_subclass(
+            graph_module = meta.graph_module_class(
                 {
                     **local_state,
                     **local_submodules,
                 },
                 meta.graph,
-                meta.graph_module_class_name,
+                meta.graph_module_class.__name__,
             )
 
             submodules_by_parent[parent_name][str(target)] = graph_module
@@ -292,8 +296,9 @@ class PatchableGraph(Module):
         # don't want to persist autograd state.
         state_dict = self.state_dict(keep_vars=True)
 
-        # Handle edge case with non-state attributes, like variance_epsilon in LlamaRMSNorm. We can
-        # find the ones that matter by searching all our subgraphs for references.
+        # Handle non-state attributes, like variance_epsilon in LlamaRMSNorm, and for
+        # OpaqueGraphModule. We can find the ones that matter by searching all our subgraphs for
+        # references.
         for node in self._original_graph.values():
             if (
                 isinstance(node, NodeMeta)

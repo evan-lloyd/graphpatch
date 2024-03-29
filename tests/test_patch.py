@@ -74,8 +74,10 @@ def test_patch_duplicate_modules(pg, container_module_inputs):
     ):
         patched_output = pg(container_module_inputs)
 
+    # TODO: test differential patches to each invocation of linear
+
     assert output_probe.activation.equal(patched_output)
-    assert weight_probe.activation.equal(pg._graph_module.linear.weight)
+    assert weight_probe.activation.equal(pg._graph_module.linear[0].weight)
 
 
 @_opaque_and_compiled("patchable_minimal_module")

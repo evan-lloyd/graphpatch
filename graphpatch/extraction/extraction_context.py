@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 import torch
 from torch._dynamo.allowed_functions import _allowed_function_ids
 from torch._subclasses.fake_tensor import is_fake
-from torch.nn import Module, ModuleDict, ModuleList, Sequential
+from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
 from ..optional.accelerate import ModelHook
@@ -118,8 +118,9 @@ def tracer_hook(state: ExtractionState) -> Iterator[None]:
         if state.accelerate_hook is not None:
             output = state.accelerate_hook.post_forward(module, output)
 
-        # Disregard the symbolic tracing step when recording invocations.
-        if not is_fake(output):
+        # Disregard the symbolic tracing step when recording invocations. We can tell if we're
+        # currently in fake mode by creating a tensor and seeing if it's fake.
+        if not is_fake(torch.zeros(1)):
             state.invocations.append(ModuleInvocation(args, kwargs, output))
         return output
 

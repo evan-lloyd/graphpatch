@@ -1,14 +1,12 @@
 import inspect
-from collections import deque
 from contextlib import contextmanager
 from copy import deepcopy
 from enum import Enum
 from types import MethodType
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 
-from torch import Tensor
 from torch.fx.graph import Graph
-from torch.nn import Module, ModuleDict, ModuleList
+from torch.nn import Module
 
 from .graphpatch_module import GraphPatchModule
 
@@ -54,19 +52,6 @@ def _module_attributes(module: Module) -> Iterator[Any]:
     return filter(_filter, inspect.getmembers(module))
 
 
-def _method_binding_type(function_or_method: Callable):
-    if isinstance(getattr(function_or_method, "__self__", None), type):
-        return MethodBindingType._class
-    elif hasattr(function_or_method, "__self__"):
-        return MethodBindingType._instance
-    else:
-        return MethodBindingType._none
-
-
-def _unbound_method(function_or_method: Callable):
-    return getattr(function_or_method, "__func__", function_or_method)
-
-
 class MethodWrapper:
     """Save an unbound version of the given method so we can serialize instance methods without
     also serializing the instance itself.
@@ -76,30 +61,50 @@ class MethodWrapper:
     binding: MethodBindingType
 
     def __init__(self, function_or_method: Callable):
-        self.function = _unbound_method(function_or_method)
-        self.binding = _method_binding_type(function_or_method)
+        self.function = self._unbound_method(function_or_method)
+        self.binding = self._method_binding_type(function_or_method)
 
+    @staticmethod
+    def _unbound_method(function_or_method: Callable):
+        return getattr(function_or_method, "__func__", function_or_method)
 
-def _bind_method(module: Module, method: MethodWrapper) -> Callable:
-    if method.binding is MethodBindingType._class:
-        return MethodType(_unbound_method(method.function), module.__class__)
-    elif method.binding is MethodBindingType._instance:
-        return MethodType(_unbound_method(method.function), module)
-    else:
-        return method.function
+    @staticmethod
+    def _method_binding_type(function_or_method: Callable):
+        if isinstance(getattr(function_or_method, "__self__", None), type):
+            return MethodBindingType._class
+        elif hasattr(function_or_method, "__self__"):
+            return MethodBindingType._instance
+        else:
+            return MethodBindingType._none
+
+    def bound_method(self, module: Module) -> Callable:
+        if self.binding is MethodBindingType._class:
+            return MethodType(self._unbound_method(self.function), module.__class__)
+        elif self.binding is MethodBindingType._instance:
+            return MethodType(self._unbound_method(self.function), module)
+        else:
+            return self.function
 
 
 @contextmanager
-def _patched_children(module: Module, patch):
+def _patched_forward(module_iterator: Iterator[Tuple[str, Module]], patch):
     try:
-        original = {}
-        for name, submodule in module._modules.items():
-            original[name] = submodule.forward
-            submodule.forward = patch(submodule.forward)
+        original: Dict[str, Tuple[Callable, bool]] = {}
+        module_list = list(module_iterator)
+        for name, submodule in module_list:
+            original[name] = (
+                submodule.forward,
+                # Was forward overridden elsewhere? accelerate likes to do this.
+                "forward" in submodule.__dict__,
+            )
+            submodule.forward = patch(MethodWrapper(submodule.forward).bound_method(submodule))
         yield
     finally:
-        for name, submodule in module._modules.items():
-            submodule.forward = original[name]
+        for name, submodule in module_list:
+            if original[name][1]:
+                submodule.forward = original[name]
+            else:
+                del submodule.forward
 
 
 class SubmoduleWrapper:
@@ -123,7 +128,6 @@ class SubmoduleWrapper:
 
 _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS = (
     "_graphpatch_attribute_names",
-    "_graphpatch_module_containers",
     "_graphpatch_opaque_module_class",
     "_graphpatch_opaque_module_methods",
     # Not using _graphpatch_self or proxy, since we'll create a fresh instance when we deserialize.
@@ -138,11 +142,8 @@ class OpaqueGraphModule(GraphPatchModule):
     """
 
     _graphpatch_attribute_names: Tuple[str]
-    _graphpatch_module_containers: Dict[
-        str, Tuple[Union[Type[ModuleList], Type[ModuleDict]], Tuple[str]]
-    ]
     _graphpatch_opaque_module_class: Type[Module]
-    _graphpatch_opaque_module_methods: Dict[str, Callable]
+    _graphpatch_opaque_module_methods: Dict[str, MethodWrapper]
     _graphpatch_opaque_module_proxy: Module
     _graphpatch_self: "OpaqueGraphModule"
 
@@ -178,9 +179,14 @@ class OpaqueGraphModule(GraphPatchModule):
         num_attributes = len(self._graphpatch_attribute_names)
 
         for i, name in enumerate(self._graphpatch_attribute_names):
-            object.__setattr__(self._graphpatch_opaque_module_proxy, name, args[i])
-        with _patched_children(self._graphpatch_opaque_module_proxy, pass_patch_args):
-            return self._graphpatch_opaque_module_proxy(*args[num_attributes:], **kwargs)
+            setattr(self._graphpatch_opaque_module_proxy, name, args[i])
+        with _patched_forward(self.named_children(), pass_patch_args):
+            try:
+                return self._graphpatch_opaque_module_proxy(*args[num_attributes:], **kwargs)
+            finally:
+                # Don't hold on to references to the patched attributes.
+                for i, name in enumerate(self._graphpatch_attribute_names):
+                    delattr(self._graphpatch_opaque_module_proxy, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Need to bypass Module's behavior, which adds Module values to _modules.
@@ -233,29 +239,6 @@ class OpaqueGraphModule(GraphPatchModule):
         graph.output((call_forward,))
         return graph
 
-    @staticmethod
-    def _container_passthrough(
-        children: Iterator[Tuple[str, Module]]
-    ) -> Iterator[Tuple[str, Module]]:
-        child_modules = deque(children)
-        while child_modules:
-            name, submodule = child_modules.popleft()
-            yield name, submodule
-
-            if isinstance(submodule, (ModuleList, ModuleDict)):
-                child_modules.extend([(f"{name}.{n}", m) for n, m in submodule._modules.items()])
-
-    @staticmethod
-    def _child_modules(children: Iterator[Tuple[str, Module]]) -> Iterator[Tuple[str, Module]]:
-        for name, submodule in OpaqueGraphModule._container_passthrough(children):
-            if not isinstance(submodule, (ModuleList, ModuleDict)):
-                yield name, submodule
-
-    def _child_containers(self) -> Iterator[Tuple[str, Module]]:
-        for name, submodule in OpaqueGraphModule._container_passthrough(self._modules.items()):
-            if isinstance(submodule, (ModuleList, ModuleDict)):
-                yield name, submodule
-
     def named_children(self) -> Iterator[Tuple[str, Module]]:
         # We want OpaqueGraphModule to behave as if its containers don't exist, instead directly
         # owning the contained submodules. This lets us keep the hierarchy that the original module
@@ -273,7 +256,7 @@ class OpaqueGraphModule(GraphPatchModule):
         proxy._modules = self._modules
 
         for name, method in self._graphpatch_opaque_module_methods.items():
-            object.__setattr__(proxy, name, _bind_method(proxy, method))
+            object.__setattr__(proxy, name, method.bound_method(proxy))
 
         self._graphpatch_opaque_module_proxy = proxy
 
@@ -309,10 +292,6 @@ class OpaqueGraphModule(GraphPatchModule):
         # Constructing from scratch.
         else:
             self._graphpatch_opaque_module_class = root.__class__
-            self._graphpatch_module_containers = {
-                name: (submodule.__class__, tuple(submodule._modules.keys()))
-                for name, submodule in self._child_containers()
-            }
             self._graphpatch_opaque_module_methods = {
                 name: MethodWrapper(method) for name, method in _module_methods(root)
             }
