@@ -1,4 +1,4 @@
-from typing import Any, Tuple, cast
+from typing import Any, Tuple
 
 from torch import compile
 from torch.fx import Graph, GraphModule

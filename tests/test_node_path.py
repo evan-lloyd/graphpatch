@@ -144,7 +144,7 @@ def test_node_path_code(patchable_deeply_nested_output_module, snapshot):
     else:
         snapshot.assert_match(pg.graph._code, "2_0")
     assert str(pg.graph.output._code) == (
-        "return ((linear,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)],"
+        "return ((linear_0,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)],"
         " {'nested_dict': [(linear_1,)]})"
     )
 
@@ -174,7 +174,7 @@ def test_protected_names(patchable_protected_name_module, protected_name_module_
     assert any(n.node.name == "_code" for n in pg._meta.values() if n.node is not None)
 
 
-def test_uncompiled_module_presentation(nested_module, nested_module_inputs):
+def test_opaque_module_presentation(nested_module, nested_module_inputs):
     # TODO: test!
     pg = PatchableGraph(
         nested_module,

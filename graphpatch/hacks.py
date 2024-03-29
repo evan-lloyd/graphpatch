@@ -230,19 +230,19 @@ def monkeypatch_graph_names():
         options = VariableTracker.propagate(self, args, kwargs.values())
 
         # if isinstance(module, ModuleDict) and name == "__getitem__":
-        if name == "__getitem__":
-            # This frankly looks like a bug, where key gets overridden with the getitem arg, but was
-            # likely meant to be the name of the container. This results in names like "foo_foo"
-            # for calls like self.module_dict["foo"], whereas we want "module_dict_foo".
-            # https://github.com/pytorch/pytorch/blob/8549abc347c0dcef6770c522759e74d3ae20e3cd/torch/_dynamo/variables/nn_module.py#L590-L598
-            key = args[0].as_python_constant()
-            return tx.output.register_attr_or_module(
-                module[key],
-                self.module_key,
-                key,
-                source=NNModuleSource(GetItemSource(self.source, key)),
-                **options,
-            )
+        # if name == "__getitem__":
+        #     # This frankly looks like a bug, where key gets overridden with the getitem arg, but was
+        #     # likely meant to be the name of the container. This results in names like "foo_foo"
+        #     # for calls like self.module_dict["foo"], whereas we want "module_dict_foo".
+        #     # https://github.com/pytorch/pytorch/blob/8549abc347c0dcef6770c522759e74d3ae20e3cd/torch/_dynamo/variables/nn_module.py#L590-L598
+        #     key = args[0].as_python_constant()
+        #     return tx.output.register_attr_or_module(
+        #         module[key],
+        #         self.module_key,
+        #         key,
+        #         source=NNModuleSource(GetItemSource(self.source, key)),
+        #         **options,
+        #     )
 
         return orig_call_method(self, tx, name, args, kwargs, constant)
 

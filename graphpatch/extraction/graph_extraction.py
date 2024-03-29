@@ -51,18 +51,14 @@ CONTAINER_TYPES = (ModuleList, ModuleDict)
 def init_container(container: Union[ModuleList, ModuleDict]):
     if isinstance(container, ModuleList):
         return container.__class__([Module() for _ in range(len(container))])
-    # We treat Sequential as a container (even though it has its own forward) because compile()
-    # is hard-coded to unroll it.
-    # elif isinstance(container, Sequential):
-    #     return container.__class__(*[Module() for _ in range(len(container))])
     return container.__class__()
 
 
 def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
+    """Unflatten the args to an output node to match the original output shape."""
     if not indexes._value.should_unwrap:
         return args[0]
 
-    """Unflatten the args to an output node to match the original output shape."""
     return indexes.map(
         lambda _, index: args[index.index] if isinstance(index.index, int) else NodeData._NO_VALUE
     ).unwrap()
@@ -88,21 +84,11 @@ def is_container(module: Union[Module, Type[Module]]) -> bool:
     return model_class in CONTAINER_TYPES
 
 
-def canonical_module_name(name: str):
-    # Need to mirror torch.compile() behavior of renaming modules that start with "_foo" as
-    # "sub_foo", similarly for any non-alpha character.
-    return name
-    # return re.sub(
-    #     r"(\.|^)([^a-zA-Z])",
-    #     lambda m: f"{m.group(1) or ''}sub_{m.group(2) if m.group(2) != '_' else ''}",
-    #     name,
-    # )
-
-
 def retarget_submodule_calls(graph_module: GraphPatchModule):
-    # compile() unrolls all containers, modifying the module hierarchy. Our later code is much
-    # simplified if we instead retain the original hierarchy. This also looks nicer when the user
-    # inspects the returned GraphModule.
+    """compile() unrolls all containers, modifying the module hierarchy. Our later code is much
+    simplified if we instead retain the original hierarchy. This also looks nicer when the user
+    inspects the returned GraphModule.
+    """
     for node in graph_module.graph.nodes:
         if node.op != "call_module":
             continue
@@ -111,45 +97,15 @@ def retarget_submodule_calls(graph_module: GraphPatchModule):
             node.target = target_module._graphpatch_original_module_name
 
 
-def postprocess_graph(state: ExtractionState):
-    graph_module = state.extracted_module
-    # Compilation flattens the arguments to the output node into a single tuple, which changes the
-    # signature of the function. This is problematic when we have nested modules that may assume
-    # a particular shape! We can hack around this by injecting a function that generates the correct
-    # shape and returning its output.
-    # NB: we add an attribute to the graph_module rather than passing it to our function via closure
-    # because the latter method would not be picklable
-    child_output_ids = set()
-    for child in state.children.values():
-        child_output_ids.update(set(id(invocation.output) for invocation in child.invocations))
-    setattr(
-        graph_module,
-        "_graphpatch_output_indexes",
-        wrap_output_argument_index(
-            state.invocations[-1].output if len(state.invocations) > 0 else None,
-            child_output_ids,
-            # Do not unwrap values at runtime if this is an opaque module, since we'll only have
-            # one input node.
-            should_unwrap=not isinstance(graph_module, OpaqueGraphModule),
-        ),
-    )
-
-    output_node = next(n for n in graph_module.graph.nodes if n.op == "output")
-    with graph_module.graph.inserting_before(output_node):
-        # Graph complains when accessing non-buffer/parameter attributes, but we don't care.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            output_index_node = graph_module.graph.get_attr("_graphpatch_output_indexes")
-            output_index_node.meta["_graphpatch_hidden"] = True
-        match_shape_node = graph_module.graph.call_function(
-            match_shape, (output_index_node,) + output_node.args[0]
-        )
-        match_shape_node.meta["_graphpatch_hidden"] = True
-        output_node.args = (match_shape_node,)
-
+def _repair_input_signature(state: ExtractionState):
+    """Compilation lifts some module attributes into arguments to forward, and has inconsistent
+    handling of keyword arguments. We need to restore the original input signature so that calls
+    to subgraphs behave correctly.
+    """
     # kwargs aren't included in the GraphModule call signature by default; often they are either
     # ignored or converted into positional arguments. Inspect the original forward() method to
     # repair the correct signature.
+    graph_module = state.extracted_module
     insert_after = None
     placeholders = [n for n in graph_module.graph.nodes if n.op == "placeholder"]
     if placeholders:
@@ -197,10 +153,52 @@ def postprocess_graph(state: ExtractionState):
         )
         placeholder.op = "get_attr"
 
-    # Submodules can be used more than once, but this will cause problems later when we manipulate
-    # the graph, since the user may want to independently patch activations in each instance. To
-    # simplify things, here we clone the graph modules (but not their parameters!), so we'll have
-    # independent graphs to work with.
+
+def _repair_output_signature(state: ExtractionState):
+    """Compilation flattens the arguments to the output node into a single tuple, which changes the
+    signature of the function. This is problematic when we have nested modules that may assume
+    a particular shape! We can hack around this by injecting a function that generates the correct
+    shape and returning its output.
+    NB: we add an attribute to the graph_module rather than passing it to our function via closure
+    because the latter method would not be picklable.
+    """
+    graph_module = state.extracted_module
+    child_output_ids = set()
+    for child in state.children.values():
+        child_output_ids.update(set(id(invocation.output) for invocation in child.invocations))
+    setattr(
+        graph_module,
+        "_graphpatch_output_indexes",
+        wrap_output_argument_index(
+            state.invocations[-1].output if len(state.invocations) > 0 else None,
+            child_output_ids,
+            # Do not unwrap values at runtime if this is an opaque module, since we'll only have
+            # one input node.
+            should_unwrap=not isinstance(graph_module, OpaqueGraphModule),
+        ),
+    )
+
+    output_node = next(n for n in graph_module.graph.nodes if n.op == "output")
+    with graph_module.graph.inserting_before(output_node):
+        # Graph complains when accessing non-buffer/parameter attributes, but we don't care.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            output_index_node = graph_module.graph.get_attr("_graphpatch_output_indexes")
+            output_index_node.meta["_graphpatch_hidden"] = True
+        match_shape_node = graph_module.graph.call_function(
+            match_shape, (output_index_node,) + output_node.args[0]
+        )
+        match_shape_node.meta["_graphpatch_hidden"] = True
+        output_node.args = (match_shape_node,)
+
+
+def _clone_repeated_submodules(state: ExtractionState):
+    """Submodules can be used more than once, but this will cause problems later when we manipulate
+    the graph, since the user may want to independently patch activations in each instance. To
+    simplify things, here we clone the graph modules (but not their parameters!), so we'll have
+    independent graphs to work with.
+    """
+    graph_module = state.extracted_module
     duplicate_graph_modules = defaultdict(list)
     for node in graph_module.graph.nodes:
         if node.op == "call_module":
@@ -256,16 +254,40 @@ def postprocess_graph(state: ExtractionState):
                     ]
                 ),
             )
-            submodule_node.target.module_name = f"{name}.0"
+            submodule_node.target = SubmoduleWrapper(f"{name}.0")
+            submodule_node.name = f"{name}_0"
             for i in range(1, len(child_state.invocations)):
                 with graph_module.graph.inserting_after(submodule_node):
                     submodule_node = graph_module.graph.call_function(
                         SubmoduleWrapper(f"{name}.{i}")
                     )
+                    submodule_node.name = f"{name}_{i}"
             graph_module._graphpatch_module_containers[name] = (
                 InvocationTrackingModuleList,
                 tuple(str(i) for i in range(len(child_state.invocations))),
             )
+
+
+def _standardize_submodule_nodes(state: ExtractionState):
+    """compile() mangles the names of nodes calling submodules that live in containers. Here we
+    standardize to something much more user-friendly.
+    """
+    graph_module = state.extracted_module
+    for node in graph_module.graph.nodes:
+        if node.op != "call_module":
+            continue
+        node.name = node.target.replace(".", "_")
+
+
+def postprocess_graph(state: ExtractionState):
+    """Clean up the extracted graph to match the original module's signature and standardize node
+    names.
+    """
+    graph_module = state.extracted_module
+    _repair_input_signature(state)
+    _repair_output_signature(state)
+    _clone_repeated_submodules(state)
+    _standardize_submodule_nodes(state)
 
     # Hack for some weirdness around dynamic shape detection (currently only seen in GPT2-XL)
     for node in graph_module.graph.nodes:

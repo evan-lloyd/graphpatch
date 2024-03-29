@@ -70,7 +70,7 @@ def test_patch_probe(pg, minimal_module_inputs):
 @_opaque_and_compiled("patchable_container_module")
 def test_patch_duplicate_modules(pg, container_module_inputs):
     with pg.patch(
-        {"linear.weight": [weight_probe := ProbePatch()], "output": [output_probe := ProbePatch()]}
+        {"linear_0.weight": [weight_probe := ProbePatch()], "output": [output_probe := ProbePatch()]}
     ):
         patched_output = pg(container_module_inputs)
 
@@ -178,7 +178,7 @@ def test_custom_patch(pg, minimal_module_inputs):
 def test_patch_output_tuple(pg, tuple_output_module_inputs):
     with pg.patch(
         {
-            "linear.output": [AddPatch(value=torch.ones((1,)))],
+            "linear_0.output": [AddPatch(value=torch.ones((1,)))],
             "linear_1.output": [ZeroPatch()],
             "output|sub_0": [probe_0 := ProbePatch()],
             "output|sub_1": [probe_1 := ProbePatch()],

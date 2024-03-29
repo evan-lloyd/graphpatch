@@ -7,11 +7,11 @@ from snapshottest import GenericRepr, Snapshot
 snapshots = Snapshot()
 
 snapshots["test_node_path_code 2_0"] = GenericRepr(
-    'def forward(self, x : torch.Tensor):\n    child_a = self.child_a(x);  x = None\n    getitem = child_a[0]\n    getitem_1 = getitem[0];  getitem = None\n    getitem_2 = child_a[1];  child_a = None\n    getitem_3 = getitem_2[0]\n    getitem_4 = getitem_3[0]\n    getitem_5 = getitem_4[0];  getitem_4 = None\n    getitem_6 = getitem_3[1];  getitem_3 = None\n    getitem_7 = getitem_2[1]\n    getitem_8 = getitem_7[0]\n    getitem_9 = getitem_8[0];  getitem_8 = None\n    getitem_10 = getitem_7[1];  getitem_7 = None\n    getitem_11 = getitem_2[2];  getitem_2 = None\n    getitem_12 = getitem_11[0]\n    getitem_13 = getitem_12[0];  getitem_12 = None\n    getitem_14 = getitem_11[1];  getitem_11 = None\n    linear = getattr(self.linear, "0")(getitem_1);  getitem_1 = None\n    add = linear + 2\n    linear_1 = getattr(self.linear, "1")(add);  add = None\n    return ((linear,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)], {\'nested_dict\': [(linear_1,)]})'
+    'def forward(self, x : torch.Tensor):\n    child_a = self.child_a(x);  x = None\n    getitem = child_a[0]\n    getitem_1 = getitem[0];  getitem = None\n    getitem_2 = child_a[1];  child_a = None\n    getitem_3 = getitem_2[0]\n    getitem_4 = getitem_3[0]\n    getitem_5 = getitem_4[0];  getitem_4 = None\n    getitem_6 = getitem_3[1];  getitem_3 = None\n    getitem_7 = getitem_2[1]\n    getitem_8 = getitem_7[0]\n    getitem_9 = getitem_8[0];  getitem_8 = None\n    getitem_10 = getitem_7[1];  getitem_7 = None\n    getitem_11 = getitem_2[2];  getitem_2 = None\n    getitem_12 = getitem_11[0]\n    getitem_13 = getitem_12[0];  getitem_12 = None\n    getitem_14 = getitem_11[1];  getitem_11 = None\n    linear_0 = getattr(self.linear, "0")(getitem_1);  getitem_1 = None\n    add = linear_0 + 2\n    linear_1 = getattr(self.linear, "1")(add);  add = None\n    return ((linear_0,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)], {\'nested_dict\': [(linear_1,)]})'
 )
 
 snapshots["test_node_path_code 2_1"] = GenericRepr(
-    'def forward(self, x : torch.Tensor):\n    child_a = self.child_a(x);  x = None\n    getitem = child_a[0]\n    getitem_1 = getitem[0];  getitem = None\n    getitem_2 = child_a[1];  child_a = None\n    getitem_3 = getitem_2[0]\n    getitem_4 = getitem_3[0]\n    getitem_5 = getitem_4[0];  getitem_4 = None\n    getitem_6 = getitem_3[1];  getitem_3 = None\n    getitem_7 = getitem_2[1]\n    getitem_8 = getitem_7[0]\n    getitem_9 = getitem_8[0];  getitem_8 = None\n    getitem_10 = getitem_7[1];  getitem_7 = None\n    getitem_11 = getitem_2[2];  getitem_2 = None\n    getitem_12 = getitem_11[0]\n    getitem_13 = getitem_12[0];  getitem_12 = None\n    getitem_14 = getitem_11[1];  getitem_11 = None\n    linear = getattr(self.linear, "0")(getitem_1);  getitem_1 = None\n    add = linear + 2\n    linear_1 = getattr(self.linear, "1")(add);  add = None\n    return ((linear,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)], {\'nested_dict\': [(linear_1,)]})'
+    'def forward(self, x : torch.Tensor):\n    child_a = self.child_a(x);  x = None\n    getitem = child_a[0]\n    getitem_1 = getitem[0];  getitem = None\n    getitem_2 = child_a[1];  child_a = None\n    getitem_3 = getitem_2[0]\n    getitem_4 = getitem_3[0]\n    getitem_5 = getitem_4[0];  getitem_4 = None\n    getitem_6 = getitem_3[1];  getitem_3 = None\n    getitem_7 = getitem_2[1]\n    getitem_8 = getitem_7[0]\n    getitem_9 = getitem_8[0];  getitem_8 = None\n    getitem_10 = getitem_7[1];  getitem_7 = None\n    getitem_11 = getitem_2[2];  getitem_2 = None\n    getitem_12 = getitem_11[0]\n    getitem_13 = getitem_12[0];  getitem_12 = None\n    getitem_14 = getitem_11[1];  getitem_11 = None\n    linear_0 = getattr(self.linear, "0")(getitem_1);  getitem_1 = None\n    add = linear_0 + 2\n    linear_1 = getattr(self.linear, "1")(add);  add = None\n    return ((linear_0,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)], {\'nested_dict\': [(linear_1,)]})'
 )
 
 snapshots[
@@ -30,7 +30,7 @@ snapshots[
 │ │ │ ├─inputs_2: Tensor(10, 10)
 │ │ │ ├─inputs_3: Tensor(10, 10)
 │ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear: Graph(5)
+│ │ │ ├─c_linear_0: Graph(5)
 │ │ │ │ ├─input: Tensor(10, 10)
 │ │ │ │ ├─weight: Tensor(10, 10)
 │ │ │ │ ├─bias: Tensor(10)
@@ -98,7 +98,7 @@ snapshots[
 │ │ │ ├─inputs_2: Tensor(10, 10)
 │ │ │ ├─inputs_3: Tensor(10, 10)
 │ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear: Graph(5)
+│ │ │ ├─c_linear_0: Graph(5)
 │ │ │ │ ├─input: Tensor(10, 10)
 │ │ │ │ ├─weight: Tensor(10, 10)
 │ │ │ │ ├─bias: Tensor(10)
@@ -166,7 +166,7 @@ snapshots[
 │ │ │ ├─inputs_2: Tensor(10, 10)
 │ │ │ ├─inputs_3: Tensor(10, 10)
 │ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear: Graph(5)
+│ │ │ ├─c_linear_0: Graph(5)
 │ │ │ │ ├─input: Tensor(10, 10)
 │ │ │ │ ├─weight: Tensor(10, 10)
 │ │ │ │ ├─bias: Tensor(10)
@@ -286,7 +286,7 @@ snapshots[
 │ └─sub_0: Tensor(10, 10)
 ├─getitem_13: Tensor(10, 10)
 ├─getitem_14: Tensor(10, 10)
-├─linear: Graph(5)
+├─linear_0: Graph(5)
 │ ├─input: Tensor(10, 10)
 │ ├─weight: Tensor(10, 10)
 │ ├─bias: Tensor(10)
@@ -336,7 +336,7 @@ snapshots[
 │ │ │ ├─inputs_2: Tensor(10, 10)
 │ │ │ ├─inputs_3: Tensor(10, 10)
 │ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear: Graph(5)
+│ │ │ ├─c_linear_0: Graph(5)
 │ │ │ │ ├─input: Tensor(10, 10)
 │ │ │ │ ├─weight: Tensor(10, 10)
 │ │ │ │ ├─bias: Tensor(10)
@@ -406,7 +406,7 @@ snapshots[
 │ │ │ ├─inputs_2: Tensor(10, 10)
 │ │ │ ├─inputs_3: Tensor(10, 10)
 │ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear: Graph(5)
+│ │ │ ├─c_linear_0: Graph(5)
 │ │ │ │ ├─input: Tensor(10, 10)
 │ │ │ │ ├─weight: Tensor(10, 10)
 │ │ │ │ ├─bias: Tensor(10)
@@ -476,7 +476,7 @@ snapshots[
 │ │ │ ├─inputs_2: Tensor(10, 10)
 │ │ │ ├─inputs_3: Tensor(10, 10)
 │ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear: Graph(5)
+│ │ │ ├─c_linear_0: Graph(5)
 │ │ │ │ ├─input: Tensor(10, 10)
 │ │ │ │ ├─weight: Tensor(10, 10)
 │ │ │ │ ├─bias: Tensor(10)
@@ -598,7 +598,7 @@ snapshots[
 │ └─sub_0: Tensor(10, 10)
 ├─getitem_13: Tensor(10, 10)
 ├─getitem_14: Tensor(10, 10)
-├─linear: Graph(5)
+├─linear_0: Graph(5)
 │ ├─input: Tensor(10, 10)
 │ ├─weight: Tensor(10, 10)
 │ ├─bias: Tensor(10)
