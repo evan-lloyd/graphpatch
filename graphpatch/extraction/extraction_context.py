@@ -1,11 +1,11 @@
 import inspect
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import torch
-from torch._dynamo.allowed_functions import _allowed_function_ids
+from torch._dynamo import allow_in_graph
 from torch._subclasses.fake_tensor import is_fake
 from torch.nn import Module, ModuleDict, ModuleList
 
@@ -45,28 +45,37 @@ class ExtractionState:
         self.torch_name = torch_name
 
 
-class DeduplicationWrapper(Module):
+@allow_in_graph
+class ExtractionWrapper(Module):
+    """Class in which to wrap all non-container modules during tracing and compilation. This serves
+    two purposes:
+        1. The allow_in_graph decorator prevents torch from inlining submodules so we can compile
+        them separately.
+        2. Lets us independently trace modules that occur multiple times in the module hierarchy
+        under different names.
+    """
+
     _graphpatch_original_module_name: str
+    _graphpatch_wrapped_module: Module
 
     def __init__(self, wrapped: Module, original_name: str):
         super().__init__()
         self._graphpatch_original_module_name = original_name
-        # Hide from the hierarchy in a tuple, since we want to monkeypatch in the wrapped _modules
-        # during inference.
-        self.wrapped = (wrapped,)
+        # Avoid adding the wrapped module to the module hierarchy.
+        object.__setattr__(self, "_graphpatch_wrapped_module", wrapped)
 
     @contextmanager
     def _substitute_modules(self) -> Iterator[None]:
-        orig_modules = self.wrapped[0]._modules
-        self.wrapped[0]._modules = self._modules
+        orig_modules = self._graphpatch_wrapped_module._modules
+        self._graphpatch_wrapped_module._modules = self._modules
         try:
             yield
         finally:
-            self.wrapped[0]._modules = orig_modules
+            self._graphpatch_wrapped_module._modules = orig_modules
 
     def forward(self, *args, **kwargs):
         with self._substitute_modules():
-            return self.wrapped[0].forward(*args, **kwargs)
+            return self._graphpatch_wrapped_module.forward(*args, **kwargs)
 
 
 def _iter_state_hierarchy(root_state: ExtractionState) -> Iterator[ExtractionState]:
@@ -78,7 +87,7 @@ def _iter_state_hierarchy(root_state: ExtractionState) -> Iterator[ExtractionSta
 
 
 @contextmanager
-def wrap_module_hierarchy(root_state: ExtractionState, fn: Callable[[ExtractionState], Module]):
+def _wrap_module_hierarchy(root_state: ExtractionState, fn: Callable[[ExtractionState], Module]):
     original_modules: Dict[str, Module] = {}
     for state in _iter_state_hierarchy(root_state):
         original_modules[state.torch_name] = state.wrapped_module
@@ -105,7 +114,11 @@ def wrap_module_hierarchy(root_state: ExtractionState, fn: Callable[[ExtractionS
 
 
 @contextmanager
-def tracer_hook(state: ExtractionState) -> Iterator[None]:
+def _tracer_hook(state: ExtractionState) -> Iterator[None]:
+    # It's possible that we're retracing after a compilation failure, so make sure we don't persist
+    # any invocations from a previous run.
+    state.invocations = []
+
     def pre_hook(module: Module, args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Tuple[Any, Any]:
         if state.accelerate_hook is not None:
             args, kwargs = state.accelerate_hook.pre_forward(module, *args, **kwargs)
@@ -119,7 +132,7 @@ def tracer_hook(state: ExtractionState) -> Iterator[None]:
             output = state.accelerate_hook.post_forward(module, output)
 
         # Disregard the symbolic tracing step when recording invocations. We can tell if we're
-        # currently in fake mode by creating a tensor and seeing if it's fake.
+        # tracing if we're in fake mode, checked by creating a tensor and seeing if it's fake.
         if not is_fake(torch.zeros(1)):
             state.invocations.append(ModuleInvocation(args, kwargs, output))
         return output
@@ -131,7 +144,7 @@ def tracer_hook(state: ExtractionState) -> Iterator[None]:
 
 
 @contextmanager
-def eval_mode(module: Module) -> Iterator[None]:
+def _eval_mode(module: Module) -> Iterator[None]:
     """Set a module into eval mode, so we skip including training-only things like dropouts in
     our graph.
     """
@@ -147,24 +160,15 @@ def eval_mode(module: Module) -> Iterator[None]:
 
 
 @contextmanager
-def allow_modules(module_types: List[type]) -> Iterator[None]:
-    """Use the undocumented _allowed_function_ids to prevent compile() from inlining the child
-    modules, so we can independently compile them into separate GraphModules.
-    """
-    _orig_allowed_function_ids = deepcopy(_allowed_function_ids.function_ids)
+def _allow_compilation(module: Module) -> Iterator[None]:
+    """Allows us to compile torch builtins."""
     _orig_skipfiles_allowlist = deepcopy(torch._dynamo.skipfiles.FILENAME_ALLOWLIST)
-
-    # Lets us compile even torch builtins.
     torch._dynamo.skipfiles.FILENAME_ALLOWLIST.add(
-        getattr(inspect.getmodule(module_types[0]), "__file__", None)
+        getattr(inspect.getmodule(module.__class__), "__file__", None)
     )
-
-    _allowed_function_ids.function_ids.update(id(t) for t in module_types)
-
     try:
         yield
     finally:
-        _allowed_function_ids.function_ids = _orig_allowed_function_ids
         torch._dynamo.skipfiles.FILENAME_ALLOWLIST = _orig_skipfiles_allowlist
 
 
@@ -172,12 +176,10 @@ def allow_modules(module_types: List[type]) -> Iterator[None]:
 def compilation_context(root_state: ExtractionState):
     with ExitStack() as context_stack:
         context_stack.enter_context(torch.inference_mode())
-        context_stack.enter_context(eval_mode(root_state.wrapped_module))
+        context_stack.enter_context(_eval_mode(root_state.wrapped_module))
         # module = context_stack.enter_context(wrap_bits_and_bytes(module))
         context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
-        context_stack.enter_context(
-            allow_modules([m.__class__ for m in root_state.wrapped_module.modules()])
-        )
+        context_stack.enter_context(_allow_compilation(root_state.wrapped_module))
         for m in root_state.wrapped_module.modules():
             context_stack.enter_context(detach_accelerate_hooks(m))
         torch._dynamo.reset()
@@ -185,8 +187,21 @@ def compilation_context(root_state: ExtractionState):
 
 
 @contextmanager
-def deduplication_context(root_state: ExtractionState):
-    def deduplicate_modules(state: ExtractionState):
+def _tracing_context(root_state: ExtractionState):
+    with ExitStack() as context_stack:
+        # We don't want to add hooks to the root, as this would cause torch.compile() to include
+        # our tracing code in the resulting graph.
+        state_stack = list(root_state.children.values())
+        while state_stack:
+            state = state_stack.pop()
+            context_stack.enter_context(_tracer_hook(state))
+            state_stack.extend(state.children.values())
+        yield
+
+
+@contextmanager
+def extraction_context(root_state: ExtractionState):
+    def wrap_modules(state: ExtractionState):
         if state is root_state or isinstance(state.wrapped_module, (ModuleDict, ModuleList)):
             return state.wrapped_module
         if root_state.name == "":
@@ -194,20 +209,11 @@ def deduplication_context(root_state: ExtractionState):
         else:
             # Remove parent's prefix
             local_name = state.name.replace(root_state.name + ".", "", 1)
-        return DeduplicationWrapper(state.wrapped_module, local_name)
+        return ExtractionWrapper(state.wrapped_module, local_name)
 
-    with wrap_module_hierarchy(root_state, deduplicate_modules):
-        yield
-
-
-@contextmanager
-def root_context(extraction_state: Dict[str, ExtractionState]):
-    with ExitStack() as context_stack:
-        context_stack.enter_context(deduplication_context(extraction_state[""]))
-        for name, state in extraction_state.items():
-            # We don't want to add hooks to the root, as this would cause torch.compile() to include
-            # our tracing code in the resulting graph.
-            if name == "":
-                continue
-            context_stack.enter_context(tracer_hook(state))
+    if root_state.name == "":
+        maybe_tracing_context = _tracing_context
+    else:
+        maybe_tracing_context = nullcontext
+    with _wrap_module_hierarchy(root_state, wrap_modules), maybe_tracing_context(root_state):
         yield

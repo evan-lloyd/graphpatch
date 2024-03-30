@@ -332,7 +332,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 if target := self._graph_module_target(node):
                     sub_nodes = node_meta[f"{name.meta_prefix}{node.name}"]
                     node_meta[name.meta][node.name] = NodeData(
-                        _original_type="Graph",
+                        _original_type=target.__class__.__name__,
                         _children=sub_nodes,
                         _value=GraphMeta(
                             name=f"{name.meta_prefix}{node.name}",
@@ -372,7 +372,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                     )
 
         return NodeData(
-            _original_type="Graph",
+            _original_type=data.__class__.__name__,
             _children=node_meta[""],
             _path="",
             _value=GraphMeta(

@@ -70,7 +70,10 @@ def test_patch_probe(pg, minimal_module_inputs):
 @_opaque_and_compiled("patchable_container_module")
 def test_patch_duplicate_modules(pg, container_module_inputs):
     with pg.patch(
-        {"linear_0.weight": [weight_probe := ProbePatch()], "output": [output_probe := ProbePatch()]}
+        {
+            "linear_0.weight": [weight_probe := ProbePatch()],
+            "output": [output_probe := ProbePatch()],
+        }
     ):
         patched_output = pg(container_module_inputs)
 
@@ -268,3 +271,30 @@ def test_patch_deeply_nested_output_model(pg, deeply_nested_output_module_inputs
 
     assert pre_activation.activation.count_nonzero() == pre_activation.activation.numel()
     assert post_activation.activation.count_nonzero() == 0
+
+
+@_opaque_and_compiled("patchable_graph_break_module")
+def test_patch_after_fallback(pg, graph_break_module_inputs):
+    # Cloned graph weights should be patchable without affecting each other.
+    original_weight_0 = pg._graph_module.linear[0].weight.clone()
+    original_weight_1 = pg._graph_module.linear[1].weight.clone()
+    original_weight_2 = pg._graph_module.linear[2].weight.clone()
+    original_output = pg(graph_break_module_inputs)
+
+    with pg.patch(
+        {
+            pg.graph.linear_0.weight: [probe_weight_0 := ProbePatch(), AddPatch(value=1)],
+            pg.graph.linear_1.weight: [probe_weight_1 := ProbePatch(), AddPatch(value=1)],
+            pg.graph.linear_2.weight: [probe_weight_2 := ProbePatch(), AddPatch(value=1)],
+        }
+    ):
+        pg(graph_break_module_inputs)
+    assert probe_weight_0.activation.equal(original_weight_0)
+    assert probe_weight_1.activation.equal(original_weight_1)
+    assert probe_weight_2.activation.equal(original_weight_2)
+
+    # We should be able to patch attributes.
+    with pg.patch({pg.graph.shadowed_class_var: AddPatch(value=5)}):
+        patched_output = pg(graph_break_module_inputs)
+
+    assert patched_output.equal(original_output + 5)

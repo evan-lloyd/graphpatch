@@ -1,21 +1,15 @@
 import inspect
 import warnings
 from collections import OrderedDict, defaultdict
-from contextlib import ExitStack
 from copy import deepcopy
-from typing import (
-    Any,
-    Dict,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-)
+from typing import Any, Dict, Optional, Tuple, Type, Union
+from warnings import warn
 
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
+from ..exceptions import GraphPatchWarning
 from ..meta import (
     GraphMeta,
     NodeData,
@@ -27,12 +21,11 @@ from ..meta import (
 from ..optional.accelerate import add_hook_to_module
 from .compiled_graph_module import CompiledGraphModule, compile_module
 from .extraction_context import (
-    DeduplicationWrapper,
     ExtractionState,
+    ExtractionWrapper,
     ModuleInvocation,
     compilation_context,
-    deduplication_context,
-    root_context,
+    extraction_context,
 )
 from .extraction_options import ExtractionOptions
 from .graphpatch_module import GraphPatchModule
@@ -40,6 +33,10 @@ from .invocation_tracking_module_list import InvocationTrackingModuleList
 from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 
 CONTAINER_TYPES = (ModuleList, ModuleDict)
+
+
+class CompilationWarning(GraphPatchWarning):
+    pass
 
 
 def init_container(container: Union[ModuleList, ModuleDict]):
@@ -87,7 +84,7 @@ def retarget_submodule_calls(graph_module: GraphPatchModule):
         if node.op != "call_module":
             continue
         target_module = graph_module.get_submodule(node.target)
-        if isinstance(target_module, DeduplicationWrapper):
+        if isinstance(target_module, ExtractionWrapper):
             node.target = target_module._graphpatch_original_module_name
 
 
@@ -325,7 +322,7 @@ def extract(
         should_compile = not _should_skip_compilation(options, state.original_module)
 
         if should_compile:
-            with ExitStack() as context_stack:
+            with extraction_context(state), compilation_context(state):
                 try:
                     if len(state.invocations) == 0:
                         raise ValueError(
@@ -333,13 +330,6 @@ def extract(
                             " evaluating the given example inputs."
                         )
 
-                    # TODO: refactor so order is not important (we need to root_context *after*
-                    # any wrapping that might happen elsewhere so our tracers are on correct modules)
-                    if state.original_module is root_module:
-                        context_stack.enter_context(root_context(extraction_state))
-                    else:
-                        context_stack.enter_context(deduplication_context(state))
-                    context_stack.enter_context(compilation_context(state))
                     state.extracted_module, state.invocations[-1].output = compile_module(
                         state.wrapped_module,
                         *state.invocations[-1].args,
@@ -349,14 +339,28 @@ def extract(
                 except Exception as exc:
                     if options.error_on_compilation_failure:
                         raise
-                    print(f"Warning: compilation failed due to {exc}")
+                    if options.warn_on_compilation_failure:
+                        warn(
+                            (
+                                f"Compilation of {state.torch_name or '<root>'} failed.\n\n"
+                                "Torch-generated exception:\n"
+                                "**************************\n"
+                                f"{exc}"
+                                "**************************\n\n"
+                                "User code:\n"
+                            ),
+                            CompilationWarning,
+                            # Shows the user code as the call to PatchableGraph, assuming that the
+                            # user isn't trying to call extract directly.
+                            stacklevel=3,
+                        )
                     should_compile = False
 
         # Either we wanted to skip compilation, or we fell back to doing so.
         if not should_compile:
             # We still need to run inference on the root to record module invocations.
             if state.original_module is root_module:
-                with root_context(extraction_state):
+                with extraction_context(state):
                     state.invocations[-1].output = state.wrapped_module(
                         *state.invocations[-1].args, **state.invocations[-1].kwargs
                     )
