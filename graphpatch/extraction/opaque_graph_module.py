@@ -234,7 +234,10 @@ class OpaqueGraphModule(GraphPatchModule):
         # original module. NB: going to low-level _modules because named_children() unconfigurably
         # skips duplicates, which we don't want.
         for name, _ in self._child_modules(module._modules.items()):
-            graph.call_function(SubmoduleWrapper(name))
+            node = graph.call_function(SubmoduleWrapper(name))
+            # Make sure all nodes are addressible by attribute access.
+            if not name.split(".")[0].isidentifier():
+                node.name = f"sub_{name}"
 
         graph.output((call_forward,))
         return graph

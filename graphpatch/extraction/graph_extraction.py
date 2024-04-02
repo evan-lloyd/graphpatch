@@ -270,6 +270,8 @@ def _standardize_submodule_nodes(state: ExtractionState):
         if node.op != "call_module":
             continue
         node.name = node.target.replace(".", "_")
+        if not node.name.isidentifier():
+            node.name = f"sub_{node.name}"
 
 
 def postprocess_graph(state: ExtractionState):

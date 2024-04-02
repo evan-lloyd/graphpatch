@@ -32,6 +32,15 @@ class GraphPatchModule(GraphModule):
         state = {k: getattr(self, k) for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS}
         return deepcopy(state)
 
+    def __getitem__(self, index: Any) -> Module:
+        """Convenience to get access to submodules that would be inaccessible to ordinary attribute
+        access due to names not being identifiers. Useful for Sequential, and possibly any
+        user-defined container-like Modules.
+        """
+        if isinstance(index, int):
+            return self._modules[str(index)]
+        return self._modules[index]
+
     @staticmethod
     def _is_container(module: Module):
         return isinstance(module, (ModuleList, ModuleDict)) and not isinstance(

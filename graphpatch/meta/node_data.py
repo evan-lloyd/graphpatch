@@ -409,7 +409,9 @@ class PrettyPrintedNodeData(NodeData[NodeDataType]):
                         indent_str += "  "
                 indent_str += joiner
 
-            if self.show_containers and node._children is not NodeData._NO_VALUE:
+            if hasattr(node._value, "_graphpatch_graph_repr"):
+                container_info = f": {node._value._graphpatch_graph_repr()}"
+            elif self.show_containers and node._children is not NodeData._NO_VALUE:
                 container_info = f": {node._original_type}({len(node._children)})"
             else:
                 container_info = ""

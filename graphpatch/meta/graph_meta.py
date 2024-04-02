@@ -153,10 +153,13 @@ class GraphMeta(_BaseMeta):
     nodes: Dict[str, Union["NodeMeta", "GraphMeta"]]
     graph: Graph
     graph_module_name: str
-    graph_module_class: str
+    graph_module_class: Type[GraphModule]
 
     def __str__(self) -> str:
         return ""
+
+    def _graphpatch_graph_repr(self):
+        return self.graph_module_class.__name__
 
     def __deepcopy__(self, memo: Dict[Any, Any]) -> "GraphMeta":
         """Graph's deepcopy clones its nodes, but we need object identity for some of our
@@ -296,18 +299,18 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
         """Iterate through the GraphModule hierarchy such that children are returned before their
         parents, but in the order in which they should be added to the graph.
         """
-        queue: Deque[Tuple[ModuleName, GraphModule]] = deque(
+        module_queue: Deque[Tuple[ModuleName, GraphModule]] = deque(
             [(ModuleName(meta="", module=""), root_module)]
         )
-        stack: List[Tuple[ModuleName, GraphModule]] = []
-        while queue:
-            name, module = queue.popleft()
+        result_stack: List[Tuple[ModuleName, GraphModule]] = []
+        while module_queue:
+            name, module = module_queue.popleft()
 
-            stack.append((name, module))
+            result_stack.append((name, module))
 
             for node in reversed(module.graph.nodes):
                 if (target := self._graph_module_target(node)) is not None:
-                    queue.append(
+                    module_queue.append(
                         (
                             ModuleName(
                                 meta=f"{name.meta_prefix}{node.name}",
@@ -316,8 +319,8 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                             target,
                         )
                     )
-        while stack:
-            yield stack.pop()
+        while result_stack:
+            yield result_stack.pop()
 
     def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:
         if not isinstance(data, GraphModule):

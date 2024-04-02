@@ -196,9 +196,9 @@ _RESERVED_NAMES = frozenset(
 
 
 def override_reserved_name(name):
-    """Override names that would collide with GraphModule or GraphPatch internals. I'd rather
-    use some kind of wrapper to avoid the need to mess with names entirely, but I couldn't find a way
-    to do so without adding a ton of complexity.
+    """Override names that would collide with GraphModule or GraphPatch internals, or would
+    be otherwise unsuitable. I'd rather use some kind of wrapper to avoid the need to mess with
+    names entirely, but I couldn't find a way to do so without adding a ton of complexity.
     """
 
     def override(part):
