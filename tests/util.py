@@ -64,10 +64,16 @@ def assert_on_nested_tensors(output_1, output_2):
     while stack_1 or stack_2:
         assert stack_1 and stack_2, "Model output nesting differs"
         (prefix_1, cur_1), (prefix_2, cur_2) = stack_1.pop(), stack_2.pop()
-        assert prefix_1 == prefix_2, f"Model output key differs: {prefix_1} != {prefix_2}"
-        assert cur_1.__class__ is cur_2.__class__, f"Model output type differs at {prefix_1}"
+        assert (
+            prefix_1 == prefix_2
+        ), f"Model output key differs: {prefix_1 or '<root>'} != {prefix_2 or '<root>'}"
+        assert (
+            cur_1.__class__ is cur_2.__class__
+        ), f"Model output type differs at {prefix_1 or '<root>'}"
         if isinstance(cur_1, (tuple, list)):
-            assert len(cur_1) == len(cur_2), f"Model output length differs at {prefix_1}"
+            assert len(cur_1) == len(
+                cur_2
+            ), f"Model output length differs at {prefix_1 or '<root>'}"
             stack_1.extend(
                 (f"{prefix_1 + '.' if prefix_1 else ''}{i}", v) for i, v in enumerate(cur_1)
             )
@@ -75,7 +81,9 @@ def assert_on_nested_tensors(output_1, output_2):
                 (f"{prefix_2 + '.' if prefix_2 else ''}{i}", v) for i, v in enumerate(cur_2)
             )
         elif isinstance(cur_1, dict):
-            assert len(cur_1) == len(cur_2), f"Model output length differs at {prefix_1}"
+            assert len(cur_1) == len(
+                cur_2
+            ), f"Model output length differs at {prefix_1 or '<root>'}"
             stack_1.extend(
                 (f"{prefix_1 + '.' if prefix_1 else ''}{k}", v) for k, v in cur_1.items()
             )
@@ -83,7 +91,9 @@ def assert_on_nested_tensors(output_1, output_2):
                 (f"{prefix_2 + '.' if prefix_2 else ''}{k}", v) for k, v in cur_2.items()
             )
         elif isinstance(cur_1, torch.Tensor) and isinstance(cur_2, torch.Tensor):
-            assert cur_1.shape == cur_2.shape, f"Model output shape differs at {prefix_1}"
+            assert (
+                cur_1.shape == cur_2.shape
+            ), f"Model output shape differs at {prefix_1 or '<root>'}"
             yield (prefix_1, cur_1), (prefix_2, cur_2)
 
 
@@ -94,12 +104,13 @@ def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, i
     for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
         if tolerance is not None:
             assert cur_1.allclose(cur_2, rtol=tolerance), (
-                f"Model output difference greater than tolerance at {prefix_1};"
+                f"Model output difference greater than tolerance at {prefix_1 or '<root>'};"
                 f" norm: {torch.linalg.norm(cur_1 - cur_2)}"
             )
         else:
             assert cur_1.equal(cur_2), (
-                f"Model output differs at {prefix_1};" f" norm: {torch.linalg.norm(cur_1 - cur_2)}"
+                f"Model output differs at {prefix_1 or '<root>'};"
+                f" norm: {torch.linalg.norm(cur_1 - cur_2)}"
             )
 
     return output_1, output_2
@@ -107,7 +118,9 @@ def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, i
 
 def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=None):
     for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
-        assert cur_1.requires_grad == cur_2.requires_grad, f"requires_grad mismatch at {prefix_1}"
+        assert (
+            cur_1.requires_grad == cur_2.requires_grad
+        ), f"requires_grad mismatch at {prefix_1 or '<root>'}"
         if not cur_1.requires_grad:
             continue
         module_1.zero_grad()
@@ -130,23 +143,23 @@ def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance
                 param_2_name = name
             assert (
                 params_1[name].requires_grad == params_2[param_2_name].requires_grad
-            ), f"requires_grad mismatch for {name} at {prefix_1}"
+            ), f"requires_grad mismatch for {name} at {prefix_1 or '<root>'}"
             if not params_1[name].requires_grad:
                 continue
             assert (params_1[name].grad is None) == (
                 params_2[param_2_name].grad is None
-            ), f"Gradient exists/doesn't exist for {name} at {prefix_1}"
+            ), f"Gradient exists/doesn't exist for {name} at {prefix_1 or '<root>'}"
             if params_1[name].grad is None:
                 continue
             if tolerance is not None:
                 assert params_1[name].grad.allclose(params_2[param_2_name].grad, rtol=tolerance), (
-                    f"Gradient difference greater than tolerance at {prefix_1};"
+                    f"Gradient difference for {name} greater than tolerance at {prefix_1 or '<root>'};"
                     f" norm: {torch.linalg.norm(cur_1 - cur_2)}"
                 )
             else:
                 assert params_1[name].grad.equal(
                     params_2[param_2_name].grad
-                ), f"Gradient mismatch for {name} at {prefix_1}"
+                ), f"Gradient mismatch for {name} at {prefix_1 or '<root>'}"
 
 
 def assert_results_identical(module_1, module_2, *test_inputs, tolerance=None, input_kwargs=None):

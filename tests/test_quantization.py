@@ -1,4 +1,4 @@
-from graphpatch.extraction.bitsandbytes import Wrapped8BitLinear
+from graphpatch.extraction.quantized_linear_wrapper import Wrapped8BitLinear
 
 from .util import assert_outputs_identical, requires_bitsandbytes, requires_gpu
 
@@ -10,7 +10,6 @@ def test_quantization_wrapper(quantized_module, quantized_module_inputs):
         quantized_module.linear.weight.CB,
         quantized_module.linear.weight.SCB,
         quantized_module.linear.bias,
+        quantized_module.linear.state.threshold,
     )
-    assert_outputs_identical(
-        quantized_module.linear, wrapped, quantized_module_inputs, tolerance=0.1
-    )
+    assert_outputs_identical(quantized_module, wrapped, quantized_module_inputs, tolerance=0.1)

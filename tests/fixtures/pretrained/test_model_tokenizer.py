@@ -16,8 +16,8 @@ class DummyTokens(UserDict):
 
 class DummyTokenizer(PreTrainedTokenizer):
     """
-    Fake tokenizer that will get a consistent "tokenization" for a given text string, for reproducibility
-    in tests.
+    Fake tokenizer that will get a consistent "tokenization" for a given text string, for
+    reproducibility in tests.
     """
 
     vocab_files_names = {"vocab_file": "dummy.model"}

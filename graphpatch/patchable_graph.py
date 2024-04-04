@@ -224,7 +224,7 @@ class PatchableGraph(Module):
             elif qualified_name in parameter_names:
                 parameter = Parameter(
                     state_dict[qualified_name],
-                    requires_grad=(state_dict[qualified_name].dtype != torch.int8),
+                    requires_grad=(state_dict[qualified_name].requires_grad),
                 )
                 state_entries_to_parameters[state_entry] = parameter
             else:

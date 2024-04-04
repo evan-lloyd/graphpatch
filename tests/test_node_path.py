@@ -1,15 +1,11 @@
 from typing import Optional
 
 import pytest
-from torch.nn import Linear
 
-from graphpatch import PatchableGraph
-from graphpatch.extraction import ExtractionOptions
 from graphpatch.hacks import TORCH_VERSION
 from graphpatch.meta import NodeData, NodeMeta, wrap_node_path
 from graphpatch.meta.graph_meta import WrappedCode
 from graphpatch.meta.node_path import NodeShapePath
-from tests.fixtures.container_module import ContainerModule
 from tests.fixtures.deeply_nested_output_module import DeeplyNestedOutputModule
 
 

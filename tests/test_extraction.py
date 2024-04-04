@@ -14,6 +14,7 @@ from graphpatch.extraction.invocation_tracking_module_list import (
 from tests.fixtures.nested_module import A, B, C, NestedModule
 
 from .util import (
+    assert_outputs_identical,
     assert_results_identical,
     requires_accelerate,
     requires_bitsandbytes,
@@ -155,12 +156,10 @@ def test_extract_quantized_pretrained_module(
         quantized_pretrained_module_inputs,
     )
     validate_node_meta(meta, graph_module)
-    assert_results_identical(
+    # Only asserting on outputs since with default quantization we get no gradient.
+    assert_outputs_identical(
         quantized_pretrained_module,
         graph_module,
         quantized_pretrained_module_inputs,
-        # TODO: There's probably a better way to test this while accounting for slight differences
-        # in quantization, probably involving looking at intermediate values rather than just the
-        # final output, which compounds small differences.
-        tolerance=1.0,
+        tolerance=0.1,
     )

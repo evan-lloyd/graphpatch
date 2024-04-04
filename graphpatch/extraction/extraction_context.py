@@ -11,9 +11,9 @@ from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
 from ..optional.accelerate import ModelHook
+from ..optional.bitsandbytes import Linear8bitLt
 from .accelerate import detach_accelerate_hooks
-
-# from .bitsandbytes import wrap_bits_and_bytes
+from .quantized_linear_wrapper import maybe_wrap
 from .graphpatch_module import GraphPatchModule
 
 
@@ -48,11 +48,13 @@ class ExtractionState:
 @allow_in_graph
 class ExtractionWrapper(Module):
     """Class in which to wrap all non-container modules during tracing and compilation. This serves
-    two purposes:
+    several purposes:
         1. The allow_in_graph decorator prevents torch from inlining submodules so we can compile
         them separately.
         2. Lets us independently trace modules that occur multiple times in the module hierarchy
         under different names.
+        3. Lets us work around the incompatibility between bitsandbytes quantized modules and the
+        FakeTensors used during symbolic tracing.
     """
 
     _graphpatch_original_module_name: str
@@ -64,6 +66,23 @@ class ExtractionWrapper(Module):
         # Avoid adding the wrapped module to the module hierarchy.
         object.__setattr__(self, "_graphpatch_wrapped_module", wrapped)
 
+    def __deepcopy__(self, memo=None):
+        """Avoids an exception around cloning Parameters that are Tensor subclasses during
+        compilation.
+        """
+        if isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
+            new_instance = ExtractionWrapper(
+                self._graphpatch_wrapped_module, self._graphpatch_original_module_name
+            )
+        else:
+            with self._substitute_modules():
+                new_instance = ExtractionWrapper(
+                    deepcopy(self._graphpatch_wrapped_module, memo),
+                    self._graphpatch_original_module_name,
+                )
+        new_instance._modules = deepcopy(self._modules, memo)
+        return new_instance
+
     @contextmanager
     def _substitute_modules(self) -> Iterator[None]:
         orig_modules = self._graphpatch_wrapped_module._modules
@@ -74,6 +93,14 @@ class ExtractionWrapper(Module):
             self._graphpatch_wrapped_module._modules = orig_modules
 
     def forward(self, *args, **kwargs):
+        # If we're in fake mode, we can't run bitsandbytes forward methods, since they use
+        # tensor subclasses for their parameters. Instead just return a tensor of the proper shape.
+        if is_fake(torch.zeros(0)) and isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
+            return torch.zeros(
+                *args[0].shape[:-1],
+                self._graphpatch_wrapped_module.out_features,
+                device=args[0].device
+            )
         with self._substitute_modules():
             return self._graphpatch_wrapped_module.forward(*args, **kwargs)
 
@@ -174,16 +201,20 @@ def _allow_compilation(module: Module) -> Iterator[None]:
 
 @contextmanager
 def compilation_context(root_state: ExtractionState):
-    with ExitStack() as context_stack:
-        context_stack.enter_context(torch.inference_mode())
-        context_stack.enter_context(_eval_mode(root_state.wrapped_module))
-        # module = context_stack.enter_context(wrap_bits_and_bytes(module))
-        context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
-        context_stack.enter_context(_allow_compilation(root_state.wrapped_module))
-        for m in root_state.wrapped_module.modules():
-            context_stack.enter_context(detach_accelerate_hooks(m))
-        torch._dynamo.reset()
-        yield
+    original_root = root_state.wrapped_module
+    try:
+        with ExitStack() as context_stack:
+            context_stack.enter_context(torch.inference_mode())
+            context_stack.enter_context(_eval_mode(root_state.wrapped_module))
+            root_state.wrapped_module = maybe_wrap(root_state.wrapped_module)
+            context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
+            context_stack.enter_context(_allow_compilation(root_state.wrapped_module))
+            for m in root_state.wrapped_module.modules():
+                context_stack.enter_context(detach_accelerate_hooks(m))
+            torch._dynamo.reset()
+            yield
+    finally:
+        root_state.wrapped_module = original_root
 
 
 @contextmanager

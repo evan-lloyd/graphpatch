@@ -324,14 +324,13 @@ def extract(
         should_compile = not _should_skip_compilation(options, state.original_module)
 
         if should_compile:
-            with extraction_context(state), compilation_context(state):
+            with compilation_context(state), extraction_context(state):
                 try:
                     if len(state.invocations) == 0:
                         raise ValueError(
                             f"Unable to compile {state.torch_name}; it was never called when"
                             " evaluating the given example inputs."
                         )
-
                     state.extracted_module, state.invocations[-1].output = compile_module(
                         state.wrapped_module,
                         *state.invocations[-1].args,
