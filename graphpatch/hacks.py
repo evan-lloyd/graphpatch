@@ -302,35 +302,8 @@ def set_dynamo_config():
 
 
 @contextmanager
-def monkeypatch_get_fake_value():
-    from torch._dynamo.variables import builder
-    from .optional.bitsandbytes import Linear8bitLt
-    from .extraction.extraction_context import ExtractionWrapper
-
-    orig_get_fake_value = builder.get_fake_value
-
-    def get_fake_value(node, tx):
-        print("umm?")
-        if node.op == "call_module":
-            print("hmm", node.target)
-            module = tx.output.nn_modules[node.target]
-            if isinstance(module, ExtractionWrapper) and isinstance(
-                module._graphpatch_wrapped_module, Linear8bitLt
-            ):
-                print("aha! aha!")
-        return orig_get_fake_value(node, tx)
-
-    builder.get_fake_value = get_fake_value
-    try:
-        yield
-    finally:
-        builder.get_fake_value = orig_get_fake_value
-
-
-@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
-        # hack_stack.enter_context(monkeypatch_get_fake_value())
         if TORCH_VERSION >= (2, 1):
             hack_stack.enter_context(set_dynamo_config())
             hack_stack.enter_context(make_dynamo_ignore_hooks())

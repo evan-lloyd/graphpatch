@@ -2,7 +2,7 @@ import inspect
 from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, OrderedDict, Tuple
 
 import torch
 from torch._dynamo import allow_in_graph
@@ -13,8 +13,8 @@ from .. import hacks
 from ..optional.accelerate import ModelHook
 from ..optional.bitsandbytes import Linear8bitLt
 from .accelerate import detach_accelerate_hooks
-from .quantized_linear_wrapper import maybe_wrap
 from .graphpatch_module import GraphPatchModule
+from .quantized_linear_wrapper import maybe_wrap
 
 
 @dataclass
@@ -59,50 +59,70 @@ class ExtractionWrapper(Module):
 
     _graphpatch_original_module_name: str
     _graphpatch_wrapped_module: Module
+    _graphpatch_accelerate_hook: Any
 
-    def __init__(self, wrapped: Module, original_name: str):
+    def __init__(self, wrapped: Module, original_name: str, accelerate_hook: Any):
         super().__init__()
+        self._graphpatch_accelerate_hook = accelerate_hook
         self._graphpatch_original_module_name = original_name
         # Avoid adding the wrapped module to the module hierarchy.
         object.__setattr__(self, "_graphpatch_wrapped_module", wrapped)
 
     def __deepcopy__(self, memo=None):
-        """Avoids an exception around cloning Parameters that are Tensor subclasses during
-        compilation.
+        """compile() deep copies modules during symbolic tracing in order to fakify their
+        parameters. This fails in the case of bitsandbytes quantized modules since their parameters
+        are already a Tensor subclass. To work around this, we avoid cloning such modules.
         """
         if isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
-            new_instance = ExtractionWrapper(
-                self._graphpatch_wrapped_module, self._graphpatch_original_module_name
+            return ExtractionWrapper(
+                self._graphpatch_wrapped_module,
+                self._graphpatch_original_module_name,
+                self._graphpatch_accelerate_hook,
             )
-        else:
-            with self._substitute_modules():
-                new_instance = ExtractionWrapper(
-                    deepcopy(self._graphpatch_wrapped_module, memo),
-                    self._graphpatch_original_module_name,
-                )
+        with self._substitute_submodules(self._graphpatch_wrapped_module, {}):
+            new_instance = ExtractionWrapper(
+                deepcopy(self._graphpatch_wrapped_module, memo),
+                self._graphpatch_original_module_name,
+                self._graphpatch_accelerate_hook,
+            )
         new_instance._modules = deepcopy(self._modules, memo)
         return new_instance
 
+    @staticmethod
     @contextmanager
-    def _substitute_modules(self) -> Iterator[None]:
-        orig_modules = self._graphpatch_wrapped_module._modules
-        self._graphpatch_wrapped_module._modules = self._modules
+    def _substitute_submodules(
+        module: Module, replacement: OrderedDict[str, Module]
+    ) -> Iterator[None]:
+        orig_modules = module._modules
+        module._modules = replacement
         try:
             yield
         finally:
-            self._graphpatch_wrapped_module._modules = orig_modules
+            module._modules = orig_modules
+
+    def substitute_wrapped_submodules(self) -> Iterator[None]:
+        return self._substitute_submodules(self._graphpatch_wrapped_module, self._modules)
 
     def forward(self, *args, **kwargs):
         # If we're in fake mode, we can't run bitsandbytes forward methods, since they use
         # tensor subclasses for their parameters. Instead just return a tensor of the proper shape.
-        if is_fake(torch.zeros(0)) and isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
+        if is_fake(torch.empty(0)) and isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
             return torch.zeros(
                 *args[0].shape[:-1],
                 self._graphpatch_wrapped_module.out_features,
                 device=args[0].device
             )
-        with self._substitute_modules():
-            return self._graphpatch_wrapped_module.forward(*args, **kwargs)
+        with self.substitute_wrapped_submodules():
+            if self._graphpatch_accelerate_hook is not None:
+                args, kwargs = self._graphpatch_accelerate_hook.pre_forward(
+                    self._graphpatch_wrapped_module, *args, **kwargs
+                )
+            output = self._graphpatch_wrapped_module.forward(*args, **kwargs)
+            if self._graphpatch_accelerate_hook is not None:
+                output = self._graphpatch_accelerate_hook.post_forward(
+                    self._graphpatch_wrapped_module, output
+                )
+            return output
 
 
 def _iter_state_hierarchy(root_state: ExtractionState) -> Iterator[ExtractionState]:
@@ -146,27 +166,16 @@ def _tracer_hook(state: ExtractionState) -> Iterator[None]:
     # any invocations from a previous run.
     state.invocations = []
 
-    def pre_hook(module: Module, args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Tuple[Any, Any]:
-        if state.accelerate_hook is not None:
-            args, kwargs = state.accelerate_hook.pre_forward(module, *args, **kwargs)
-
-        return (args, kwargs)
-
     def post_hook(
         module: Module, args: Tuple[Any, ...], kwargs: Dict[str, Any], output: Any
     ) -> Any:
-        if state.accelerate_hook is not None:
-            output = state.accelerate_hook.post_forward(module, output)
-
         # Disregard the symbolic tracing step when recording invocations. We can tell if we're
         # tracing if we're in fake mode, checked by creating a tensor and seeing if it's fake.
-        if not is_fake(torch.zeros(1)):
+        if not is_fake(torch.empty(0)):
             state.invocations.append(ModuleInvocation(args, kwargs, output))
         return output
 
-    with state.wrapped_module.register_forward_pre_hook(
-        pre_hook, with_kwargs=True
-    ), state.wrapped_module.register_forward_hook(post_hook, with_kwargs=True):
+    with state.wrapped_module.register_forward_hook(post_hook, with_kwargs=True):
         yield
 
 
@@ -209,8 +218,8 @@ def compilation_context(root_state: ExtractionState):
             root_state.wrapped_module = maybe_wrap(root_state.wrapped_module)
             context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
             context_stack.enter_context(_allow_compilation(root_state.wrapped_module))
-            for m in root_state.wrapped_module.modules():
-                context_stack.enter_context(detach_accelerate_hooks(m))
+            for submodule in root_state.wrapped_module.modules():
+                context_stack.enter_context(detach_accelerate_hooks(submodule))
             torch._dynamo.reset()
             yield
     finally:
@@ -240,7 +249,7 @@ def extraction_context(root_state: ExtractionState):
         else:
             # Remove parent's prefix
             local_name = state.name.replace(root_state.name + ".", "", 1)
-        return ExtractionWrapper(state.wrapped_module, local_name)
+        return ExtractionWrapper(state.wrapped_module, local_name, state.accelerate_hook)
 
     if root_state.name == "":
         maybe_tracing_context = _tracing_context

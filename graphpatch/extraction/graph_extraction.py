@@ -304,7 +304,6 @@ def extract(
         for name, submodule in root_module.named_modules(remove_duplicate=False)
     }
     root_state = extraction_state[""]
-    # Root doesn't get a tracer hook, so we need to record its invocation manually.
     root_state.invocations = [ModuleInvocation(trace_args, trace_kwargs, None)]
 
     # Set up parent/child relationship between state items.
@@ -331,11 +330,22 @@ def extract(
                             f"Unable to compile {state.torch_name}; it was never called when"
                             " evaluating the given example inputs."
                         )
-                    state.extracted_module, state.invocations[-1].output = compile_module(
+                    if state.accelerate_hook is not None:
+                        args, kwargs = state.accelerate_hook.pre_forward(
+                            state.wrapped_module,
+                            *state.invocations[-1].args,
+                            **state.invocations[-1].kwargs,
+                        )
+                    else:
+                        args, kwargs = state.invocations[-1].args, state.invocations[-1].kwargs
+                    state.extracted_module, output = compile_module(
                         state.wrapped_module,
-                        *state.invocations[-1].args,
-                        **state.invocations[-1].kwargs,
+                        *args,
+                        **kwargs,
                     )
+                    if state.accelerate_hook is not None:
+                        output = state.accelerate_hook.post_forward(state.wrapped_module, output)
+                    state.invocations[-1].output = output
 
                 except Exception as exc:
                     if options.error_on_compilation_failure:
@@ -360,7 +370,7 @@ def extract(
         # Either we wanted to skip compilation, or we fell back to doing so.
         if not should_compile:
             # We still need to run inference on the root to record module invocations.
-            if state.original_module is root_module:
+            if state is root_state:
                 with extraction_context(state):
                     state.invocations[-1].output = state.wrapped_module(
                         *state.invocations[-1].args, **state.invocations[-1].kwargs
