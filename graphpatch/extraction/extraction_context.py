@@ -25,13 +25,14 @@ class ModuleInvocation:
 
 
 class ExtractionState:
-    original_module: Module
-    extracted_module: Optional[GraphPatchModule]
-    wrapped_module: Module
-    invocations: List[ModuleInvocation]
+    accelerate_hook: ModelHook
     children: Dict[str, "ExtractionState"]
+    extracted_module: Optional[GraphPatchModule]
+    invocations: List[ModuleInvocation]
     name: str
+    original_module: Module
     torch_name: str
+    wrapped_module: Module
 
     def __init__(self, name: str, torch_name: str, original_module: Module):
         self.original_module = original_module
@@ -195,17 +196,9 @@ def _eval_mode(module: Module) -> Iterator[None]:
         module.train()
 
 
-@contextmanager
 def _allow_compilation(module: Module) -> Iterator[None]:
     """Allows us to compile torch builtins."""
-    _orig_skipfiles_allowlist = deepcopy(torch._dynamo.skipfiles.FILENAME_ALLOWLIST)
-    torch._dynamo.skipfiles.FILENAME_ALLOWLIST.add(
-        getattr(inspect.getmodule(module.__class__), "__file__", None)
-    )
-    try:
-        yield
-    finally:
-        torch._dynamo.skipfiles.FILENAME_ALLOWLIST = _orig_skipfiles_allowlist
+    return hacks.allow_module_in_graph(module)
 
 
 @contextmanager

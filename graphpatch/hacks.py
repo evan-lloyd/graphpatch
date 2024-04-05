@@ -1,8 +1,9 @@
 # mypy: ignore-errors
 
+import inspect
 import operator
-import re
 from contextlib import ExitStack, contextmanager
+from copy import deepcopy
 from functools import partial, partialmethod
 
 import torch
@@ -299,6 +300,23 @@ def set_dynamo_config():
     finally:
         for key, value in orig_values.items():
             setattr(torch._dynamo.config, key, value)
+
+
+@contextmanager
+def allow_module_in_graph(module):
+    # Same functionality, different name.
+    if TORCH_VERSION >= (2, 2):
+        allowlist_name = "MOD_INLINELIST"
+    else:
+        allowlist_name = "FILENAME_ALLOWLIST"
+
+    allow_list = getattr(torch._dynamo.skipfiles, allowlist_name)
+    orig_allow_list = deepcopy(allow_list)
+    allow_list.add(getattr(inspect.getmodule(module.__class__), "__file__", None))
+    try:
+        yield
+    finally:
+        setattr(torch._dynamo.skipfiles, allowlist_name, orig_allow_list)
 
 
 @contextmanager

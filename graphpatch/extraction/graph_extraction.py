@@ -2,7 +2,8 @@ import inspect
 import warnings
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from functools import partial
+from typing import Any, Dict, Optional, Tuple, Type, Union, Callable
 from warnings import warn
 
 from torch.fx.graph_module import GraphModule
@@ -274,7 +275,7 @@ def _standardize_submodule_nodes(state: ExtractionState):
             node.name = f"sub_{node.name}"
 
 
-def postprocess_graph(state: ExtractionState):
+def _postprocess_graph(state: ExtractionState):
     """Clean up the extracted graph to match the original module's signature and standardize node
     names.
     """
@@ -289,6 +290,33 @@ def postprocess_graph(state: ExtractionState):
         hacks.maybe_replace_dynamo_get_item_lambda(node)
 
     graph_module.recompile()
+
+
+def _run_extraction(
+    state: ExtractionState,
+    compile: bool,
+    *args,
+    **kwargs,
+) -> Tuple[GraphPatchModule, Any]:
+    with extraction_context(state):
+        # We have no wrapper to run accelerate hooks for the root of any extraction, so we must
+        # invoke them manually.
+        if state.accelerate_hook is not None:
+            args, kwargs = state.accelerate_hook.pre_forward(
+                state.wrapped_module,
+                *args,
+                **kwargs,
+            )
+
+        if compile:
+            extracted_module, output = compile_module(state.wrapped_module, *args, **kwargs)
+        else:
+            extracted_module = OpaqueGraphModule(state.wrapped_module)
+            output = state.wrapped_module(*args, **kwargs)
+
+        if state.accelerate_hook is not None:
+            output = state.accelerate_hook.post_forward(state.wrapped_module, output)
+    return extracted_module, output
 
 
 def extract(
@@ -323,29 +351,19 @@ def extract(
         should_compile = not _should_skip_compilation(options, state.original_module)
 
         if should_compile:
-            with compilation_context(state), extraction_context(state):
+            with compilation_context(state):
                 try:
                     if len(state.invocations) == 0:
                         raise ValueError(
                             f"Unable to compile {state.torch_name}; it was never called when"
                             " evaluating the given example inputs."
                         )
-                    if state.accelerate_hook is not None:
-                        args, kwargs = state.accelerate_hook.pre_forward(
-                            state.wrapped_module,
-                            *state.invocations[-1].args,
-                            **state.invocations[-1].kwargs,
-                        )
-                    else:
-                        args, kwargs = state.invocations[-1].args, state.invocations[-1].kwargs
-                    state.extracted_module, output = compile_module(
-                        state.wrapped_module,
-                        *args,
-                        **kwargs,
+                    state.extracted_module, state.invocations[-1].output = _run_extraction(
+                        state,
+                        should_compile,
+                        *state.invocations[-1].args,
+                        **state.invocations[-1].kwargs,
                     )
-                    if state.accelerate_hook is not None:
-                        output = state.accelerate_hook.post_forward(state.wrapped_module, output)
-                    state.invocations[-1].output = output
 
                 except Exception as exc:
                     if options.error_on_compilation_failure:
@@ -369,13 +387,16 @@ def extract(
 
         # Either we wanted to skip compilation, or we fell back to doing so.
         if not should_compile:
-            # We still need to run inference on the root to record module invocations.
+            # We still need to run inference on the root to record module outputs.
             if state is root_state:
-                with extraction_context(state):
-                    state.invocations[-1].output = state.wrapped_module(
-                        *state.invocations[-1].args, **state.invocations[-1].kwargs
-                    )
-            state.extracted_module = OpaqueGraphModule(state.wrapped_module)
+                state.extracted_module, state.invocations[-1].output = _run_extraction(
+                    state,
+                    should_compile,
+                    *state.invocations[-1].args,
+                    **state.invocations[-1].kwargs,
+                )
+            else:
+                state.extracted_module = OpaqueGraphModule(state.wrapped_module)
 
     for torch_qual_name, state in extraction_state.items():
         # Undo the unrolling of containers performed by compile(), so we'll end up with the same
@@ -401,7 +422,7 @@ def extract(
     # before their parents, which matters for cloned graphs.
     for state in reversed(extraction_state.values()):
         if isinstance(state.extracted_module, GraphPatchModule):
-            postprocess_graph(state)
+            _postprocess_graph(state)
         if state.accelerate_hook is not None and state.original_module is not root_module:
             add_hook_to_module(state.extracted_module, state.accelerate_hook)
 

@@ -3970,4 +3970,4 @@ transformers = ["accelerate", "bitsandbytes", "protobuf", "scipy", "sentencepiec
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.8.1, <3.12"
-content-hash = "a1f1eb2541525f794b023b2addaabd38b9567d27c6d41ef6d6a8f8a299b0dca1"
+content-hash = "4e5289193520a1c1faa9ee342539a878d6c00f21815135dee1a796df520fc3e3"
