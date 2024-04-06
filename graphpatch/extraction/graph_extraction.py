@@ -351,6 +351,7 @@ def extract(
         should_compile = not _should_skip_compilation(options, state.original_module)
 
         if should_compile:
+            print("compile", state.name)
             with compilation_context(state):
                 try:
                     if len(state.invocations) == 0:

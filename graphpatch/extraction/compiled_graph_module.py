@@ -20,6 +20,7 @@ def compile_module(module: Module, *args, **kwargs) -> Tuple[CompiledGraphModule
         # There is no hook to choose a subclass of GraphModule to create during compilation, so
         # dynamically make it a subclass of CompiledGraphModule. GraphModules are always created
         # by torch as the sole instance of a dynamically generated class, so this is safe.
+        assert gm.__class__ is not GraphModule
         gm.__class__.__bases__ = (CompiledGraphModule,) + gm.__class__.__bases__
         gm.__class__.__name__ = CompiledGraphModule.__name__
 

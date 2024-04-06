@@ -306,17 +306,28 @@ def set_dynamo_config():
 def allow_module_in_graph(module):
     # Same functionality, different name.
     if TORCH_VERSION >= (2, 2):
-        allowlist_name = "MOD_INLINELIST"
+        allowlist_name = "LEGACY_MOD_INLINELIST"
+        allowlist_value = inspect.getmodule(module.__class__).__name__
+        # Reset the LRU cache, or our changes will have no effect.
+        torch._dynamo.skipfiles.get_legacy_mod_inlinelist.cache_clear()
     else:
         allowlist_name = "FILENAME_ALLOWLIST"
+        allowlist_value = getattr(inspect.getmodule(module.__class__), "__file__", None)
 
     allow_list = getattr(torch._dynamo.skipfiles, allowlist_name)
     orig_allow_list = deepcopy(allow_list)
-    allow_list.add(getattr(inspect.getmodule(module.__class__), "__file__", None))
+    allow_list.add(allowlist_value)
+
+    orig_allow_functions = deepcopy(torch._dynamo.allowed_functions._allowed_function_ids)
+    torch._dynamo.allowed_functions._allowed_function_ids.remove(id(module.__class__))
     try:
         yield
     finally:
         setattr(torch._dynamo.skipfiles, allowlist_name, orig_allow_list)
+        torch._dynamo.allowed_functions._allowed_function_ids = orig_allow_functions
+        # Make sure our patch had no side effect.
+        if TORCH_VERSION >= (2, 2):
+            torch._dynamo.skipfiles.get_legacy_mod_inlinelist.cache_clear()
 
 
 @contextmanager
