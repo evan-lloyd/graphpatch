@@ -38,6 +38,9 @@ def attribute_module_inputs():
 def patchable_attribute_module(request, attribute_module, attribute_module_inputs):
     return PatchableGraph(
         attribute_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         attribute_module_inputs,
     )

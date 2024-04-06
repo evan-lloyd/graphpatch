@@ -31,6 +31,9 @@ def protected_name_module_inputs():
 def patchable_protected_name_module(request, protected_name_module, protected_name_module_inputs):
     return PatchableGraph(
         protected_name_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         protected_name_module_inputs,
     )

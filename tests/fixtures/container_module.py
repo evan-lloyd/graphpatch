@@ -50,6 +50,9 @@ def container_module_inputs():
 def patchable_container_module(request, container_module, container_module_inputs):
     return PatchableGraph(
         container_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         container_module_inputs,
     )

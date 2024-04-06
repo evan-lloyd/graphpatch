@@ -35,7 +35,7 @@ def test_extract_llama_model():
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
     gm, _ = extract(
         LlamaModel(config=config),
-        ExtractionOptions(),
+        ExtractionOptions(error_on_compilation_failure=True),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
@@ -59,7 +59,7 @@ def test_extract_gpt2_attention():
     embedding = torch.nn.Embedding(config.vocab_size, config.hidden_size)
     gm, _ = extract(
         GPT2Attention(config=config),
-        ExtractionOptions(),
+        ExtractionOptions(error_on_compilation_failure=True),
         embedding(inputs.input_ids),
     )
     gm(embedding(inputs.input_ids))
@@ -86,6 +86,7 @@ def test_llama(tmp_path_factory):
     )
     patchable_llama = PatchableGraph(
         llama,
+        ExtractionOptions(error_on_compilation_failure=True),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
@@ -154,6 +155,7 @@ def test_gpt2(tmp_path_factory):
     )
     patchable_gpt2 = PatchableGraph(
         gpt2,
+        ExtractionOptions(error_on_compilation_failure=True),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,

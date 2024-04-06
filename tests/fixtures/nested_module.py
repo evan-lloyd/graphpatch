@@ -71,6 +71,9 @@ def nested_module_inputs():
 def patchable_nested_module(request, nested_module, nested_module_inputs):
     return PatchableGraph(
         nested_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         nested_module_inputs,
     )

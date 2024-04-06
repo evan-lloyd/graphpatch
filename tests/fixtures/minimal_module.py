@@ -30,6 +30,9 @@ def minimal_module_inputs():
 def patchable_minimal_module(request, minimal_module, minimal_module_inputs):
     return PatchableGraph(
         minimal_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         minimal_module_inputs,
     )

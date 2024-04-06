@@ -30,6 +30,9 @@ def layer_norm_module_inputs():
 def patchable_layer_norm_module(request, layer_norm_module, layer_norm_module_inputs):
     return PatchableGraph(
         layer_norm_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         layer_norm_module_inputs,
     )

@@ -87,6 +87,8 @@ def monkeypatch_dynamic_shapes():
         tx.fake_mode.shape_env.specialize_zero_one = False
         tx.fake_mode.shape_env.duck_shape = False
 
+        print("wrappin ye olde proxy", kwargs.get("source"))
+
         # Tensor sizes of 1 keep getting specialized via some mysterious codepath. We can prevent
         # this by overriding the outputs of any nodes retrieving tensor sizes with only symbolic
         # sizes.

@@ -85,6 +85,9 @@ def patchable_deeply_nested_output_module(
 ):
     return PatchableGraph(
         deeply_nested_output_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         deeply_nested_output_module_inputs,
     )

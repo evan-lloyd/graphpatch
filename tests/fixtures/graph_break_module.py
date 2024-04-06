@@ -48,6 +48,9 @@ def graph_break_module_inputs():
 def patchable_graph_break_module(request, graph_break_module, graph_break_module_inputs):
     return PatchableGraph(
         graph_break_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         graph_break_module_inputs,
     )

@@ -48,7 +48,9 @@ def test_minimal_module_serialization(patchable_minimal_module, minimal_module_i
 def test_opaque_submodule_serialization(minimal_module, minimal_module_inputs):
     patchable_minimal_module = PatchableGraph(
         minimal_module,
-        ExtractionOptions(classes_to_skip_compiling={torch.nn.Linear}),
+        ExtractionOptions(
+            classes_to_skip_compiling={torch.nn.Linear}, error_on_compilation_failure=True
+        ),
         minimal_module_inputs,
     )
     deserialized = _roundtrip(patchable_minimal_module)

@@ -35,6 +35,9 @@ if BNB_AVAILABLE:
     def patchable_quantized_module(request, quantized_module, quantized_module_inputs):
         return PatchableGraph(
             quantized_module,
-            ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+            ExtractionOptions(
+                skip_compilation=getattr(request, "param", None) == "opaque",
+                error_on_compilation_failure=True,
+            ),
             quantized_module_inputs,
         )

@@ -26,7 +26,10 @@ def pretrained_module_inputs(pretrained_tokenizer):
 def patchable_pretrained_module(request, pretrained_module, pretrained_module_inputs):
     return PatchableGraph(
         pretrained_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         pretrained_module_inputs,
     )
 
@@ -47,7 +50,10 @@ def patchable_accelerate_pretrained_module(
 ):
     return PatchableGraph(
         accelerate_pretrained_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         accelerate_pretrained_module_inputs,
     )
 
@@ -73,6 +79,9 @@ def patchable_quantized_pretrained_module(
 ):
     return PatchableGraph(
         quantized_pretrained_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         quantized_pretrained_module_inputs,
     )

@@ -30,6 +30,9 @@ def tuple_output_module_inputs():
 def patchable_tuple_output_module(request, tuple_output_module, tuple_output_module_inputs):
     return PatchableGraph(
         tuple_output_module,
-        ExtractionOptions(skip_compilation=getattr(request, "param", None) == "opaque"),
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
         tuple_output_module_inputs,
     )
