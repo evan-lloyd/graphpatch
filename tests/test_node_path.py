@@ -117,7 +117,9 @@ def test_node_path_pretty_print(patchable_deeply_nested_output_module, snapshot)
     # Note we get slightly different structures for newer versions of torch, due to it retaining
     # more not-actually-used nodes. In future releases we should use our own logic to clean up
     # graphs after extraction, which should eliminate this discrepancy.
-    if TORCH_VERSION >= (2, 1):
+    if TORCH_VERSION >= (2, 2):
+        snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_2")
+    elif TORCH_VERSION >= (2, 1):
         snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_1")
     else:
         snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_0")

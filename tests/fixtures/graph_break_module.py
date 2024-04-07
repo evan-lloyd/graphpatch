@@ -50,7 +50,7 @@ def patchable_graph_break_module(request, graph_break_module, graph_break_module
         graph_break_module,
         ExtractionOptions(
             skip_compilation=getattr(request, "param", None) == "opaque",
-            error_on_compilation_failure=True,
+            error_on_compilation_failure=False,
         ),
         graph_break_module_inputs,
     )

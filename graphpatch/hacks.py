@@ -83,12 +83,6 @@ def monkeypatch_dynamic_shapes():
         return _original(self, value)
 
     def wrap_fx_proxy_cls(_original, target_cls, tx, *args, **kwargs):
-        # Tweak some internal flags to avoid specializing on tensor dimensions.
-        tx.fake_mode.shape_env.specialize_zero_one = False
-        tx.fake_mode.shape_env.duck_shape = False
-
-        print("wrappin ye olde proxy", kwargs.get("source"))
-
         # Tensor sizes of 1 keep getting specialized via some mysterious codepath. We can prevent
         # this by overriding the outputs of any nodes retrieving tensor sizes with only symbolic
         # sizes.
@@ -127,6 +121,17 @@ def monkeypatch_dynamic_shapes():
     def produce_guards(self, _original, *args, **kwargs):
         return []
 
+    def evaluate_expr(self, _original, orig_expr, hint=None, fx_node=None, expect_rational=True):
+        # We care not for ShapeEnv's assertions and guards; just assume that the original module
+        # is using correct shapes!
+        import sympy
+
+        if hint is None:
+            concrete_val = self.size_hint(orig_expr)
+        else:
+            concrete_val = sympy.sympify(hint)
+        return concrete_val
+
     def _maybe_guard_eq(self, _original, *args, **kwargs):
         """This prevents many cases of torch deciding to specialize on tensor dimensions. We don't
         care about the guards that would have gotten generated because they aren't present in the
@@ -154,10 +159,17 @@ def monkeypatch_dynamic_shapes():
                 name = source.local_name
         return _original(self, name, *args, **kwargs)
 
+    def __init__(self, _original, *args, **kwargs):
+        _original(self, *args, **kwargs)
+        # Tweak some internal flags to avoid specializing on tensor dimensions.
+        self.specialize_zero_one = False
+        self.duck_shape = False
+        self.val_to_var = {}
+
     patch_map = {
         SubgraphTracer: [create_graph_input],
         OutputGraph: [remove_unused_graphargs],
-        ShapeEnv: [_maybe_guard_eq, produce_guards],
+        ShapeEnv: [_maybe_guard_eq, produce_guards, __init__, evaluate_expr],
         builder: [wrap_fx_proxy_cls],
         VariableBuilder: [wrap_literal],
     }
