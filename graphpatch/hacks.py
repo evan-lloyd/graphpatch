@@ -317,7 +317,7 @@ def set_dynamo_config():
 
 
 @contextmanager
-def allow_module_in_graph(module):
+def allow_builtin_in_graph(module):
     # Same functionality, different name.
     if TORCH_VERSION >= (2, 2):
         allowlist_name = "LEGACY_MOD_INLINELIST"
@@ -331,14 +331,10 @@ def allow_module_in_graph(module):
     allow_list = getattr(torch._dynamo.skipfiles, allowlist_name)
     orig_allow_list = deepcopy(allow_list)
     allow_list.add(allowlist_value)
-
-    orig_allow_functions = deepcopy(torch._dynamo.allowed_functions._allowed_function_ids)
-    torch._dynamo.allowed_functions._allowed_function_ids.remove(id(module.__class__))
     try:
         yield
     finally:
         setattr(torch._dynamo.skipfiles, allowlist_name, orig_allow_list)
-        torch._dynamo.allowed_functions._allowed_function_ids = orig_allow_functions
         # Make sure our patch had no side effect.
         if TORCH_VERSION >= (2, 2):
             torch._dynamo.skipfiles.get_legacy_mod_inlinelist.cache_clear()
@@ -353,3 +349,18 @@ def dynamo_hacks_for_current_torch_version():
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield
+
+
+def replace_node_keeping_original_name(node, replacement, name):
+    """Wrapper around fx.Node.replace_all_uses_with that ensures the replacement node has the same
+    name as the original. Has to poke some FX internals to work, hence its presence in hacks.
+    """
+    node.replace_all_uses_with(replacement, propagate_meta=True)
+    node.users = {}
+    node.graph.erase_node(node)
+    # A little low-level for my liking, but this lets us keep the same name for the replaced
+    # node (erase_node doesn't clean up the namespace)
+    del node.graph._graph_namespace._obj_to_name[node]
+    node.graph._graph_namespace._obj_to_name[replacement] = name
+    replacement.name = name
+    node.graph._insert(replacement)

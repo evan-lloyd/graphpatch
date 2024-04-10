@@ -3,6 +3,7 @@ from torch import ones
 from torch.nn import LayerNorm, Module
 
 from graphpatch import ExtractionOptions, PatchableGraph
+from graphpatch.hacks import TORCH_VERSION
 
 
 class LayerNormModule(Module):
@@ -32,7 +33,8 @@ def patchable_layer_norm_module(request, layer_norm_module, layer_norm_module_in
         layer_norm_module,
         ExtractionOptions(
             skip_compilation=getattr(request, "param", None) == "opaque",
-            error_on_compilation_failure=True,
+            # LayerNorm is uncompilable prior to torch 2.1, at least with our current bag of tricks.
+            error_on_compilation_failure=TORCH_VERSION >= (2, 1),
         ),
         layer_norm_module_inputs,
     )

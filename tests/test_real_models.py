@@ -82,15 +82,14 @@ def test_llama(tmp_path_factory):
         model_path, device_map="auto", load_in_8bit=True, torch_dtype=torch.float16
     )
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(
-        torch.device("cuda:0")
+        device=torch.device("cuda:0"), dtype=torch.float16
     )
     patchable_llama = PatchableGraph(
         llama,
-        ExtractionOptions(error_on_compilation_failure=True),
+        ExtractionOptions(error_on_compilation_failure=True, postprocessing_function=patch_llama),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
-        _graphpatch_postprocessing_function=patch_llama,
     )
 
     with torch.no_grad():

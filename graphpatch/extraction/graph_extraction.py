@@ -2,10 +2,10 @@ import inspect
 import warnings
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
-from functools import partial
-from typing import Any, Dict, Optional, Tuple, Type, Union, Callable
+from typing import Any, Dict, Optional, Tuple, Type, Union
 from warnings import warn
 
+from torch.fx import Node
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 
@@ -94,56 +94,57 @@ def _repair_input_signature(state: ExtractionState):
     handling of keyword arguments. We need to restore the original input signature so that calls
     to subgraphs behave correctly.
     """
-    # kwargs aren't included in the GraphModule call signature by default; often they are either
-    # ignored or converted into positional arguments. Inspect the original forward() method to
-    # repair the correct signature.
     graph_module = state.extracted_module
-    insert_after = None
-    placeholders = [n for n in graph_module.graph.nodes if n.op == "placeholder"]
-    if placeholders:
-        insert_after = placeholders[-1]
+    insert_after = graph_module.graph._root
+    existing_placeholders = {n.target: n for n in graph_module.graph.nodes if n.op == "placeholder"}
     forward_parameters = inspect.signature(state.original_module.forward).parameters
+
+    # Construct (possibly new) graph inputs in the correct order.
     for name, parameter in forward_parameters.items():
-        existing_placeholder = next((p for p in placeholders if p.target == name), None)
-        # Argument was created positionally; convert into a kwarg.
-        if existing_placeholder:
-            if parameter.default is not inspect._empty:
-                existing_placeholder.args = (parameter.default,)
-        # Argument wasn't created at all, so add it.
+        if name in existing_placeholders:
+            type_annotation = existing_placeholders[name].type
+        elif parameter.annotation != inspect._empty:
+            type_annotation = parameter.annotation
         else:
-            # Put new placeholder nodes at the end of the placeholder section to maintain ordering.
-            if insert_after:
-                insertion_context = graph_module.graph.inserting_after(insert_after)
-            # No previous placeholder nodes; make sure we start at the very beginning of the graph.
-            else:
-                insertion_context = graph_module.graph.inserting_before(None)
-            with insertion_context:
-                insert_after = graph_module.graph.placeholder(
-                    name=name,
-                    default_value=parameter.default,
-                    type_expr=parameter.annotation,
+            type_annotation = None
+        with graph_module.graph.inserting_after(insert_after):
+            new_placeholder = Node(
+                graph_module.graph,
+                name,
+                "placeholder",
+                name,
+                # Placeholder args take the default value for any kwargs.
+                () if parameter.default is inspect.Signature.empty else (parameter.default,),
+                {},
+                type_annotation,
+            )
+            if name in existing_placeholders:
+                hacks.replace_node_keeping_original_name(
+                    existing_placeholders[name], new_placeholder, name
                 )
+                del existing_placeholders[name]
+            else:
+                graph_module.graph._insert(new_placeholder)
+            insert_after = new_placeholder
 
-    # Compilation skips non-parameter attributes on models, converting them into placeholders.
-    # We can detect this by finding placeholders with no corresponding entry in the inspect
-    # signature, and then replace them with a get_attr.
-    for placeholder in placeholders:
-        if placeholder.target in forward_parameters:
-            continue
-
+    # Any remaining existing placeholders do not appear in the function signature. Assume they are
+    # lifted module attributes.
+    for name, placeholder in existing_placeholders.items():
         # Strip initial "self_" from the attribute name. For torch >= 2.1 we have already done this
         # via some monkeypatching during compilation.
         if hacks.TORCH_VERSION < (2, 1):
             original_attribute_name = placeholder.target[5:]
         else:
             original_attribute_name = placeholder.target
-
-        setattr(
-            graph_module,
-            placeholder.target,
-            getattr(state.original_module, original_attribute_name),
-        )
-        placeholder.op = "get_attr"
+        with graph_module.graph.inserting_after(insert_after):
+            setattr(
+                graph_module,
+                placeholder.target,
+                getattr(state.original_module, original_attribute_name),
+            )
+            get_attr_node = Node(graph_module.graph, name, "get_attr", placeholder.target, (), {})
+            hacks.replace_node_keeping_original_name(placeholder, get_attr_node, name)
+            insert_after = get_attr_node
 
 
 def _repair_output_signature(state: ExtractionState):
@@ -292,15 +293,12 @@ def _postprocess_graph(state: ExtractionState):
     graph_module.recompile()
 
 
-def _run_extraction(
-    state: ExtractionState,
-    compile: bool,
-    *args,
-    **kwargs,
-) -> Tuple[GraphPatchModule, Any]:
+def _run_extraction(state: ExtractionState, compile: bool) -> Tuple[GraphPatchModule, Any]:
     with extraction_context(state):
         # We have no wrapper to run accelerate hooks for the root of any extraction, so we must
         # invoke them manually.
+        args = state.invocations[-1].args
+        kwargs = state.invocations[-1].kwargs
         if state.accelerate_hook is not None:
             args, kwargs = state.accelerate_hook.pre_forward(
                 state.wrapped_module,
@@ -359,10 +357,7 @@ def extract(
                             " evaluating the given example inputs."
                         )
                     state.extracted_module, state.invocations[-1].output = _run_extraction(
-                        state,
-                        should_compile,
-                        *state.invocations[-1].args,
-                        **state.invocations[-1].kwargs,
+                        state, should_compile
                     )
 
                 except Exception as exc:
@@ -390,10 +385,7 @@ def extract(
             # We still need to run inference on the root to record module outputs.
             if state is root_state:
                 state.extracted_module, state.invocations[-1].output = _run_extraction(
-                    state,
-                    should_compile,
-                    *state.invocations[-1].args,
-                    **state.invocations[-1].kwargs,
+                    state, should_compile
                 )
             else:
                 state.extracted_module = OpaqueGraphModule(state.wrapped_module)

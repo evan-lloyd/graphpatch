@@ -1,4 +1,3 @@
-import inspect
 from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -6,7 +5,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, OrderedDict, T
 
 import torch
 from torch._dynamo import allow_in_graph
-from torch._subclasses.fake_tensor import is_fake
+from torch._subclasses.fake_tensor import FakeTensor
 from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
@@ -107,7 +106,9 @@ class ExtractionWrapper(Module):
     def forward(self, *args, **kwargs):
         # If we're in fake mode, we can't run bitsandbytes forward methods, since they use
         # tensor subclasses for their parameters. Instead just return a tensor of the proper shape.
-        if is_fake(torch.empty(0)) and isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
+        if isinstance(torch.empty(0), FakeTensor) and isinstance(
+            self._graphpatch_wrapped_module, Linear8bitLt
+        ):
             return torch.zeros(
                 *args[0].shape[:-1],
                 self._graphpatch_wrapped_module.out_features,
@@ -172,7 +173,7 @@ def _tracer_hook(state: ExtractionState) -> Iterator[None]:
     ) -> Any:
         # Disregard the symbolic tracing step when recording invocations. We can tell if we're
         # tracing if we're in fake mode, checked by creating a tensor and seeing if it's fake.
-        if not is_fake(torch.empty(0)):
+        if not isinstance(torch.empty(0), FakeTensor):
             state.invocations.append(ModuleInvocation(args, kwargs, output))
         return output
 
@@ -196,11 +197,6 @@ def _eval_mode(module: Module) -> Iterator[None]:
         module.train()
 
 
-def _allow_compilation(module: Module) -> Iterator[None]:
-    """Allows us to compile torch builtins."""
-    return hacks.allow_module_in_graph(module)
-
-
 @contextmanager
 def compilation_context(root_state: ExtractionState):
     original_root = root_state.wrapped_module
@@ -210,7 +206,7 @@ def compilation_context(root_state: ExtractionState):
             context_stack.enter_context(_eval_mode(root_state.wrapped_module))
             root_state.wrapped_module = maybe_wrap(root_state.wrapped_module)
             context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
-            context_stack.enter_context(_allow_compilation(root_state.wrapped_module))
+            context_stack.enter_context(hacks.allow_builtin_in_graph(root_state.wrapped_module))
             for submodule in root_state.wrapped_module.modules():
                 context_stack.enter_context(detach_accelerate_hooks(submodule))
             torch._dynamo.reset()

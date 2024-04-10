@@ -229,6 +229,14 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
             # by registering vs (self, node). This will also cache for multiple calls to _name_for
             # as is desirable.
             name = namespace.create_name("sub" + name, (self, node))
+        elif (
+            node.op == "placeholder"
+            and name in namespace._used_names
+            and namespace._obj_to_name.get(node) != name
+        ):
+            # Node will have been registered by name, not target, so make sure our target name isn't
+            # already taken!
+            name = namespace.create_name(name, (self, node))
         return name
 
     def _code_for(

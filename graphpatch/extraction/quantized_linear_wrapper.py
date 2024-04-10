@@ -2,8 +2,8 @@ from typing import Any, Optional
 
 import torch
 from torch import Tensor, float16
-from torch._dynamo.decorators import allow_in_graph
-from torch._subclasses.fake_tensor import is_fake
+from torch._dynamo import allow_in_graph
+from torch._subclasses.fake_tensor import FakeTensor
 from torch.nn import Module, Parameter
 
 from ..optional.accelerate import add_hook_to_module
@@ -19,8 +19,8 @@ from ..optional.bitsandbytes import (
 @allow_in_graph
 def matmul_8bit(x, weight, bias, threshold):
     # bitsandbytes matmul doesn't work with FakeTensors, so just return a tensor of the right shape.
-    if is_fake(torch.zeros(0)):
-        return torch.zeros(*x.shape[:-1], weight.shape[0], device=x.device)
+    if isinstance(torch.empty(0), FakeTensor):
+        return torch.zeros(*x.shape[:-1], weight.shape[0], device=x.device, dtype=float16)
     state = MatmulLtState()
     state.has_fp16_weights = True
     state.threshold = threshold

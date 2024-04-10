@@ -37,6 +37,7 @@ from .meta import (
 from .optional.accelerate import add_hook_to_module
 from .optional.typing_extensions import TypeAlias
 from .patch import Patch
+from . import hacks
 
 GraphPatchArgs = TypedDict(
     "GraphPatchArgs",
@@ -595,15 +596,8 @@ class PatchableGraph(Module):
             tuple(input_nodes_copy),
             {"_graphpatch_args": patch_args_node},
         )
-        next_node = node.next
-        node.replace_all_uses_with(replacement_node, propagate_meta=True)
-        graph.erase_node(node)
-        with graph.inserting_before(next_node):
-            # A little low-level for my liking, but this lets us keep the same name for the replaced
-            # node (erase_node doesn't clean up the namespace)
-            del graph._graph_namespace._obj_to_name[node]
-            graph._graph_namespace._obj_to_name[replacement_node] = name_copy
-            graph._insert(replacement_node)
+        with graph.inserting_before(node.next):
+            hacks.replace_node_keeping_original_name(node, replacement_node, name_copy)
         return replacement_node
 
     def _make_patchable(self) -> None:

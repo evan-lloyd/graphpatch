@@ -41,7 +41,7 @@ def _inner({fn_args}):
 
 
 @_opaque_and_compiled("patchable_minimal_module")
-def test_patch_module_input(pg, minimal_module_inputs):
+def test_patch_module_input(pg, minimal_module_inputs, minimal_module):
     with pg.patch({"linear.input": ZeroPatch()}):
         patched_output = pg(minimal_module_inputs)
 

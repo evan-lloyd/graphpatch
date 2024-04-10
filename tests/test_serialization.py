@@ -64,8 +64,6 @@ def test_uncompilable_module_serialization(patchable_graph_break_module, graph_b
 
 @requires_accelerate
 def test_layer_norm_module_serialization(patchable_layer_norm_module, layer_norm_module_inputs):
-    # TODO: remove once we make layer norm compilable!
-
     # Simulate behavior we get trying to serialize GPT2-XL; accelerate's hook makes the module
     # unpicklable.
     add_hook_to_module(patchable_layer_norm_module._graph_module.ln, hook := ModelHook())

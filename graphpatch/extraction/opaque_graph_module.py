@@ -23,6 +23,8 @@ _UNPATCHABLE_MODULE_ATTRIBUTES = frozenset(
         *(k for k in Module.__dict__),
         *(k for k in Module.__annotations__),
         "___needs_generation_tag_patch",
+        # Needs to be skipped for torch 2.0
+        "__slotnames__",
         # Python internals not covered by the above.
         "__class__",
     }
@@ -38,16 +40,21 @@ _UNPATCHABLE_MODULE_METHODS = frozenset(
 )
 
 
+def _is_routine(obj: Any) -> bool:
+    # For torch < 2.1, some methods don't show up as routines to inspect.
+    return inspect.isroutine(obj) or obj.__class__.__name__ == "method-wrapper"
+
+
 def _module_methods(module: Module) -> Iterator[Callable]:
     def _filter(t: Tuple[str, Any]) -> bool:
-        return t[0] not in _UNPATCHABLE_MODULE_METHODS and inspect.isroutine(t[1])
+        return t[0] not in _UNPATCHABLE_MODULE_METHODS and _is_routine(t[1])
 
     return filter(_filter, inspect.getmembers(module))
 
 
 def _module_attributes(module: Module) -> Iterator[Any]:
     def _filter(t: Tuple[str, Any]) -> bool:
-        return t[0] not in _UNPATCHABLE_MODULE_ATTRIBUTES and not inspect.isroutine(t[1])
+        return t[0] not in _UNPATCHABLE_MODULE_ATTRIBUTES and not _is_routine(t[1])
 
     return filter(_filter, inspect.getmembers(module))
 
