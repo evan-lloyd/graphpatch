@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, OrderedDict, T
 import torch
 from torch._dynamo import allow_in_graph
 from torch._subclasses.fake_tensor import FakeTensor
-from torch.nn import Module, ModuleDict, ModuleList
+from torch.nn import Module, ModuleDict, ModuleList, LayerNorm
 
 from .. import hacks
 from ..optional.accelerate import ModelHook
@@ -106,14 +106,17 @@ class ExtractionWrapper(Module):
     def forward(self, *args, **kwargs):
         # If we're in fake mode, we can't run bitsandbytes forward methods, since they use
         # tensor subclasses for their parameters. Instead just return a tensor of the proper shape.
-        if isinstance(torch.empty(0), FakeTensor) and isinstance(
-            self._graphpatch_wrapped_module, Linear8bitLt
-        ):
-            return torch.zeros(
-                *args[0].shape[:-1],
-                self._graphpatch_wrapped_module.out_features,
-                device=args[0].device
-            )
+        if _in_fake_mode():
+            if isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
+                return torch.zeros(
+                    *args[0].shape[:-1],
+                    self._graphpatch_wrapped_module.out_features,
+                    device=args[0].device,
+                    dtype=torch.float16,
+                )
+            elif isinstance(self._graphpatch_wrapped_module, LayerNorm):
+                return torch.zeros(*args[0].shape, device=args[0].device, dtype=args[0].dtype)
+
         with self.substitute_wrapped_submodules():
             if self._graphpatch_accelerate_hook is not None:
                 args, kwargs = self._graphpatch_accelerate_hook.pre_forward(
@@ -162,6 +165,10 @@ def _wrap_module_hierarchy(root_state: ExtractionState, fn: Callable[[Extraction
                 )
 
 
+def _in_fake_mode() -> bool:
+    return isinstance(torch.empty(0), FakeTensor)
+
+
 @contextmanager
 def _tracer_hook(state: ExtractionState) -> Iterator[None]:
     # It's possible that we're retracing after a compilation failure, so make sure we don't persist
@@ -172,8 +179,8 @@ def _tracer_hook(state: ExtractionState) -> Iterator[None]:
         module: Module, args: Tuple[Any, ...], kwargs: Dict[str, Any], output: Any
     ) -> Any:
         # Disregard the symbolic tracing step when recording invocations. We can tell if we're
-        # tracing if we're in fake mode, checked by creating a tensor and seeing if it's fake.
-        if not isinstance(torch.empty(0), FakeTensor):
+        # tracing if we're in fake mode.
+        if not _in_fake_mode():
             state.invocations.append(ModuleInvocation(args, kwargs, output))
         return output
 

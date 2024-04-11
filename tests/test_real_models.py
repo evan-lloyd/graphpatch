@@ -5,7 +5,7 @@ import torch
 from demos.ROME.rome import standardize_tokenizer
 from graphpatch import PatchableGraph, ZeroPatch
 from graphpatch.extraction import ExtractionOptions, extract
-from graphpatch.hacks import fix_gpt2_bool_buffers, patch_llama
+from graphpatch.hacks import fix_gpt2_bool_buffers, patch_llama, TORCH_VERSION
 from graphpatch.optional.transformers import (
     AutoConfig,
     AutoTokenizer,
@@ -28,7 +28,7 @@ from .util import (
 def test_extract_llama_model():
     model_path = f"{os.getenv('MODEL_DIR')}/llama-7b-hf"
     tokenizer = LlamaTokenizer.from_pretrained(model_path)
-    config = AutoConfig.from_pretrained(model_path)
+    config = AutoConfig.from_pretrained(model_path, dtype=torch.float16)
     config.num_attention_heads = 2
     config.hidden_size = 20
     config.num_hidden_layers = 1
@@ -82,7 +82,7 @@ def test_llama(tmp_path_factory):
         model_path, device_map="auto", load_in_8bit=True, torch_dtype=torch.float16
     )
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(
-        device=torch.device("cuda:0"), dtype=torch.float16
+        device=torch.device("cuda:0")
     )
     patchable_llama = PatchableGraph(
         llama,
@@ -154,7 +154,10 @@ def test_gpt2(tmp_path_factory):
     )
     patchable_gpt2 = PatchableGraph(
         gpt2,
-        ExtractionOptions(error_on_compilation_failure=True),
+        ExtractionOptions(
+            error_on_compilation_failure=True,
+            classes_to_skip_compiling={LayerNorm} if TORCH_VERSION < (2, 1) else set(),
+        ),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,

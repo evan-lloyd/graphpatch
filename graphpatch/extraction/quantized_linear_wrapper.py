@@ -24,7 +24,7 @@ def matmul_8bit(x, weight, bias, threshold):
     state = MatmulLtState()
     state.has_fp16_weights = True
     state.threshold = threshold
-    return matmul(x, weight, bias=bias, state=state)
+    return matmul(x, weight, bias=bias, state=state).to(float16)
 
 
 class Wrapped8BitLinear(Module):
