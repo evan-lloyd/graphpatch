@@ -34,8 +34,6 @@ def patchable_layer_norm_module(request, layer_norm_module, layer_norm_module_in
         ExtractionOptions(
             skip_compilation=getattr(request, "param", None) == "opaque",
             error_on_compilation_failure=True,
-            # LayerNorm is uncompilable prior to torch 2.1, at least with our current bag of tricks.
-            classes_to_skip_compiling={LayerNorm} if TORCH_VERSION < (2, 1) else set(),
         ),
         layer_norm_module_inputs,
     )

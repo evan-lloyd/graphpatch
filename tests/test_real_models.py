@@ -156,7 +156,6 @@ def test_gpt2(tmp_path_factory):
         gpt2,
         ExtractionOptions(
             error_on_compilation_failure=True,
-            classes_to_skip_compiling={LayerNorm} if TORCH_VERSION < (2, 1) else set(),
         ),
         inputs.input_ids,
         use_cache=False,
