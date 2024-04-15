@@ -293,27 +293,18 @@ def _postprocess_graph(state: ExtractionState):
     graph_module.recompile()
 
 
-def _run_extraction(state: ExtractionState, compile: bool) -> Tuple[GraphPatchModule, Any]:
+def _run_extraction(
+    state: ExtractionState, compile: bool, *args, **kwargs
+) -> Tuple[GraphPatchModule, Any]:
     with extraction_context(state):
-        # We have no wrapper to run accelerate hooks for the root of any extraction, so we must
-        # invoke them manually.
-        args = state.invocations[-1].args
-        kwargs = state.invocations[-1].kwargs
-        if state.accelerate_hook is not None:
-            args, kwargs = state.accelerate_hook.pre_forward(
-                state.wrapped_module,
-                *args,
-                **kwargs,
-            )
-
         if compile:
             extracted_module, output = compile_module(state.wrapped_module, *args, **kwargs)
         else:
-            extracted_module = OpaqueGraphModule(state.wrapped_module)
+            extracted_module = OpaqueGraphModule(state.wrapped_module._graphpatch_wrapped_module)
             output = state.wrapped_module(*args, **kwargs)
 
-        if state.accelerate_hook is not None:
-            output = state.accelerate_hook.post_forward(state.wrapped_module, output)
+        # if state.accelerate_hook is not None:
+        #     output = state.accelerate_hook.post_forward(state.wrapped_module, output)
     return extracted_module, output
 
 
@@ -330,7 +321,7 @@ def extract(
         for name, submodule in root_module.named_modules(remove_duplicate=False)
     }
     root_state = extraction_state[""]
-    root_state.invocations = [ModuleInvocation(trace_args, trace_kwargs, None)]
+    # root_state.invocations = [ModuleInvocation(trace_args, trace_kwargs, None)]
 
     # Set up parent/child relationship between state items.
     for name, state in extraction_state.items():
@@ -349,15 +340,23 @@ def extract(
         should_compile = not _should_skip_compilation(options, state.original_module)
 
         if should_compile:
+            print("compile", state.name)
             with compilation_context(state):
                 try:
-                    if len(state.invocations) == 0:
+                    if state is not root_state and len(state.invocations) == 0:
                         raise ValueError(
                             f"Unable to compile {state.torch_name}; it was never called when"
                             " evaluating the given example inputs."
                         )
-                    state.extracted_module, state.invocations[-1].output = _run_extraction(
-                        state, should_compile
+
+                    if state is root_state:
+                        args = trace_args
+                        kwargs = trace_kwargs
+                    else:
+                        args = state.invocations[-1].args
+                        kwargs = state.invocations[-1].kwargs
+                    state.extracted_module, _ = _run_extraction(
+                        state, should_compile, *args, **kwargs
                     )
 
                 except Exception as exc:
@@ -384,8 +383,8 @@ def extract(
         if not should_compile:
             # We still need to run inference on the root to record module outputs.
             if state is root_state:
-                state.extracted_module, state.invocations[-1].output = _run_extraction(
-                    state, should_compile
+                state.extracted_module, _ = _run_extraction(
+                    state, should_compile, *trace_args, **trace_kwargs
                 )
             else:
                 state.extracted_module = OpaqueGraphModule(state.wrapped_module)

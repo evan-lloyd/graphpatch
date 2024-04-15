@@ -10,6 +10,13 @@ import torch
 
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
+if TORCH_VERSION < (2, 1):
+    from torch._dynamo import allow_in_graph, skip  # noqa: F401
+else:
+    from torch._dynamo.decorators import allow_in_graph, skip  # noqa: F401
+
+_CURRENTLY_COMPILING = False
+
 
 def fix_gpt2_bool_buffers(model):
     # Accelerate seems to convert bool buffers to float16 where it really shouldn't
@@ -256,30 +263,6 @@ def monkeypatch_graph_names():
         OutputGraph.register_attr_or_module = orig_register_attr
 
 
-@contextmanager
-def make_dynamo_ignore_hooks():
-    """Only use for torch >= 2.1.0. In that version, torch attempts to compile any hooks you have
-    applied to your model, but we need it to ignore them (as it did in 2.0.*) so we can easily
-    record module inputs/outputs without affecting the compiled code.
-    """
-    from torch._dynamo import output_graph
-    from torch._dynamo.utils import nnmodule_has_hooks as orig_function
-    from torch._dynamo.variables import nn_module
-
-    modules_to_patch = [nn_module, output_graph]
-
-    def dummy_has_hooks(*args, **kwargs):
-        return False
-
-    try:
-        for m in modules_to_patch:
-            m.nnmodule_has_hooks = dummy_has_hooks
-        yield
-    finally:
-        for m in modules_to_patch:
-            m.nnmodule_has_hooks = orig_function
-
-
 def get_size(target, index):
     return target[index]
 
@@ -318,6 +301,8 @@ def set_dynamo_config():
 
 @contextmanager
 def allow_builtin_in_graph(module):
+    import graphpatch.extraction
+
     # Same functionality, different name.
     if TORCH_VERSION >= (2, 2):
         allowlist_name = "LEGACY_MOD_INLINELIST"
@@ -345,7 +330,6 @@ def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
         if TORCH_VERSION >= (2, 1):
             hack_stack.enter_context(set_dynamo_config())
-            hack_stack.enter_context(make_dynamo_ignore_hooks())
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield

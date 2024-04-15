@@ -3,7 +3,6 @@ from torch import ones
 from torch.nn import LayerNorm, Module
 
 from graphpatch import ExtractionOptions, PatchableGraph
-from graphpatch.hacks import TORCH_VERSION
 
 
 class LayerNormModule(Module):

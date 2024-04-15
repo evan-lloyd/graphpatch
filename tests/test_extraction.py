@@ -29,7 +29,6 @@ def test_extract_minimal_module(minimal_module, minimal_module_inputs):
     graph_module, meta = extract(
         minimal_module, ExtractionOptions(error_on_compilation_failure=True), minimal_module_inputs
     )
-
     validate_node_meta(meta, graph_module)
     assert_results_identical(minimal_module, graph_module, minimal_module_inputs)
 
