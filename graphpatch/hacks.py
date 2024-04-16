@@ -11,9 +11,9 @@ import torch
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
 if TORCH_VERSION < (2, 1):
-    from torch._dynamo import allow_in_graph, skip  # noqa: F401
+    from torch._dynamo import allow_in_graph, skip, disable  # noqa: F401
 else:
-    from torch._dynamo.decorators import allow_in_graph, skip  # noqa: F401
+    from torch._dynamo.decorators import allow_in_graph, skip, disable  # noqa: F401
 
 _CURRENTLY_COMPILING = False
 

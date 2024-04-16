@@ -5,8 +5,8 @@ from torch import Tensor, float16
 from torch._dynamo import allow_in_graph
 from torch._subclasses.fake_tensor import FakeTensor
 from torch.nn import Module, Parameter
+from copy import deepcopy
 
-from ..optional.accelerate import add_hook_to_module
 from ..optional.bitsandbytes import (
     Linear8bitLt,
     MatmulLtState,
@@ -28,16 +28,27 @@ def matmul_8bit(x, weight, bias, threshold):
 
 
 class Wrapped8BitLinear(Module):
-    def __init__(self, CB, SCB, bias: Optional[Tensor], threshold: float):
+    def __init__(self, original: Linear8bitLt):
         super().__init__()
-        self.threshold = threshold
+        # CB and SCB get deleted when running inference, so we may have to recompute them.
+        if original.weight.CB is not None:
+            CB = original.weight.CB
+        else:
+            CB = undo_layout(
+                original.weight, get_tile_inds(original.state.formatB, original.weight.device)
+            )[: original.out_features, : original.in_features]
+        if original.weight.SCB is not None:
+            SCB = original.weight.SCB
+        else:
+            SCB = original.state.SCB
+        self.threshold = original.state.threshold
         # It doesn't make sense with the current logic to compute gradients for the quantization
         # parameters. The user is expected instead to patch the "weight" node within the forward
         # computation.
         self.CB = Parameter(CB, requires_grad=False)
         self.SCB = Parameter(SCB.to(float16).unsqueeze(1), requires_grad=False)
-        if bias is not None:
-            self.bias = Parameter(bias.to(float16))
+        if original.bias is not None:
+            self.bias = Parameter(original.bias.to(float16))
         else:
             self.register_parameter("bias", None)
 
@@ -45,20 +56,18 @@ class Wrapped8BitLinear(Module):
         weight = (self.CB * self.SCB) / 127
         return matmul_8bit(x, weight, self.bias, self.threshold)
 
-
-def maybe_wrap(module: Module) -> Module:
-    if not isinstance(module, Linear8bitLt):
-        return module
-    # CB and SCB get deleted when running inference, so we may have to recompute them.
-    CB = (
-        module.weight.CB
-        or undo_layout(module.weight, get_tile_inds(module.state.formatB, module.weight.device))[
-            : module.out_features, : module.in_features
-        ]
-    )
-    SCB = module.weight.SCB or module.state.SCB
-    wrapped = Wrapped8BitLinear(CB, SCB, module.bias, module.state.threshold)
-    hook = getattr(module, "_hf_hook", None)
-    if hook is not None:
-        add_hook_to_module(wrapped, hook)
-    return wrapped
+    def __deepcopy__(self, memo):
+        """Prevents an error when torch attempts to fakify our 8-bit parameters, which fails because
+        they are a Tensor subclass."""
+        if isinstance(torch.empty(0), FakeTensor):
+            return self
+        new_instance = self.__class__.__new__(self.__class__)
+        Module.__init__(new_instance)
+        new_instance.CB = deepcopy(self.CB, memo)
+        new_instance.SCB = deepcopy(self.SCB, memo)
+        new_instance.threshold = deepcopy(self.threshold, memo)
+        if self.bias is not None:
+            new_instance.bias = Parameter(deepcopy(self.bias, memo))
+        else:
+            new_instance.register_parameter("bias", None)
+        return new_instance

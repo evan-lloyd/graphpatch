@@ -12,8 +12,8 @@ from ..optional.accelerate import ModelHook
 from ..optional.bitsandbytes import Linear8bitLt
 from .accelerate import detach_accelerate_hooks
 from .graphpatch_module import GraphPatchModule
-from .quantized_linear_wrapper import maybe_wrap
 from .layer_norm_wrapper import LayerNormWrapper
+from .quantized_linear_wrapper import Wrapped8BitLinear
 
 
 # Can't just make this a dataclass because for some reason torch.compile() chokes even if we're
@@ -71,6 +71,22 @@ def run_wrapped_module(self, *args, **kwargs):
         self._graphpatch_wrapped_module._modules = orig_modules
 
 
+@hacks.disable
+def maybe_accelerate_pre_hook(
+    module: "ExtractionWrapper", hook: Optional[ModelHook], *args, **kwargs
+):
+    if hook is not None:
+        return hook.pre_forward(module, *args, **kwargs)
+    return args, kwargs
+
+
+@hacks.disable
+def maybe_accelerate_post_hook(module: "ExtractionWrapper", hook: Optional[ModelHook], output: Any):
+    if hook is not None:
+        return hook.post_forward(module, output)
+    return output
+
+
 @hacks.allow_in_graph
 class ExtractionWrapper(Module):
     """Class in which to wrap all non-container modules during tracing and compilation. This serves
@@ -98,30 +114,32 @@ class ExtractionWrapper(Module):
         self._graphpatch_record_invocations = record_invocations
         # Avoid adding the wrapped module to the module hierarchy.
         wrapped_module = state.wrapped_module
+        # TODO: abstract/make customizable
         if isinstance(wrapped_module, LayerNorm):
             wrapped_module = LayerNormWrapper(wrapped_module)
+        elif isinstance(wrapped_module, Linear8bitLt):
+            wrapped_module = Wrapped8BitLinear(wrapped_module)
         object.__setattr__(self, "_graphpatch_wrapped_module", wrapped_module)
 
-    # def __deepcopy__(self, memo=None):
-    #     """compile() deep copies modules during symbolic tracing in order to fakify their
-    #     parameters. This fails in the case of bitsandbytes quantized modules since their parameters
-    #     are already a Tensor subclass. To work around this, we avoid cloning such modules.
-    #     """
-    #     if isinstance(self._graphpatch_wrapped_module, Linear8bitLt):
-    #         return ExtractionWrapper(
-    #             self._graphpatch_extraction_state,
-    #             self._graphpatch_original_module_name,
-    #             self._graphpatch_record_invocations,
-    #         )
-    #     with self._substitute_submodules(self._graphpatch_wrapped_module, {}):
-    #         new_instance = ExtractionWrapper(
-    #             self._graphpatch_extraction_state,
-    #             self._graphpatch_original_module_name,
-    #             self._graphpatch_record_invocations,
-    #         )
-    #         new_instance._graphpatch_wrapped_module = deepcopy(self._graphpatch_wrapped_module)
-    #     new_instance._modules = deepcopy(self._modules, memo)
-    #     return new_instance
+    def __deepcopy__(self, memo=None):
+        """compile() deep copies modules during symbolic tracing in order to fakify their
+        parameters. Since some modules can't be deepcopied in fake mode (bitsandbytes), we need to
+        customize our deepcopy to avoid copying the original module stored in our state.
+        """
+        new_instance = self.__class__.__new__(self.__class__)
+        Module.__init__(new_instance)
+        new_instance._graphpatch_extraction_state = self._graphpatch_extraction_state
+        new_instance._graphpatch_original_module_name = self._graphpatch_original_module_name
+        new_instance._graphpatch_accelerate_hook = self._graphpatch_accelerate_hook
+        new_instance._graphpatch_record_invocations = self._graphpatch_record_invocations
+        with self._substitute_submodules(self._graphpatch_wrapped_module, {}):
+            object.__setattr__(
+                new_instance,
+                "_graphpatch_wrapped_module",
+                deepcopy(self._graphpatch_wrapped_module),
+            )
+        new_instance._modules = deepcopy(self._modules, memo)
+        return new_instance
 
     @staticmethod
     @contextmanager
@@ -137,7 +155,12 @@ class ExtractionWrapper(Module):
 
     @hacks.skip
     def forward(self, *args, **kwargs):
-        return run_wrapped_module(self, *args, **kwargs)
+        args, kwargs = maybe_accelerate_pre_hook(
+            self, self._graphpatch_accelerate_hook, *args, **kwargs
+        )
+        output = run_wrapped_module(self, *args, **kwargs)
+        output = maybe_accelerate_post_hook(self, self._graphpatch_accelerate_hook, output)
+        return output
 
 
 def _iter_state_hierarchy(root_state: ExtractionState) -> Iterator[ExtractionState]:
@@ -206,7 +229,6 @@ def compilation_context(root_state: ExtractionState):
         with ExitStack() as context_stack:
             context_stack.enter_context(torch.inference_mode())
             context_stack.enter_context(_eval_mode(root_state.wrapped_module))
-            root_state.wrapped_module = maybe_wrap(root_state.wrapped_module)
             context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
             context_stack.enter_context(hacks.allow_builtin_in_graph(root_state.wrapped_module))
             for submodule in root_state.wrapped_module.modules():
