@@ -24,7 +24,6 @@ from .compiled_graph_module import CompiledGraphModule, compile_module
 from .extraction_context import (
     ExtractionState,
     ExtractionWrapper,
-    ModuleInvocation,
     compilation_context,
     extraction_context,
 )
@@ -321,7 +320,6 @@ def extract(
         for name, submodule in root_module.named_modules(remove_duplicate=False)
     }
     root_state = extraction_state[""]
-    # root_state.invocations = [ModuleInvocation(trace_args, trace_kwargs, None)]
 
     # Set up parent/child relationship between state items.
     for name, state in extraction_state.items():
@@ -340,7 +338,6 @@ def extract(
         should_compile = not _should_skip_compilation(options, state.original_module)
 
         if should_compile:
-            print("compile", state.name)
             with compilation_context(state):
                 try:
                     if state is not root_state and len(state.invocations) == 0:
