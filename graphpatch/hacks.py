@@ -5,6 +5,7 @@ import operator
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from functools import partial, partialmethod
+from torch._subclasses.fake_tensor import FakeTensor
 
 import torch
 
@@ -16,6 +17,14 @@ else:
     from torch._dynamo.decorators import allow_in_graph, skip, disable  # noqa: F401
 
 _CURRENTLY_COMPILING = False
+
+
+def in_compilation():
+    return _CURRENTLY_COMPILING
+
+
+def in_fake_mode():
+    return isinstance(torch.empty(0), FakeTensor)
 
 
 def fix_gpt2_bool_buffers(model):

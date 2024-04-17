@@ -3,9 +3,7 @@ from copy import deepcopy
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
 import torch
-from torch._subclasses.fake_tensor import FakeTensor
-from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
-
+from torch.nn import LayerNorm, Module
 
 from .. import hacks
 from ..optional.accelerate import ModelHook
@@ -69,18 +67,16 @@ class ExtractionWrapper(Module):
         during symbolic tracing.
     """
 
-    _graphpatch_original_module_name: str
     _graphpatch_wrapped_module: Module
     _graphpatch_accelerate_hook: Optional[ModelHook]
     _graphpatch_extraction_state: ExtractionState
     _graphpatch_record_invocations: bool
 
-    def __init__(self, state: ExtractionState, original_name: str, record_invocations: bool):
+    def __init__(self, state: ExtractionState):
         super().__init__()
         self._graphpatch_extraction_state = state
-        self._graphpatch_original_module_name = original_name
         self._graphpatch_accelerate_hook = state.accelerate_hook
-        self._graphpatch_record_invocations = record_invocations
+        self._graphpatch_record_invocations = True
         wrapped_module = state.wrapped_module
         # TODO: abstract/make customizable
         if isinstance(wrapped_module, LayerNorm):
@@ -100,7 +96,6 @@ class ExtractionWrapper(Module):
         new_instance = self.__class__.__new__(self.__class__)
         Module.__init__(new_instance)
         new_instance._graphpatch_extraction_state = self._graphpatch_extraction_state
-        new_instance._graphpatch_original_module_name = self._graphpatch_original_module_name
         new_instance._graphpatch_accelerate_hook = self._graphpatch_accelerate_hook
         new_instance._graphpatch_record_invocations = self._graphpatch_record_invocations
         with new_instance.substitute_submodules(self._graphpatch_wrapped_module):
@@ -139,63 +134,20 @@ class ExtractionWrapper(Module):
     def forward(self, *args, **kwargs):
         try:
             # Unfortunately we have to repeat substitute_submodules() functionality here, since
-            # torch doesn't support contextmanagers even if we're skipping.
+            # torch.compile() doesn't support contextmanagers even if we're skipping.
             orig_modules = self._graphpatch_wrapped_module._modules
             self._graphpatch_wrapped_module._modules = self._modules
             args, kwargs = self.maybe_accelerate_pre_hook(*args, **kwargs)
             output = self.maybe_accelerate_post_hook(
                 self._graphpatch_wrapped_module(*args, **kwargs)
             )
-            if not _in_compilation() and self._graphpatch_record_invocations:
-                self._graphpatch_extraction_state.record_invocation(
+            if not hacks.in_compilation() and self._graphpatch_record_invocations:
+                self._graphpatch_extraction_state.invocations.append(
                     ModuleInvocation(args, kwargs, output)
                 )
             return output
         finally:
             self._graphpatch_wrapped_module._modules = orig_modules
-
-
-def _iter_state_hierarchy(root_state: ExtractionState) -> Iterator[ExtractionState]:
-    state_stack = [root_state]
-    while state_stack:
-        state = state_stack.pop()
-        yield state
-        state_stack.extend(state.children.values())
-
-
-@contextmanager
-def _wrap_module_hierarchy(root_state: ExtractionState, fn: Callable[[ExtractionState], Module]):
-    original_modules: Dict[str, Module] = {}
-    for state in _iter_state_hierarchy(root_state):
-        original_modules[state.torch_name] = state.wrapped_module
-        state.wrapped_module = fn(state)
-    for state in _iter_state_hierarchy(root_state):
-        for child_state in state.children.values():
-            setattr(
-                state.wrapped_module,
-                child_state.torch_name.split(".")[-1],
-                child_state.wrapped_module,
-            )
-    try:
-        yield
-    finally:
-        for state in _iter_state_hierarchy(root_state):
-            state.wrapped_module = original_modules[state.torch_name]
-        for state in _iter_state_hierarchy(root_state):
-            for child_state in state.children.values():
-                setattr(
-                    state.wrapped_module,
-                    child_state.torch_name.split(".")[-1],
-                    original_modules[child_state.torch_name],
-                )
-
-
-def _in_compilation() -> bool:
-    return hacks._CURRENTLY_COMPILING
-
-
-def _in_fake_mode() -> bool:
-    return isinstance(torch.empty(0), FakeTensor)
 
 
 @contextmanager
@@ -222,26 +174,12 @@ def compilation_context(root_state: ExtractionState):
             context_stack.enter_context(torch.inference_mode())
             context_stack.enter_context(_eval_mode(root_state.wrapped_module))
             context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
-            context_stack.enter_context(hacks.allow_builtin_in_graph(root_state.wrapped_module))
+            context_stack.enter_context(
+                hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)
+            )
             for submodule in root_state.wrapped_module.modules():
                 context_stack.enter_context(detach_accelerate_hooks(submodule))
             torch._dynamo.reset()
             yield
     finally:
         root_state.wrapped_module = original_root
-
-
-@contextmanager
-def extraction_context(root_state: ExtractionState):
-    def wrap_modules(state: ExtractionState):
-        if isinstance(state.wrapped_module, (ModuleDict, ModuleList)):
-            return state.wrapped_module
-        if root_state.name == "":
-            local_name = state.name
-        else:
-            # Remove parent's prefix
-            local_name = state.name.replace(root_state.name + ".", "", 1)
-        return ExtractionWrapper(state, local_name, root_state.name == "")
-
-    with _wrap_module_hierarchy(root_state, wrap_modules):
-        yield

@@ -3,16 +3,17 @@ from typing import Tuple
 import torch
 from torch import Tensor
 from torch._dynamo import allow_in_graph
-from torch._subclasses.fake_tensor import FakeTensor
 from torch.nn import LayerNorm, Module, Parameter
 from torch.nn.functional import layer_norm as torch_layer_norm
+
+from .. import hacks
 
 
 @allow_in_graph
 def layer_norm(
     input: Tensor, normalized_shape: Tuple[int, ...], weight: Parameter, bias: Parameter, eps: float
 ):
-    if isinstance(torch.empty(0), FakeTensor):
+    if hacks.in_fake_mode():
         return torch.zeros(input.shape, device=input.device, dtype=input.dtype)
     return torch_layer_norm(input, normalized_shape, weight, bias, eps)
 
