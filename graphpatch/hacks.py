@@ -232,8 +232,10 @@ def override_reserved_name(name):
     """
 
     def override(part):
-        if part in _RESERVED_NAMES or part.startswith("_graphpatch_"):
+        if part in _RESERVED_NAMES:
             return f"{part}_"
+        elif part.startswith("_graphpatch_"):
+            return f"_{part}"
         return part
 
     return ".".join(map(override, name.split(".")))

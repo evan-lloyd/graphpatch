@@ -1,25 +1,26 @@
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Type, Union
 
 import torch
-from torch.nn import LayerNorm, Module
+from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
 
 from .. import hacks
 from ..optional.accelerate import ModelHook
 from ..optional.bitsandbytes import Linear8bitLt
+from ..optional.typing_extensions import TypeAlias
 from .accelerate import detach_accelerate_hooks
 from .graphpatch_module import GraphPatchModule
 from .layer_norm_wrapper import LayerNormWrapper
 from .wrapped_8_bit_linear import Wrapped8BitLinear
 
+CONTAINER_TYPES = (ModuleList, ModuleDict)
 
-# Can't just make this a dataclass because for some reason torch.compile() chokes even if we're
-# skipping/including in graph any function that calls __init__ on one of these.
+
 class ModuleInvocation:
     args: List[Any]
     kwargs: Dict[str, Any]
-    output: Any = None
+    output: Any
 
     def __init__(
         self,
@@ -32,6 +33,24 @@ class ModuleInvocation:
         self.output = output
 
 
+def init_container(container: Union[ModuleList, ModuleDict]):
+    if isinstance(container, ModuleList):
+        return container.__class__([Module() for _ in range(len(container))])
+    return container.__class__()
+
+
+def is_container(module: Union[Module, Type[Module]]) -> bool:
+    """Strictly checking for built-in container types, since user-derived ones could have forward()."""
+    if isinstance(module, type):
+        model_class = module
+    else:
+        model_class = module.__class__
+    return model_class in CONTAINER_TYPES
+
+
+WrappedModule: TypeAlias = Union["ExtractionWrapper", ModuleDict, ModuleList]
+
+
 class ExtractionState:
     accelerate_hook: Optional[ModelHook]
     children: Dict[str, "ExtractionState"]
@@ -40,18 +59,33 @@ class ExtractionState:
     name: str
     original_module: Module
     torch_name: str
-    wrapped_module: Module
+    wrapped_module: WrappedModule
+    local_name: str
 
-    def __init__(self, name: str, torch_name: str, original_module: Module):
+    def __init__(
+        self,
+        name: str,
+        torch_name: str,
+        original_module: Module,
+        children: Dict[str, "ExtractionState"],
+    ):
         self.original_module = original_module
-        # May get wrapped later when we enter extraction context.
-        self.wrapped_module = original_module
         self.accelerate_hook = getattr(original_module, "_hf_hook", None)
         self.extracted_module = None
         self.invocations = []
-        self.children = {}
+        self.children = children
         self.name = name
         self.torch_name = torch_name
+        if is_container(original_module):
+            self.wrapped_module = init_container(original_module)
+        else:
+            self.wrapped_module = ExtractionWrapper(self)
+        for sub_state in children.values():
+            if name == "":
+                local_name = sub_state.torch_name
+            else:
+                local_name = sub_state.torch_name[len(name) + 1 :]
+            setattr(self.wrapped_module, local_name, sub_state.wrapped_module)
 
 
 @hacks.allow_in_graph
@@ -68,16 +102,14 @@ class ExtractionWrapper(Module):
     """
 
     _graphpatch_wrapped_module: Module
-    _graphpatch_accelerate_hook: Optional[ModelHook]
     _graphpatch_extraction_state: ExtractionState
     _graphpatch_record_invocations: bool
 
     def __init__(self, state: ExtractionState):
         super().__init__()
         self._graphpatch_extraction_state = state
-        self._graphpatch_accelerate_hook = state.accelerate_hook
         self._graphpatch_record_invocations = True
-        wrapped_module = state.wrapped_module
+        wrapped_module = state.original_module
         # TODO: abstract/make customizable
         if isinstance(wrapped_module, LayerNorm):
             wrapped_module = LayerNormWrapper(wrapped_module)
@@ -96,7 +128,6 @@ class ExtractionWrapper(Module):
         new_instance = self.__class__.__new__(self.__class__)
         Module.__init__(new_instance)
         new_instance._graphpatch_extraction_state = self._graphpatch_extraction_state
-        new_instance._graphpatch_accelerate_hook = self._graphpatch_accelerate_hook
         new_instance._graphpatch_record_invocations = self._graphpatch_record_invocations
         with new_instance.substitute_submodules(self._graphpatch_wrapped_module):
             object.__setattr__(
@@ -120,14 +151,16 @@ class ExtractionWrapper(Module):
 
     @hacks.disable
     def maybe_accelerate_pre_hook(self, *args, **kwargs):
-        if self._graphpatch_accelerate_hook is not None:
-            return self._graphpatch_accelerate_hook.pre_forward(self, *args, **kwargs)
+        if self._graphpatch_extraction_state.accelerate_hook is not None:
+            return self._graphpatch_extraction_state.accelerate_hook.pre_forward(
+                self, *args, **kwargs
+            )
         return args, kwargs
 
     @hacks.disable
     def maybe_accelerate_post_hook(self, output: Any):
-        if self._graphpatch_accelerate_hook is not None:
-            return self._graphpatch_accelerate_hook.post_forward(self, output)
+        if self._graphpatch_extraction_state.accelerate_hook is not None:
+            return self._graphpatch_extraction_state.accelerate_hook.post_forward(self, output)
         return output
 
     @hacks.skip
@@ -168,18 +201,14 @@ def _eval_mode(module: Module) -> Iterator[None]:
 
 @contextmanager
 def compilation_context(root_state: ExtractionState):
-    original_root = root_state.wrapped_module
-    try:
-        with ExitStack() as context_stack:
-            context_stack.enter_context(torch.inference_mode())
-            context_stack.enter_context(_eval_mode(root_state.wrapped_module))
-            context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
-            context_stack.enter_context(
-                hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)
-            )
-            for submodule in root_state.wrapped_module.modules():
-                context_stack.enter_context(detach_accelerate_hooks(submodule))
-            torch._dynamo.reset()
-            yield
-    finally:
-        root_state.wrapped_module = original_root
+    with ExitStack() as context_stack:
+        context_stack.enter_context(torch.inference_mode())
+        context_stack.enter_context(_eval_mode(root_state.wrapped_module))
+        context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
+        context_stack.enter_context(
+            hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)
+        )
+        for submodule in root_state.wrapped_module.modules():
+            context_stack.enter_context(detach_accelerate_hooks(submodule))
+        torch._dynamo.reset()
+        yield

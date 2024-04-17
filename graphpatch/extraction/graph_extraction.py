@@ -2,18 +2,19 @@ import inspect
 import warnings
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, Optional, Tuple, Union
 from warnings import warn
 
 from torch.fx import Node
 from torch.fx.graph_module import GraphModule
-from torch.nn import Module, ModuleDict, ModuleList
+from torch.nn import Module, ModuleList
 
 from .. import hacks
 from ..exceptions import GraphPatchWarning
 from ..meta import (
     GraphMeta,
     NodeData,
+    NodeDataWrapper,
     NodeMeta,
     OutputArgumentIndex,
     wrap_graph_module,
@@ -21,23 +22,20 @@ from ..meta import (
 )
 from ..optional.accelerate import add_hook_to_module
 from .compiled_graph_module import CompiledGraphModule, compile_module
-from .extraction_context import ExtractionState, ExtractionWrapper, compilation_context
+from .extraction_context import (
+    ExtractionState,
+    ExtractionWrapper,
+    compilation_context,
+    is_container,
+)
 from .extraction_options import ExtractionOptions
 from .graphpatch_module import GraphPatchModule
 from .invocation_tracking_module_list import InvocationTrackingModuleList
 from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 
-CONTAINER_TYPES = (ModuleList, ModuleDict)
-
 
 class CompilationWarning(GraphPatchWarning):
     pass
-
-
-def init_container(container: Union[ModuleList, ModuleDict]):
-    if isinstance(container, ModuleList):
-        return container.__class__([Module() for _ in range(len(container))])
-    return container.__class__()
 
 
 def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
@@ -60,14 +58,6 @@ def clone_graph_module(
 
 def _should_skip_compilation(options: ExtractionOptions, module: Module):
     return options.skip_compilation or module.__class__ in options.classes_to_skip_compiling
-
-
-def is_container(module: Union[Module, Type[Module]]) -> bool:
-    if isinstance(module, type):
-        model_class = module
-    else:
-        model_class = module.__class__
-    return model_class in CONTAINER_TYPES
 
 
 def retarget_submodule_calls(state: ExtractionState):
@@ -301,6 +291,9 @@ def _run_extraction(
     for submodule in state.wrapped_module.modules():
         if isinstance(submodule, ExtractionWrapper):
             submodule._graphpatch_record_invocations = should_trace
+            # Clear invocations in case of fallback after partially compiling the root module.
+            if should_trace:
+                submodule._graphpatch_extraction_state.invocations = []
 
     if compile:
         with compilation_context(state):
@@ -312,37 +305,43 @@ def _run_extraction(
     return extracted_module
 
 
+class ExtractionStateWrapper(NodeDataWrapper[ExtractionState]):
+    def handle_wrap(self, data: Module, path: str) -> NodeData[ExtractionState]:
+        if path == "":
+            prefix = ""
+        else:
+            prefix = f"{path}."
+        graphpatch_path = hacks.override_reserved_name(path)
+        children = {
+            hacks.override_reserved_name(name): self.wrap(submodule, f"{prefix}{name}")
+            for name, submodule in data._modules.items()
+        }
+        return self.make_wrapper(
+            _original_type=data.__class__.__name__,
+            _children=children or NodeData._NO_VALUE,
+            _path=graphpatch_path,
+            _value=ExtractionState(
+                graphpatch_path,
+                path,
+                data,
+                {name: child._value for name, child in children.items()},
+            ),
+        )
+
+
 def extract(
     root_module: Module,
     options: ExtractionOptions,
     *trace_args: Any,
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
-    extraction_state: Dict[str, ExtractionState] = {
-        (graphpatch_name := hacks.override_reserved_name(name)): ExtractionState(
-            graphpatch_name, name, submodule
-        )
-        for name, submodule in root_module.named_modules(remove_duplicate=False)
-    }
+    extraction_state = ExtractionStateWrapper().wrap(root_module)
     root_state = extraction_state[""]
 
-    # Set up parent/child relationship between state entries.
+    # Extract GraphModules from each module in the hierarchy.
     for state in extraction_state.values():
-        [*parent_path, local_name] = state.torch_name.split(".")
-        parent_name = ".".join(parent_path)
-        if is_container(state.original_module):
-            state.wrapped_module = init_container(state.original_module)
-        else:
-            state.wrapped_module = ExtractionWrapper(state)
-        if local_name == "":
-            continue
-        extraction_state[parent_name].children[local_name] = state
-        setattr(extraction_state[parent_name].wrapped_module, local_name, state.wrapped_module)
-
-    # Convert the module hierarchy into GraphModules.
-    for state in extraction_state.values():
-        if is_container(state.original_module):
-            state.extracted_module = init_container(state.original_module)
+        if is_container(state.wrapped_module):
+            state.extracted_module = state.wrapped_module
             continue
 
         should_compile = not _should_skip_compilation(options, state.original_module)
@@ -393,10 +392,10 @@ def extract(
             else:
                 state.extracted_module = OpaqueGraphModule(state.original_module)
 
+    # Undo the unrolling of containers performed by compile(), so we'll end up with the same
+    # module hierarchy as originally. Reset _modules so we'll additionally restore the original
+    # ordering (compile re-orders them to the order in which they are invoked).
     for torch_qual_name, state in extraction_state.items():
-        # Undo the unrolling of containers performed by compile(), so we'll end up with the same
-        # module hierarchy as originally. Reset _modules so we'll additionally restore the original
-        # ordering.
         if isinstance(state.extracted_module, CompiledGraphModule):
             retarget_submodule_calls(state)
             state.extracted_module._modules = OrderedDict()
@@ -415,7 +414,7 @@ def extract(
 
     # Postprocess after all modules have been converted. Reverse order so children are postprocessed
     # before their parents, which matters for cloned graphs.
-    for state in reversed(extraction_state.values()):
+    for state in reversed(list(extraction_state.values())):
         if isinstance(state.extracted_module, GraphPatchModule):
             _postprocess_graph(state)
         if state.accelerate_hook is not None and state.original_module is not root_module:

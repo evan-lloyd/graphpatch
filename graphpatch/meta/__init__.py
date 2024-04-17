@@ -9,6 +9,7 @@ from .graph_meta import (
 )
 from .node_data import (
     NodeData,
+    NodeDataWrapper,
     PrettyPrintedNodeData,
     make_pretty_printed,
     wrap_node_data,
@@ -18,6 +19,7 @@ from .node_path import NodePath, wrap_node_path
 __all__ = [
     "GraphMeta",
     "NodeData",
+    "NodeDataWrapper",
     "NodeMeta",
     "NodePath",
     "NodeShape",
