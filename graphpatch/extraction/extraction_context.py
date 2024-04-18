@@ -3,6 +3,7 @@ from copy import deepcopy
 from typing import Any, Dict, Iterator, List, Optional, Type, Union
 
 import torch
+from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
 from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
 
 from .. import hacks
@@ -11,26 +12,11 @@ from ..optional.bitsandbytes import Linear8bitLt
 from ..optional.typing_extensions import TypeAlias
 from .accelerate import detach_accelerate_hooks
 from .graphpatch_module import GraphPatchModule
-from .layer_norm_wrapper import LayerNormWrapper
 from .wrapped_8_bit_linear import Wrapped8BitLinear
+from .wrapped_layer_norm import WrappedLayerNorm
 
 CONTAINER_TYPES = (ModuleList, ModuleDict)
-
-
-class ModuleInvocation:
-    args: List[Any]
-    kwargs: Dict[str, Any]
-    output: Any
-
-    def __init__(
-        self,
-        args: Optional[List[Any]] = None,
-        kwargs: Optional[Dict[str, Any]] = None,
-        output: Any = None,
-    ):
-        self.args = args
-        self.kwargs = kwargs
-        self.output = output
+WrappedModule: TypeAlias = Union["ExtractionWrapper", ModuleDict, ModuleList]
 
 
 def init_container(container: Union[ModuleList, ModuleDict]):
@@ -48,7 +34,20 @@ def is_container(module: Union[Module, Type[Module]]) -> bool:
     return model_class in CONTAINER_TYPES
 
 
-WrappedModule: TypeAlias = Union["ExtractionWrapper", ModuleDict, ModuleList]
+class ModuleInvocation:
+    args: List[Any]
+    kwargs: Dict[str, Any]
+    output: Any
+
+    def __init__(
+        self,
+        args: Optional[List[Any]] = None,
+        kwargs: Optional[Dict[str, Any]] = None,
+        output: Any = None,
+    ):
+        self.args = args
+        self.kwargs = kwargs
+        self.output = output
 
 
 class ExtractionState:
@@ -104,15 +103,17 @@ class ExtractionWrapper(Module):
     _graphpatch_wrapped_module: Module
     _graphpatch_extraction_state: ExtractionState
     _graphpatch_record_invocations: bool
+    _graphpatch_accelerate_hook: Optional[ModelHook]
 
     def __init__(self, state: ExtractionState):
         super().__init__()
         self._graphpatch_extraction_state = state
         self._graphpatch_record_invocations = True
+        self._graphpatch_accelerate_hook = state.accelerate_hook
         wrapped_module = state.original_module
         # TODO: abstract/make customizable
         if isinstance(wrapped_module, LayerNorm):
-            wrapped_module = LayerNormWrapper(wrapped_module)
+            wrapped_module = WrappedLayerNorm(wrapped_module)
         elif isinstance(wrapped_module, Linear8bitLt):
             wrapped_module = Wrapped8BitLinear(wrapped_module)
         # Avoid adding the wrapped module to the module hierarchy.
@@ -120,15 +121,20 @@ class ExtractionWrapper(Module):
 
     def __deepcopy__(self, memo=None):
         """compile() deep copies modules during symbolic tracing in order to fakify their
-        parameters. Since some modules can't be deepcopied in fake mode (bitsandbytes), we need to
-        customize our deepcopy to avoid copying the original module stored in our state. This class
-        should never be seen by users, so this breaking expected deepcopy semantics won't cause any
-        weirdness.
+        parameters. We need to customize this behavior for the following reasons:
+        1) Since some modules can't be deepcopied in fake mode (bitsandbytes), we need to avoid
+           copying the original module stored in our state.
+        2) If the user is using accelerate for CPU/disk offloading, we need to fakify the weights
+           stored in the hook's weights_map.
+        This class should never be seen by users, so this breaking expected deepcopy semantics won't
+        cause any weirdness.
         """
         new_instance = self.__class__.__new__(self.__class__)
         Module.__init__(new_instance)
         new_instance._graphpatch_extraction_state = self._graphpatch_extraction_state
         new_instance._graphpatch_record_invocations = self._graphpatch_record_invocations
+        new_instance._graphpatch_accelerate_hook = deepcopy(self._graphpatch_accelerate_hook)
+        # new_instance._graphpatch_accelerate_hook = self._graphpatch_accelerate_hook
         with new_instance.substitute_submodules(self._graphpatch_wrapped_module):
             object.__setattr__(
                 new_instance,
@@ -151,16 +157,18 @@ class ExtractionWrapper(Module):
 
     @hacks.disable
     def maybe_accelerate_pre_hook(self, *args, **kwargs):
-        if self._graphpatch_extraction_state.accelerate_hook is not None:
-            return self._graphpatch_extraction_state.accelerate_hook.pre_forward(
-                self, *args, **kwargs
+        if self._graphpatch_accelerate_hook is not None:
+            return self._graphpatch_accelerate_hook.pre_forward(
+                self._graphpatch_wrapped_module, *args, **kwargs
             )
         return args, kwargs
 
     @hacks.disable
     def maybe_accelerate_post_hook(self, output: Any):
-        if self._graphpatch_extraction_state.accelerate_hook is not None:
-            return self._graphpatch_extraction_state.accelerate_hook.post_forward(self, output)
+        if self._graphpatch_accelerate_hook is not None:
+            return self._graphpatch_accelerate_hook.post_forward(
+                self._graphpatch_wrapped_module, output
+            )
         return output
 
     @hacks.skip
@@ -209,6 +217,9 @@ def compilation_context(root_state: ExtractionState):
             hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)
         )
         for submodule in root_state.wrapped_module.modules():
-            context_stack.enter_context(detach_accelerate_hooks(submodule))
+            if isinstance(submodule, ExtractionWrapper):
+                context_stack.enter_context(
+                    detach_accelerate_hooks(submodule._graphpatch_wrapped_module)
+                )
         torch._dynamo.reset()
         yield

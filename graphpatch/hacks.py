@@ -5,16 +5,19 @@ import operator
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from functools import partial, partialmethod
-from torch._subclasses.fake_tensor import FakeTensor
 
 import torch
+from torch import Tensor
+from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
+
+from .optional.accelerate import AVAILABLE as ACCELERATE_AVAILABLE
 
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
 if TORCH_VERSION < (2, 1):
-    from torch._dynamo import allow_in_graph, skip, disable  # noqa: F401
+    from torch._dynamo import allow_in_graph, disable, skip  # noqa: F401
 else:
-    from torch._dynamo.decorators import allow_in_graph, skip, disable  # noqa: F401
+    from torch._dynamo.decorators import allow_in_graph, disable, skip  # noqa: F401
 
 _CURRENTLY_COMPILING = False
 
@@ -312,8 +315,6 @@ def set_dynamo_config():
 
 @contextmanager
 def allow_builtin_in_graph(module):
-    import graphpatch.extraction
-
     # Same functionality, different name.
     if TORCH_VERSION >= (2, 2):
         allowlist_name = "LEGACY_MOD_INLINELIST"
@@ -337,11 +338,54 @@ def allow_builtin_in_graph(module):
 
 
 @contextmanager
+def monkeypatch_accelerate():
+    if not ACCELERATE_AVAILABLE:
+        yield
+        return
+    from accelerate import hooks
+
+    orig = hooks.set_module_tensor_to_device
+
+    def set_module_tensor_to_device(
+        module, tensor_name, device, value=None, dtype=None, fp16_statistics=None
+    ):
+        if not in_fake_mode():
+            return orig(module, tensor_name, device, value, dtype, fp16_statistics)
+        # This is a workaround for an exception that gets raised by this function when Torch is
+        # in fake mode, as happens during compilation. AFAICT it is using the type of the original
+        # object to distinguish between buffers and parameters, but because at this point the value
+        # will in fact be a FakeTensor, it calls that constructor instead, with arguments that
+        # are incompatible with the FakeTensor constructor.
+        orig_new = FakeTensor.__new__
+
+        def wrapped_fake_tensor_new(cls, *args, **kwargs):
+            # Intercept call with incorrect args, which is just attempting to make a new copy of
+            # args[0]. Since that will already have been fakified, we can just return it.
+            if not isinstance(args[0], FakeTensorMode):
+                return args[0]
+
+            return orig_new(cls, *args, **kwargs)
+
+        FakeTensor.__new__ = wrapped_fake_tensor_new
+        try:
+            return orig(module, tensor_name, device, value, dtype, fp16_statistics)
+        finally:
+            FakeTensor.__new__ = orig_new
+
+    hooks.set_module_tensor_to_device = set_module_tensor_to_device
+    try:
+        yield
+    finally:
+        hooks.set_module_tensor_to_device = orig
+
+
+@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
         if TORCH_VERSION >= (2, 1):
             hack_stack.enter_context(set_dynamo_config())
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
+        hack_stack.enter_context(monkeypatch_accelerate())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield
 

@@ -125,6 +125,37 @@ def test_extract_pretrained_module(pretrained_module, pretrained_module_inputs):
     assert_results_identical(pretrained_module, graph_module, pretrained_module_inputs)
 
 
+@requires_gpu
+@requires_transformers
+@requires_accelerate
+def test_extract_mixed_cpu_module(mixed_cpu_pretrained_module, mixed_cpu_pretrained_module_inputs):
+    graph_module, meta = extract(
+        mixed_cpu_pretrained_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        mixed_cpu_pretrained_module_inputs,
+    )
+    validate_node_meta(meta, graph_module)
+    assert_results_identical(
+        mixed_cpu_pretrained_module, graph_module, mixed_cpu_pretrained_module_inputs
+    )
+
+
+@requires_transformers
+@requires_accelerate
+def test_extract_disk_offload_module(
+    disk_offload_pretrained_module, disk_offload_pretrained_module_inputs
+):
+    graph_module, meta = extract(
+        disk_offload_pretrained_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        disk_offload_pretrained_module_inputs,
+    )
+    validate_node_meta(meta, graph_module)
+    assert_results_identical(
+        disk_offload_pretrained_module, graph_module, disk_offload_pretrained_module_inputs
+    )
+
+
 @requires_multi_gpu
 @requires_transformers
 @requires_accelerate

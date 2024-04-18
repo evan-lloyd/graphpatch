@@ -18,7 +18,7 @@ def layer_norm(
     return torch_layer_norm(input, normalized_shape, weight, bias, eps)
 
 
-class LayerNormWrapper(Module):
+class WrappedLayerNorm(Module):
     def __init__(self, original: LayerNorm):
         super().__init__()
         self.normalized_shape = original.normalized_shape
