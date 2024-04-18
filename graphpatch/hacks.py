@@ -363,6 +363,9 @@ def monkeypatch_accelerate():
             # args[0]. Since that will already have been fakified, we can just return it.
             if not isinstance(args[0], FakeTensorMode):
                 return args[0]
+            # Another case, we try to fakify an already fake tensor; just return it.
+            elif isinstance(args[1], FakeTensor):
+                return args[1]
 
             return orig_new(cls, *args, **kwargs)
 
