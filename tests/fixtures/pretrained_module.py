@@ -121,3 +121,31 @@ def patchable_quantized_pretrained_module(
         ),
         quantized_pretrained_module_inputs,
     )
+
+
+@fixture
+def patchable_mixed_cpu_pretrained_module(
+    request, mixed_cpu_pretrained_module, mixed_cpu_pretrained_module_inputs
+):
+    return PatchableGraph(
+        mixed_cpu_pretrained_module,
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
+        mixed_cpu_pretrained_module_inputs,
+    )
+
+
+@fixture
+def patchable_disk_offload_pretrained_module(
+    request, disk_offload_pretrained_module, disk_offload_pretrained_module_inputs
+):
+    return PatchableGraph(
+        disk_offload_pretrained_module,
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
+        disk_offload_pretrained_module_inputs,
+    )

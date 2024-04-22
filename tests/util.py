@@ -1,3 +1,4 @@
+import inspect
 import os
 
 import pytest
@@ -6,6 +7,33 @@ from torch.fx.graph_module import GraphModule
 
 from graphpatch import PatchableGraph
 from graphpatch.meta import GraphMeta
+
+
+def opaque_and_compiled(pg_fixture):
+    def _decorator(test_fn):
+        # Assume the PatchableGraph fixture comes first.
+        extra_fixtures = list(inspect.signature(test_fn).parameters.keys())[1:]
+
+        fn_args = ", ".join([pg_fixture] + extra_fixtures)
+
+        # Super hacky, but this causes pytest to see the wrapped test as having the name of the
+        # desired fixture, as well as any other fixtures used by the original function.
+        eval_dict = {"pytest": pytest, "test_fn": test_fn}
+        eval(
+            compile(
+                f"""
+@pytest.mark.parametrize("{pg_fixture}", ["compiled", "opaque"], indirect=True)
+def _inner({fn_args}):
+    return test_fn({fn_args})
+""",
+                inspect.getfile(test_fn),
+                "exec",
+            ),
+            eval_dict,
+        )
+        return eval_dict["_inner"]
+
+    return _decorator
 
 
 def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: PatchableGraph):
@@ -27,7 +55,15 @@ def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: Patchabl
     parameters_2 = dict(graph_2.named_parameters(remove_duplicate=False))
     assert set(parameters_1.keys()) == set(parameters_2.keys()), "Parameter sets differ"
     for k in parameters_1:
-        assert parameters_1[k].equal(parameters_2[k]), f"Parameter mismatch for {k}"
+        [*submodule_name, weight_name] = k.split(".")
+        submodule_1 = graph_1.get_submodule(".".join(submodule_name))
+        submodule_2 = graph_2.get_submodule(".".join(submodule_name))
+        if getattr(getattr(submodule_1, "_hf_hook", None), "offload", False):
+            assert submodule_1._hf_hook.weights_map[weight_name].equal(
+                submodule_2._hf_hook.weights_map[weight_name]
+            ), f"Parameter mismatch for {k}"
+        else:
+            assert parameters_1[k].equal(parameters_2[k]), f"Parameter mismatch for {k}"
 
     buffers_1 = dict(graph_1.named_buffers())
     buffers_2 = dict(graph_2.named_buffers())

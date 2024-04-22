@@ -1,5 +1,3 @@
-import inspect
-
 import pytest
 import torch
 
@@ -12,43 +10,18 @@ from graphpatch import (
     ZeroPatch,
 )
 
-
-def _opaque_and_compiled(pg_fixture):
-    def _decorator(test_fn):
-        # Assume the PatchableGraph fixture comes first.
-        extra_fixtures = list(inspect.signature(test_fn).parameters.keys())[1:]
-
-        fn_args = ", ".join([pg_fixture] + extra_fixtures)
-
-        # Super hacky, but this causes pytest to see the wrapped test as having the name of the
-        # desired fixture, as well as any other fixtures used by the original function.
-        eval_dict = {"pytest": pytest, "test_fn": test_fn}
-        eval(
-            compile(
-                f"""
-@pytest.mark.parametrize("{pg_fixture}", ["compiled", "opaque"], indirect=True)
-def _inner({fn_args}):
-    return test_fn({fn_args})
-""",
-                "test_patch.py",
-                "exec",
-            ),
-            eval_dict,
-        )
-        return eval_dict["_inner"]
-
-    return _decorator
+from .util import opaque_and_compiled
 
 
-@_opaque_and_compiled("patchable_minimal_module")
-def test_patch_module_input(pg, minimal_module_inputs, minimal_module):
+@opaque_and_compiled("patchable_minimal_module")
+def test_patch_module_input(pg, minimal_module_inputs):
     with pg.patch({"linear.input": ZeroPatch()}):
         patched_output = pg(minimal_module_inputs)
 
     assert patched_output.equal(pg._graph_module.linear(torch.zeros_like(minimal_module_inputs)))
 
 
-@_opaque_and_compiled("patchable_minimal_module")
+@opaque_and_compiled("patchable_minimal_module")
 def test_patch_module_output(pg, minimal_module_inputs):
     with pg.patch({"output": ReplacePatch(value=3, slice=(slice(None), slice(None)))}):
         patched_output = pg(minimal_module_inputs)
@@ -56,7 +29,7 @@ def test_patch_module_output(pg, minimal_module_inputs):
     assert (patched_output - 3).count_nonzero() == 0
 
 
-@_opaque_and_compiled("patchable_minimal_module")
+@opaque_and_compiled("patchable_minimal_module")
 def test_patch_probe(pg, minimal_module_inputs):
     with pg.patch(
         {"linear.weight": [weight_probe := ProbePatch()], "output": [output_probe := ProbePatch()]}
@@ -67,7 +40,7 @@ def test_patch_probe(pg, minimal_module_inputs):
     assert weight_probe.activation.equal(pg._graph_module.linear.weight)
 
 
-@_opaque_and_compiled("patchable_container_module")
+@opaque_and_compiled("patchable_container_module")
 def test_patch_duplicate_modules(pg, container_module_inputs):
     with pg.patch(
         {
@@ -83,7 +56,7 @@ def test_patch_duplicate_modules(pg, container_module_inputs):
     assert weight_probe.activation.equal(pg._graph_module.linear[0].weight)
 
 
-@_opaque_and_compiled("patchable_minimal_module")
+@opaque_and_compiled("patchable_minimal_module")
 def test_update_patch_context(pg, minimal_module_inputs):
     original_output = pg(minimal_module_inputs)
     with pg.patch({"output": [pre_activation := RecordPatch()]}):
@@ -118,7 +91,7 @@ def test_update_patch_context(pg, minimal_module_inputs):
     assert original_output.equal(patched_output_5)
 
 
-@_opaque_and_compiled("patchable_minimal_module")
+@opaque_and_compiled("patchable_minimal_module")
 def test_patch_with_slice(pg, minimal_module_inputs):
     with pg.patch(
         {
@@ -155,7 +128,7 @@ def test_patch_with_slice(pg, minimal_module_inputs):
     )
 
 
-@_opaque_and_compiled("patchable_minimal_module")
+@opaque_and_compiled("patchable_minimal_module")
 def test_custom_patch(pg, minimal_module_inputs):
     original_weights = pg._graph_module.linear.weight.detach().clone()
 
@@ -177,7 +150,7 @@ def test_custom_patch(pg, minimal_module_inputs):
     assert pg._graph_module.linear.weight.equal(original_weights)
 
 
-@_opaque_and_compiled("patchable_tuple_output_module")
+@opaque_and_compiled("patchable_tuple_output_module")
 def test_patch_output_tuple(pg, tuple_output_module_inputs):
     with pg.patch(
         {
@@ -200,7 +173,7 @@ def test_patch_output_tuple(pg, tuple_output_module_inputs):
     assert probe_0.activation.equal(patched_output[0])
 
 
-@_opaque_and_compiled("patchable_tuple_output_module")
+@opaque_and_compiled("patchable_tuple_output_module")
 def test_patch_with_node_paths(pg, tuple_output_module_inputs):
     with pg.patch(
         {
@@ -218,7 +191,7 @@ def test_patch_with_node_paths(pg, tuple_output_module_inputs):
     assert patched_output[0].equal(pg(tuple_output_module_inputs)[0] + 1)
 
 
-@_opaque_and_compiled("patchable_tuple_output_module")
+@opaque_and_compiled("patchable_tuple_output_module")
 def test_patch_with_node_path_exceptions(pg, tuple_output_module_inputs, mocker):
     node_path = pg.graph
     spy = mocker.spy(pg, "forward")
@@ -256,7 +229,7 @@ def test_patch_with_node_path_exceptions(pg, tuple_output_module_inputs, mocker)
     assert spy.call_count == 0
 
 
-@_opaque_and_compiled("patchable_deeply_nested_output_module")
+@opaque_and_compiled("patchable_deeply_nested_output_module")
 def test_patch_deeply_nested_output_model(pg, deeply_nested_output_module_inputs):
     with pg.patch(
         {
@@ -273,7 +246,7 @@ def test_patch_deeply_nested_output_model(pg, deeply_nested_output_module_inputs
     assert post_activation.activation.count_nonzero() == 0
 
 
-@_opaque_and_compiled("patchable_graph_break_module")
+@opaque_and_compiled("patchable_graph_break_module")
 def test_patch_after_fallback(pg, graph_break_module_inputs):
     # Cloned graph weights should be patchable without affecting each other.
     original_weight_0 = pg._graph_module.linear[0].weight.clone()
@@ -298,3 +271,19 @@ def test_patch_after_fallback(pg, graph_break_module_inputs):
         patched_output = pg(graph_break_module_inputs)
 
     assert patched_output.equal(original_output + 5)
+
+
+@opaque_and_compiled("patchable_container_module")
+def test_patch_container_module(pg, container_module_inputs):
+    with pg.patch(
+        {
+            pg.graph.module_dict_bar_baz_1.weight: ZeroPatch(),
+            pg.graph.sequential.output: [sum_probe_0 := ProbePatch()],
+            pg.graph.linear_3.output: [sum_probe_1 := ProbePatch()],
+            pg.graph.module_list_0_1.output: [sum_probe_2 := ProbePatch(), AddPatch(value=1)],
+        }
+    ):
+        output = pg(container_module_inputs)
+    assert output.allclose(
+        sum_probe_0.activation + sum_probe_1.activation + sum_probe_2.activation + 1
+    )

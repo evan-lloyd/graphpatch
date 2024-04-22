@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 from torch.fx.graph import Graph
 from torch.nn import Module
 
+from ..optional.transformers import PreTrainedModel
 from .graphpatch_module import GraphPatchModule
 
 MethodBindingType = Enum("MethodBindingType", ("_none", "_instance", "_class"))
@@ -25,8 +26,28 @@ _UNPATCHABLE_MODULE_ATTRIBUTES = frozenset(
         "___needs_generation_tag_patch",
         # Needs to be skipped for torch 2.0
         "__slotnames__",
+        # accelerate
+        "_hf_hook",
         # Python internals not covered by the above.
         "__class__",
+    }
+)
+
+# Only applicable if the Module is a PreTrainedModel.
+_UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset(
+    {
+        *(k for k in PreTrainedModel.__dict__),
+        *(k for k in PreTrainedModel.__annotations__),
+        # These aren't declared, but are still used.
+        "_is_hf_initialized",
+        "config",
+        "device",
+        "dtype",
+        "generation_config",
+        "hf_device_map",
+        "is_loaded_in_8bit",
+        "name_or_path",
+        "warnings_issued",
     }
 )
 
@@ -54,6 +75,9 @@ def _module_methods(module: Module) -> Iterator[Callable]:
 
 def _module_attributes(module: Module) -> Iterator[Any]:
     def _filter(t: Tuple[str, Any]) -> bool:
+        if isinstance(module, PreTrainedModel) and t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES:
+            return False
+
         return t[0] not in _UNPATCHABLE_MODULE_ATTRIBUTES and not _is_routine(t[1])
 
     return filter(_filter, inspect.getmembers(module))

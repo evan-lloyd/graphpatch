@@ -10,6 +10,7 @@ from graphpatch.optional.accelerate import ModelHook, add_hook_to_module
 from .util import (
     assert_patchable_graphs_identical,
     assert_results_identical,
+    opaque_and_compiled,
     requires_accelerate,
     requires_bitsandbytes,
     requires_gpu,
@@ -63,6 +64,7 @@ def test_uncompilable_module_serialization(patchable_graph_break_module, graph_b
 
 
 @requires_accelerate
+@opaque_and_compiled("patchable_layer_norm_module")
 def test_layer_norm_module_serialization(patchable_layer_norm_module, layer_norm_module_inputs):
     # Simulate behavior we get trying to serialize GPT2-XL; accelerate's hook makes the module
     # unpicklable.
@@ -101,6 +103,12 @@ def test_deeply_nested_output_module_serialization(
     )
 
 
+@opaque_and_compiled("patchable_container_module")
+def test_container_module_serialization(patchable_container_module, container_module_inputs):
+    deserialized = _roundtrip(patchable_container_module)
+    _serialization_asserts(patchable_container_module, deserialized, container_module_inputs)
+
+
 @requires_transformers
 def test_pretrained_module_serialization(patchable_pretrained_module, pretrained_module_inputs):
     deserialized = _roundtrip(patchable_pretrained_module)
@@ -120,6 +128,21 @@ def test_multiple_device_serialization(
         patchable_accelerate_pretrained_module,
         deserialized,
         accelerate_pretrained_module_inputs,
+    )
+
+
+@requires_gpu
+@requires_transformers
+@requires_accelerate
+@opaque_and_compiled("patchable_mixed_cpu_pretrained_module")
+def test_mixed_cpu_module_serialization(
+    patchable_mixed_cpu_pretrained_module, mixed_cpu_pretrained_module_inputs
+):
+    deserialized = _roundtrip(patchable_mixed_cpu_pretrained_module)
+    _serialization_asserts(
+        patchable_mixed_cpu_pretrained_module,
+        deserialized,
+        mixed_cpu_pretrained_module_inputs,
     )
 
 
