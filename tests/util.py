@@ -58,9 +58,10 @@ def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: Patchabl
         [*submodule_name, weight_name] = k.split(".")
         submodule_1 = graph_1.get_submodule(".".join(submodule_name))
         submodule_2 = graph_2.get_submodule(".".join(submodule_name))
-        if getattr(getattr(submodule_1, "_hf_hook", None), "offload", False):
-            assert submodule_1._hf_hook.weights_map[weight_name].equal(
-                submodule_2._hf_hook.weights_map[weight_name]
+        # TODO: assert hooks equal
+        if getattr(submodule_1._graphpatch_accelerate_hook, "offload", False):
+            assert submodule_1._graphpatch_accelerate_hook.weights_map[weight_name].equal(
+                submodule_2._graphpatch_accelerate_hook.weights_map[weight_name]
             ), f"Parameter mismatch for {k}"
         else:
             assert parameters_1[k].equal(parameters_2[k]), f"Parameter mismatch for {k}"

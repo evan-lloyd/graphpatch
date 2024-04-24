@@ -24,7 +24,8 @@ from torch.nn import Module, Parameter
 from torch.serialization import FILE_LIKE
 from typing_extensions import TypedDict
 
-from .extraction import ExtractionOptions, detach_accelerate_hooks, extract
+from . import hacks
+from .extraction import ExtractionOptions, extract
 from .meta import (
     GraphMeta,
     NodeData,
@@ -34,10 +35,8 @@ from .meta import (
     wrap_node_path,
     wrap_node_shape,
 )
-from .optional.accelerate import add_hook_to_module
 from .optional.typing_extensions import TypeAlias
 from .patch import Patch
-from . import hacks
 
 GraphPatchArgs = TypedDict(
     "GraphPatchArgs",
@@ -265,8 +264,6 @@ class PatchableGraph(Module):
             )
 
             submodules_by_parent[parent_name][str(target)] = graph_module
-            if meta.accelerate_hook is not None:
-                add_hook_to_module(graph_module, meta.accelerate_hook)
 
         deserialized_instance._graph_module = cast(
             GraphModule, submodules_by_parent["_graph_module"][""]
@@ -665,8 +662,7 @@ class PatchableGraph(Module):
                 graph_module = cast(
                     GraphModule, self._graph_module.get_submodule(meta.graph_module_name)
                 )
-                with detach_accelerate_hooks(graph_module):
-                    graph_module.recompile()
+                graph_module.recompile()
             return meta
 
         self._meta.map_in_place(add_context)

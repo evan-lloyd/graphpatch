@@ -3,7 +3,6 @@ from copy import deepcopy
 from typing import Any, Dict, Iterator, List, Optional, Type, Union
 
 import torch
-from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
 from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
 
 from .. import hacks

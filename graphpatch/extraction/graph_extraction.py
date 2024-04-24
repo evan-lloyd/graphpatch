@@ -20,7 +20,6 @@ from ..meta import (
     wrap_graph_module,
     wrap_output_argument_index,
 )
-from ..optional.accelerate import add_hook_to_module
 from .compiled_graph_module import CompiledGraphModule, compile_module
 from .extraction_context import (
     ExtractionState,
@@ -298,8 +297,11 @@ def _run_extraction(
     if compile:
         with compilation_context(state):
             extracted_module = compile_module(state.wrapped_module, *args, **kwargs)
+            extracted_module._graphpatch_accelerate_hook = state.accelerate_hook
     else:
-        extracted_module = OpaqueGraphModule(state.original_module)
+        extracted_module = OpaqueGraphModule(
+            state.original_module, accelerate_hook=state.accelerate_hook
+        )
         state.wrapped_module(*args, **kwargs)
 
     return extracted_module
@@ -390,7 +392,9 @@ def extract(
                     state, should_compile, *trace_args, **trace_kwargs
                 )
             else:
-                state.extracted_module = OpaqueGraphModule(state.original_module)
+                state.extracted_module = OpaqueGraphModule(
+                    state.original_module, accelerate_hook=state.accelerate_hook
+                )
 
     # Undo the unrolling of containers performed by compile(), so we'll end up with the same
     # module hierarchy as originally. Reset _modules so we'll additionally restore the original
@@ -417,8 +421,6 @@ def extract(
     for state in reversed(list(extraction_state.values())):
         if isinstance(state.extracted_module, GraphPatchModule):
             _postprocess_graph(state)
-        if state.accelerate_hook is not None and state.original_module is not root_module:
-            add_hook_to_module(state.extracted_module, state.accelerate_hook)
 
     # Escape hatch for modules that torch just refuses to compile correctly. Ideally as
     # compatibility improves we won't need this in the future!
@@ -426,9 +428,5 @@ def extract(
     if options.postprocessing_function is not None:
         options.postprocessing_function(graph_module, root_module)
         graph_module.recompile()
-
-    # Must happen *after* recompile, since that changes forward()
-    if root_state.accelerate_hook is not None:
-        add_hook_to_module(graph_module, root_state.accelerate_hook)
 
     return graph_module, wrap_graph_module(graph_module)

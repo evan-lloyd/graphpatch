@@ -1,11 +1,12 @@
 from collections import deque
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Iterator, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Tuple, Type, Union
 
 from torch.fx import Graph, GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 
+from ..optional.accelerate import ModelHook
 from .invocation_tracking_module_list import InvocationTrackingModuleList
 
 # TODO: resolve circular import more cleanly
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from ..meta import OutputArgumentIndex
 
 _GRAPHPATCH_MODULE_SERIALIZATION_KEYS = (
+    "_graphpatch_accelerate_hook",
     "_graphpatch_module_containers",
     "_graphpatch_output_indexes",
 )
@@ -23,6 +25,7 @@ class GraphPatchModule(GraphModule):
         str, Tuple[Union[Type[ModuleList], Type[ModuleDict]], Tuple[str]]
     ]
     _graphpatch_output_indexes: "OutputArgumentIndex"
+    _graphpatch_accelerate_hook: Optional[ModelHook]
 
     def set_extra_state(self, state: Any):
         for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS:
@@ -81,6 +84,7 @@ class GraphPatchModule(GraphModule):
         root: Union[Module, Dict[str, Any]],
         graph: Graph,
         class_name: str,
+        accelerate_hook: Optional[ModelHook] = None,
     ):
         super().__init__(root, graph, class_name)
 
@@ -100,5 +104,29 @@ class GraphPatchModule(GraphModule):
                 [*parent_path, local_name] = name.split(".")
                 parent_module = self.get_submodule(".".join(parent_path))
                 setattr(parent_module, local_name, root[name])
+        elif isinstance(root, GraphPatchModule):
+            self.set_extra_state(root.get_extra_state())
         else:
+            self._graphpatch_accelerate_hook = accelerate_hook
             self._set_containers_for_serialization()
+
+    def recompile(self):
+        """GraphModule recompile overwrites our forward method, so to add calls to accelerate's
+        hooks, we wrap the modified function.
+        """
+        code = super().recompile()
+        compiled_forward = type(self).forward
+
+        def wrapped_forward(self, *args, **kwargs):
+            if self._graphpatch_accelerate_hook is not None:
+                args, kwargs = self._graphpatch_accelerate_hook.pre_forward(self, *args, **kwargs)
+
+            output = compiled_forward(self, *args, **kwargs)
+
+            if self._graphpatch_accelerate_hook is not None:
+                output = self._graphpatch_accelerate_hook.post_forward(self, output)
+
+            return output
+
+        type(self).forward = wrapped_forward
+        return code

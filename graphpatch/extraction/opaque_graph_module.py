@@ -2,18 +2,18 @@ import inspect
 from contextlib import contextmanager
 from copy import deepcopy
 from enum import Enum
-from types import MethodType
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 
 from torch.fx.graph import Graph
 from torch.nn import Module
 
+from ..optional.accelerate import ModelHook
 from ..optional.transformers import PreTrainedModel
 from .graphpatch_module import GraphPatchModule
 
 MethodBindingType = Enum("MethodBindingType", ("_none", "_instance", "_class"))
 
-_UNPATCHABLE_MODULE_ATTRIBUTES = frozenset(
+_UNCOPYABLE_MODULE_ATTRIBUTES = frozenset(
     {
         # These attributes need special handling.
         "_modules",
@@ -51,70 +51,39 @@ _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset(
     }
 )
 
-_UNPATCHABLE_MODULE_METHODS = frozenset(
-    {
-        # These get monkeypatched in an unpicklable way by dynamo, which would block
-        # serialization. Shouldn't actually need them at inference time.
-        "__setstate__",
-        "__init__",
-    }
-)
-
 
 def _is_routine(obj: Any) -> bool:
     # For torch < 2.1, some methods don't show up as routines to inspect.
     return inspect.isroutine(obj) or obj.__class__.__name__ == "method-wrapper"
 
 
-def _module_methods(module: Module) -> Iterator[Callable]:
-    def _filter(t: Tuple[str, Any]) -> bool:
-        return t[0] not in _UNPATCHABLE_MODULE_METHODS and _is_routine(t[1])
-
-    return filter(_filter, inspect.getmembers(module))
+def _is_property(cls: Type[Module], name: str) -> bool:
+    return isinstance(getattr(cls, name, None), property)
 
 
 def _module_attributes(module: Module) -> Iterator[Any]:
     def _filter(t: Tuple[str, Any]) -> bool:
-        if isinstance(module, PreTrainedModel) and t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES:
-            return False
-
-        return t[0] not in _UNPATCHABLE_MODULE_ATTRIBUTES and not _is_routine(t[1])
+        return not _is_routine(t[1]) and not _is_property(type(module), t[0])
 
     return filter(_filter, inspect.getmembers(module))
 
 
-class MethodWrapper:
-    """Save an unbound version of the given method so we can serialize instance methods without
-    also serializing the instance itself.
-    """
+def _patchable_module_attributes(module: Module) -> Iterator[Any]:
+    def _filter(t: Tuple[str, Any]) -> bool:
+        return t[0] not in _UNCOPYABLE_MODULE_ATTRIBUTES and not (
+            isinstance(module, PreTrainedModel) and t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES
+        )
 
-    function: Callable
-    binding: MethodBindingType
+    return filter(_filter, _module_attributes(module))
 
-    def __init__(self, function_or_method: Callable):
-        self.function = self._unbound_method(function_or_method)
-        self.binding = self._method_binding_type(function_or_method)
 
-    @staticmethod
-    def _unbound_method(function_or_method: Callable):
-        return getattr(function_or_method, "__func__", function_or_method)
+def _static_module_attributes(module: Module) -> Iterator[Any]:
+    def _filter(t: Tuple[str, Any]) -> bool:
+        return t[0] not in _UNCOPYABLE_MODULE_ATTRIBUTES and (
+            isinstance(module, PreTrainedModel) and t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES
+        )
 
-    @staticmethod
-    def _method_binding_type(function_or_method: Callable):
-        if isinstance(getattr(function_or_method, "__self__", None), type):
-            return MethodBindingType._class
-        elif hasattr(function_or_method, "__self__"):
-            return MethodBindingType._instance
-        else:
-            return MethodBindingType._none
-
-    def bound_method(self, module: Module) -> Callable:
-        if self.binding is MethodBindingType._class:
-            return MethodType(self._unbound_method(self.function), module.__class__)
-        elif self.binding is MethodBindingType._instance:
-            return MethodType(self._unbound_method(self.function), module)
-        else:
-            return self.function
+    return filter(_filter, _module_attributes(module))
 
 
 @contextmanager
@@ -128,7 +97,7 @@ def _patched_forward(module_iterator: Iterator[Tuple[str, Module]], patch):
                 # Was forward overridden elsewhere? accelerate likes to do this.
                 "forward" in submodule.__dict__,
             )
-            submodule.forward = patch(MethodWrapper(submodule.forward).bound_method(submodule))
+            submodule.forward = patch(submodule.forward)
         yield
     finally:
         for name, submodule in module_list:
@@ -158,9 +127,9 @@ class SubmoduleWrapper:
 
 
 _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS = (
-    "_graphpatch_attribute_names",
+    "_graphpatch_patchable_attributes",
+    "_graphpatch_static_attributes",
     "_graphpatch_opaque_module_class",
-    "_graphpatch_opaque_module_methods",
     # Not using _graphpatch_self or proxy, since we'll create a fresh instance when we deserialize.
 )
 
@@ -172,9 +141,9 @@ class OpaqueGraphModule(GraphPatchModule):
     as submodules, which can be patched normally.
     """
 
-    _graphpatch_attribute_names: Tuple[str]
+    _graphpatch_patchable_attributes: Tuple[str]
+    _graphpatch_static_attributes: Dict[str, Any]
     _graphpatch_opaque_module_class: Type[Module]
-    _graphpatch_opaque_module_methods: Dict[str, MethodWrapper]
     _graphpatch_opaque_module_proxy: Module
     _graphpatch_self: "OpaqueGraphModule"
 
@@ -207,16 +176,16 @@ class OpaqueGraphModule(GraphPatchModule):
             def pass_patch_args(fn):
                 return fn
 
-        num_attributes = len(self._graphpatch_attribute_names)
+        num_attributes = len(self._graphpatch_patchable_attributes)
 
-        for i, name in enumerate(self._graphpatch_attribute_names):
+        for i, name in enumerate(self._graphpatch_patchable_attributes):
             setattr(self._graphpatch_opaque_module_proxy, name, args[i])
         with _patched_forward(self.named_children(), pass_patch_args):
             try:
                 return self._graphpatch_opaque_module_proxy(*args[num_attributes:], **kwargs)
             finally:
                 # Don't hold on to references to the patched attributes.
-                for i, name in enumerate(self._graphpatch_attribute_names):
+                for i, name in enumerate(self._graphpatch_patchable_attributes):
                     delattr(self._graphpatch_opaque_module_proxy, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -242,10 +211,15 @@ class OpaqueGraphModule(GraphPatchModule):
         # Add get_attr nodes for buffers, parameters, and any other attributes on the Module class
         # or instance. This allows patching them, and also sets them up to be properly serialized.
         # Skip submodules, which we handle separately.
-        self._graphpatch_attribute_names = tuple(
-            name for name, value in _module_attributes(module) if not isinstance(value, Module)
+        self._graphpatch_patchable_attributes = tuple(
+            name
+            for name, value in _patchable_module_attributes(module)
+            if not isinstance(value, Module)
         )
-        attribute_nodes = [graph.get_attr(name) for name in self._graphpatch_attribute_names]
+        self._graphpatch_static_attributes = {
+            name: value for name, value in _static_module_attributes(module)
+        }
+        attribute_nodes = [graph.get_attr(name) for name in self._graphpatch_patchable_attributes]
 
         # This is a bit silly, but Graph doesn't have any built-in way to refer to "self" when
         # calling methods!
@@ -280,34 +254,40 @@ class OpaqueGraphModule(GraphPatchModule):
         # containers as we do with CompiledGraphModule.
         return self._child_modules(self._modules.items())
 
-    def _initialize_proxy(self):
-        # Set up proxy for the original module. We copy over all methods from the original instance
-        # (needed if, for example, the original forward calls other methods), but maintain our own
-        # attributes, including buffers and parameters.
-        proxy = self._graphpatch_opaque_module_class.__new__(self._graphpatch_opaque_module_class)
-        Module.__init__(proxy)
+    def _initialize_proxy(self, root: Union[Module, Dict[str, Any]]):
+        self._graphpatch_opaque_module_proxy = self._graphpatch_opaque_module_class.__new__(
+            self._graphpatch_opaque_module_class
+        )
+        Module.__init__(self._graphpatch_opaque_module_proxy)
         # Deliberately not copying here; we want our proxy's submodules to always match ours.
-        proxy._modules = self._modules
+        self._graphpatch_opaque_module_proxy._modules = self._modules
 
-        for name, method in self._graphpatch_opaque_module_methods.items():
-            object.__setattr__(proxy, name, method.bound_method(proxy))
-
-        self._graphpatch_opaque_module_proxy = proxy
+        # When unpickling, the GraphModule constructor will have handled our patchable attributes,
+        # since we have getattr nodes referring to them. If we're constructing this Module for the
+        # first time, we need to manually handle this copying. Note also that we set the attributes
+        # on self, rather than the proxy, because they need to get copied at runtime to account for
+        # the possibility that the user wants to patch them.
+        if isinstance(root, Module):
+            for name in self._graphpatch_patchable_attributes:
+                setattr(self, name, getattr(root, name))
+        for name, value in self._graphpatch_static_attributes.items():
+            setattr(self._graphpatch_opaque_module_proxy, name, value)
 
     def __init__(
         self,
         root: Union[Module, Dict[str, Any]],
         graph: Optional[Graph] = None,
         class_name: str = "OpaqueGraphModule",
+        accelerate_hook: Optional[ModelHook] = None,
     ):
         # Deserializing from pickle.
         if isinstance(root, dict):
             # Need to set this, since GraphModule constructor will see that we get_attr on it and
             # attempt to copy it in.
             root["_graphpatch_self"] = self
-            super().__init__(root, graph, class_name)
+            super().__init__(root, graph, class_name, accelerate_hook)
 
-            self._initialize_proxy()
+            self._initialize_proxy(root)
 
             # Register submodules.
             for node in self.graph.nodes:
@@ -315,23 +295,16 @@ class OpaqueGraphModule(GraphPatchModule):
                     setattr(self, node.target.module_name, root[node.target.module_name])
             return
 
-        super().__init__(Module(), Graph(), class_name)
+        super().__init__(Module(), Graph(), class_name, accelerate_hook)
         self._graphpatch_self = self
 
         # Cloning an existing OpaqueGraphModule.
         if isinstance(root, OpaqueGraphModule):
             self.set_extra_state(deepcopy(root.get_extra_state()))
-            self._initialize_proxy()
             self.graph = deepcopy(root.graph)
         # Constructing from scratch.
         else:
             self._graphpatch_opaque_module_class = root.__class__
-            self._graphpatch_opaque_module_methods = {
-                name: MethodWrapper(method) for name, method in _module_methods(root)
-            }
-            self._initialize_proxy()
             self.graph = self._construct_graph(root)
 
-        # We need to copy attributes even if cloning an existing OpaqueGraphModule.
-        for name in self._graphpatch_attribute_names:
-            setattr(self, name, getattr(root, name))
+        self._initialize_proxy(root)

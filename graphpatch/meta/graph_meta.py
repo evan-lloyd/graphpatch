@@ -137,7 +137,6 @@ class GraphMeta(_BaseMeta):
     """Meta-info to associate with a subgraph node in a GraphModule.
 
     Attributes:
-        accelerate_hook: The accelerate ModuleHook associated with this GraphModule, if any.
         node: torch.fx.Node instance this meta-info is associated to. None for the root.
         nodes: Dictionary mapping node names to child meta-info.
         graph: torch.fx.Graph instance this meta-info is associated to.
@@ -148,7 +147,6 @@ class GraphMeta(_BaseMeta):
     """
 
     is_graph: ClassVar[bool] = True
-    accelerate_hook: Optional[ModelHook]
     node: Optional[Node]
     nodes: Dict[str, Union["NodeMeta", "GraphMeta"]]
     graph: Graph
@@ -180,7 +178,6 @@ class GraphMeta(_BaseMeta):
             local_name=self.local_name,
             shape=deepcopy(self.shape, memo),
             parent=self.parent,
-            accelerate_hook=deepcopy(self.accelerate_hook, memo),
             node=cast(Node, memo.get(self.node)),
             nodes=deepcopy(self.nodes, memo),
             code=self.code,
@@ -348,7 +345,6 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                         _value=GraphMeta(
                             name=f"{name.meta_prefix}{node.name}",
                             local_name=node.name,
-                            accelerate_hook=getattr(target, "_hf_hook", None),
                             node=node,
                             nodes={
                                 k: v._value
@@ -389,7 +385,6 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
             _value=GraphMeta(
                 name="",
                 local_name="",
-                accelerate_hook=getattr(data, "_hf_hook", None),
                 node=None,
                 nodes={
                     k: v._value
