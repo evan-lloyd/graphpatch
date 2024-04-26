@@ -191,5 +191,5 @@ def test_extract_quantized_pretrained_module(
         quantized_pretrained_module,
         graph_module,
         quantized_pretrained_module_inputs,
-        tolerance=0.1,
+        tolerance=0.001,
     )

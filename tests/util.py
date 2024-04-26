@@ -140,9 +140,9 @@ def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, i
 
     for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
         if tolerance is not None:
-            assert cur_1.allclose(cur_2, rtol=tolerance), (
+            assert (norm := torch.linalg.norm(cur_1 - cur_2)) <= tolerance, (
                 f"Model output difference greater than tolerance at {prefix_1 or '<root>'};"
-                f" norm: {torch.linalg.norm(cur_1 - cur_2)}"
+                f" norm: {norm}"
             )
         else:
             assert cur_1.equal(cur_2), (
@@ -189,9 +189,11 @@ def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance
             if params_1[name].grad is None:
                 continue
             if tolerance is not None:
-                assert params_1[name].grad.allclose(params_2[param_2_name].grad, rtol=tolerance), (
+                assert (
+                    norm := torch.linalg.norm(params_1[name].grad - params_2[param_2_name].grad)
+                ) <= tolerance, (
                     f"Gradient difference for {name} greater than tolerance at {prefix_1 or '<root>'};"
-                    f" norm: {torch.linalg.norm(cur_1 - cur_2)}"
+                    f" norm: {norm}"
                 )
             else:
                 assert params_1[name].grad.equal(

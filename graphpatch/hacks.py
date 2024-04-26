@@ -380,11 +380,9 @@ def monkeypatch_accelerate():
 
     orig = hooks.set_module_tensor_to_device
 
-    def set_module_tensor_to_device(
-        module, tensor_name, device, value=None, dtype=None, fp16_statistics=None
-    ):
+    def set_module_tensor_to_device(module, *accelerate_args, **accelerate_kwargs):
         if not in_fake_mode():
-            return orig(module, tensor_name, device, value, dtype, fp16_statistics)
+            return orig(module, *accelerate_args, **accelerate_kwargs)
         # This is a workaround for an exception that gets raised by this function when Torch is
         # in fake mode, as happens during compilation. AFAICT it is using the type of the original
         # object to distinguish between buffers and parameters, but because at this point the value
@@ -405,7 +403,7 @@ def monkeypatch_accelerate():
 
         FakeTensor.__new__ = wrapped_fake_tensor_new
         try:
-            return orig(module, tensor_name, device, value, dtype, fp16_statistics)
+            return orig(module, *accelerate_args, **accelerate_kwargs)
         finally:
             FakeTensor.__new__ = orig_new
 

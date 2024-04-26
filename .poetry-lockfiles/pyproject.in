@@ -34,7 +34,7 @@ repository = "https://github.com/evan-lloyd/graphpatch"
 torch = ">=2, <2.4"
 # torch.compile(): 3.8-3.11
 python = ">=3.8.1, <3.12"
-accelerate = { version = "0.22.0", optional = true }
+accelerate = { version = ">=0.15.0", optional = true }
 sentencepiece = { version = "0.1.99", optional = true }
 transformers = { version = "4.28.1", optional = true }
 bitsandbytes = { version = "0.41.0", optional = true }
