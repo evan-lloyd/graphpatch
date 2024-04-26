@@ -8,6 +8,8 @@ from functools import partial, partialmethod
 
 import torch
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
+from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
+from torch.utils._python_dispatch import _get_current_dispatch_mode
 
 from .optional.accelerate import AVAILABLE as ACCELERATE_AVAILABLE
 
@@ -377,12 +379,14 @@ def monkeypatch_accelerate():
         yield
         return
     from accelerate import hooks
+    from accelerate.utils.offload import OffloadedWeightsLoader
 
-    orig = hooks.set_module_tensor_to_device
+    orig_set_tensor = hooks.set_module_tensor_to_device
+    orig_offload_getitem = OffloadedWeightsLoader.__getitem__
 
     def set_module_tensor_to_device(module, *accelerate_args, **accelerate_kwargs):
         if not in_fake_mode():
-            return orig(module, *accelerate_args, **accelerate_kwargs)
+            return orig_set_tensor(module, *accelerate_args, **accelerate_kwargs)
         # This is a workaround for an exception that gets raised by this function when Torch is
         # in fake mode, as happens during compilation. AFAICT it is using the type of the original
         # object to distinguish between buffers and parameters, but because at this point the value
@@ -403,15 +407,30 @@ def monkeypatch_accelerate():
 
         FakeTensor.__new__ = wrapped_fake_tensor_new
         try:
-            return orig(module, *accelerate_args, **accelerate_kwargs)
+            return orig_set_tensor(module, *accelerate_args, **accelerate_kwargs)
         finally:
             FakeTensor.__new__ = orig_new
 
+    def offload_getitem(self, key):
+        """Workaround for disk offloading in newer transformers/accelerate version combos, after
+        the move to SafeTensors. These would fail to load while in fake mode, so we temporarily
+        disable it, and then convert to FakeTensor after the fact.
+        """
+        with maybe_disable_fake_tensor_mode():
+            result = orig_offload_getitem(self, key)
+        if in_fake_mode() and not isinstance(result, FakeTensor):
+            with maybe_disable_fake_tensor_mode():
+                result = result.to("meta")
+            result = FakeTensor(_get_current_dispatch_mode(), result, "meta")
+        return result
+
     hooks.set_module_tensor_to_device = set_module_tensor_to_device
+    OffloadedWeightsLoader.__getitem__ = offload_getitem
     try:
         yield
     finally:
-        hooks.set_module_tensor_to_device = orig
+        hooks.set_module_tensor_to_device = orig_set_tensor
+        OffloadedWeightsLoader.__getitem__ = orig_offload_getitem
 
 
 @contextmanager
@@ -420,8 +439,8 @@ def allow_inlining_skipped_functions():
     ExtractionWrapper to work properly: https://github.com/pytorch/pytorch/pull/98862
     Work around by catching the added exception and proceeding as if nothing happened.
     """
-    from torch._dynamo.exc import Unsupported
     from torch._dynamo import trace_rules
+    from torch._dynamo.exc import Unsupported
     from torch._dynamo.symbolic_convert import InliningInstructionTranslator
 
     def check_inlineable(func):

@@ -14,6 +14,17 @@ class DummyTokens(UserDict):
         return self.data[__name]
 
 
+class DummyVocab:
+    def __getitem__(self, word):
+        return (sum(ord(c) for c in word) % 100) + 1
+    
+    def __len__(self):
+        return 100
+
+    def copy(self):
+        return self
+
+
 class DummyTokenizer(PreTrainedTokenizer):
     """
     Fake tokenizer that will get a consistent "tokenization" for a given text string, for
@@ -24,12 +35,13 @@ class DummyTokenizer(PreTrainedTokenizer):
     pretrained_vocab_files_map = {}
 
     def __init__(self, *args, **kwargs):
+        self.vocab = DummyVocab()
         super().__init__(*args, **kwargs)
 
     def _tokenize(self, prompt, pad_to=None):
         # Deterministically map each input word to one of 100 "tokens". Start with a dummy
         # "begin of sequence" token.
-        ordsums = [-1] + [(sum(ord(c) for c in word) % 100) + 1 for word in prompt.split(" ")]
+        ordsums = [-1] + [self.vocab[word] for word in prompt.split(" ")]
         if pad_to is not None:
             ordsums.extend([0] * (pad_to - len(ordsums)))
 
@@ -48,6 +60,9 @@ class DummyTokenizer(PreTrainedTokenizer):
         stacked_inputs = torch.vstack(input_ids).view((batch_size, 100)).to(torch.int64)
         stacked_attention = (stacked_inputs > 0) * 1.0
         return DummyTokens(input_ids=stacked_inputs, attention_mask=stacked_attention)
+
+    def get_vocab(self):
+        return self.vocab
 
     def convert_ids_to_tokens(self, t):
         return str(t)
