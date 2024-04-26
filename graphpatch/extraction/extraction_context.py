@@ -6,10 +6,9 @@ import torch
 from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
 
 from .. import hacks
-from ..optional.accelerate import ModelHook
+from ..optional.accelerate import ModelHook, add_hook_to_module, remove_hook_from_module
 from ..optional.bitsandbytes import Linear8bitLt
 from ..optional.typing_extensions import TypeAlias
-from .accelerate import detach_accelerate_hooks
 from .graphpatch_module import GraphPatchModule
 from .wrapped_8_bit_linear import Wrapped8BitLinear
 from .wrapped_layer_norm import WrappedLayerNorm
@@ -207,6 +206,24 @@ def _eval_mode(module: Module) -> Iterator[None]:
 
 
 @contextmanager
+def detach_accelerate_hooks(module: Module) -> Iterator[Optional[ModelHook]]:
+    """Temporarily detach accelerate's hooks from the module, since they don't play nice with
+    torch.compile(). Return the hook object so we can apply it to the compiled graph.
+    """
+
+    hook = getattr(module, "_hf_hook", None)
+    if hook is not None:
+        remove_hook_from_module(module)
+        # Instance-level forward function doesn't play nice with torch.compile
+        del module.forward
+    try:
+        yield hook
+    finally:
+        if hook is not None:
+            add_hook_to_module(module, hook)
+
+
+@contextmanager
 def compilation_context(root_state: ExtractionState):
     with ExitStack() as context_stack:
         context_stack.enter_context(torch.inference_mode())
@@ -215,6 +232,7 @@ def compilation_context(root_state: ExtractionState):
         context_stack.enter_context(
             hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)
         )
+        context_stack.enter_context(hacks.patch_module_module(ExtractionWrapper))
         for submodule in root_state.wrapped_module.modules():
             if isinstance(submodule, ExtractionWrapper):
                 context_stack.enter_context(

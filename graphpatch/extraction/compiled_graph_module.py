@@ -24,7 +24,20 @@ def compile_module(module: Module, *args, **kwargs) -> Tuple[CompiledGraphModule
             # dynamically make it a subclass of CompiledGraphModule. GraphModules are always created
             # by torch as the sole instance of a dynamically generated class, so this is safe.
             assert gm.__class__ is not GraphModule
-            gm.__class__.__bases__ = (CompiledGraphModule,) + gm.__class__.__bases__
+
+            # We don't want to get back a LazyGraphModule, which now happens in 2.3.
+            if hacks.TORCH_VERSION >= (2, 3):
+                from torch.fx._lazy_graph_module import _LazyGraphModule
+
+                if _LazyGraphModule in gm.__class__.__bases__:
+                    # Force an actual compilation of the GraphModule, which we need downstream.
+                    gm.real_recompile()
+                    gm.__class__.__bases__ = (CompiledGraphModule,) + tuple(
+                        GraphModule if c is _LazyGraphModule else c
+                        for c in gm.__class__.__bases__
+                    )
+            else:
+                gm.__class__.__bases__ = (CompiledGraphModule,) + gm.__class__.__bases__
             gm.__class__.__name__ = CompiledGraphModule.__name__
             hacks._CURRENTLY_COMPILING = False
             return gm

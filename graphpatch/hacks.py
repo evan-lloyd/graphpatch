@@ -7,7 +7,6 @@ from copy import deepcopy
 from functools import partial, partialmethod
 
 import torch
-from torch import Tensor
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 
 from .optional.accelerate import AVAILABLE as ACCELERATE_AVAILABLE
@@ -140,7 +139,9 @@ def monkeypatch_dynamic_shapes():
     def produce_guards(self, _original, *args, **kwargs):
         return []
 
-    def evaluate_expr(self, _original, orig_expr, hint=None, fx_node=None, expect_rational=True):
+    def evaluate_expr(
+        self, _original, orig_expr, hint=None, fx_node=None, expect_rational=True, **kwargs
+    ):
         # We care not for ShapeEnv's assertions and guards; just assume that the original module
         # is using correct shapes!
         import sympy
@@ -155,6 +156,10 @@ def monkeypatch_dynamic_shapes():
         """This prevents many cases of torch deciding to specialize on tensor dimensions. We don't
         care about the guards that would have gotten generated because they aren't present in the
         compiled GraphModule, and we discard the OptimizedModule after compiling."""
+        return
+
+    def _maybe_guard_rel(self, _original, *args, **kwags):
+        """Same as _maybe_guard_eq, renamed in torch 2.3."""
         return
 
     def remove_unused_graphargs(self, _original):
@@ -188,7 +193,12 @@ def monkeypatch_dynamic_shapes():
     patch_map = {
         SubgraphTracer: [create_graph_input],
         OutputGraph: [remove_unused_graphargs],
-        ShapeEnv: [_maybe_guard_eq, produce_guards, __init__, evaluate_expr],
+        ShapeEnv: [
+            _maybe_guard_eq if TORCH_VERSION < (2, 3) else _maybe_guard_rel,
+            produce_guards,
+            __init__,
+            evaluate_expr,
+        ],
         builder: [wrap_fx_proxy_cls],
         VariableBuilder: [wrap_literal],
     }
@@ -315,26 +325,50 @@ def set_dynamo_config():
 
 @contextmanager
 def allow_builtin_in_graph(module):
-    # Same functionality, different name.
-    if TORCH_VERSION >= (2, 2):
+    # Same functionality, different names.
+    if TORCH_VERSION >= (2, 3):
         allowlist_name = "LEGACY_MOD_INLINELIST"
         allowlist_value = inspect.getmodule(module.__class__).__name__
-        # Reset the LRU cache, or our changes will have no effect.
-        torch._dynamo.skipfiles.get_legacy_mod_inlinelist.cache_clear()
+        skip_module = torch._dynamo.trace_rules
+    elif TORCH_VERSION >= (2, 2):
+        allowlist_name = "LEGACY_MOD_INLINELIST"
+        allowlist_value = inspect.getmodule(module.__class__).__name__
+        skip_module = torch._dynamo.skipfiles
     else:
         allowlist_name = "FILENAME_ALLOWLIST"
         allowlist_value = getattr(inspect.getmodule(module.__class__), "__file__", None)
+        skip_module = torch._dynamo.skipfiles
 
-    allow_list = getattr(torch._dynamo.skipfiles, allowlist_name)
+    if TORCH_VERSION >= (2, 2):
+        # Reset the LRU cache, or our changes will have no effect.
+        skip_module.get_legacy_mod_inlinelist.cache_clear()
+
+    allow_list = getattr(skip_module, allowlist_name)
     orig_allow_list = deepcopy(allow_list)
     allow_list.add(allowlist_value)
     try:
         yield
     finally:
-        setattr(torch._dynamo.skipfiles, allowlist_name, orig_allow_list)
+        setattr(skip_module, allowlist_name, orig_allow_list)
         # Make sure our patch had no side effect.
         if TORCH_VERSION >= (2, 2):
-            torch._dynamo.skipfiles.get_legacy_mod_inlinelist.cache_clear()
+            skip_module.get_legacy_mod_inlinelist.cache_clear()
+
+
+@contextmanager
+def patch_module_module(cls):
+    """Needed for torch >= 2.3, which started disallowing the @disable decorator within our
+    ExtractionWrapper class. This lets us hit get inside the "if" here:
+    https://github.com/pytorch/pytorch/blob/71d020262793542974cf13b30f2a9099773f015c/torch/_dynamo/variables/functions.py#L326-L334
+
+    Note that we have to undo this change or that leads to problems with pickling later.
+    """
+    orig_module = cls.__module__
+    cls.__module__ = "torch.nn.graphpatch"
+    try:
+        yield
+    finally:
+        cls.__module__ = orig_module
 
 
 @contextmanager
@@ -383,11 +417,42 @@ def monkeypatch_accelerate():
 
 
 @contextmanager
+def allow_inlining_skipped_functions():
+    """Apparently this wasn't supposed to work like this, but we need the un-"fixed" behavior for
+    ExtractionWrapper to work properly: https://github.com/pytorch/pytorch/pull/98862
+    Work around by catching the added exception and proceeding as if nothing happened.
+    """
+    from torch._dynamo.exc import Unsupported
+    from torch._dynamo import trace_rules
+    from torch._dynamo.symbolic_convert import InliningInstructionTranslator
+
+    def check_inlineable(func):
+        try:
+            return orig_check(func)
+        except Exception as e:
+            if isinstance(e, Unsupported) and e.msg.startswith(
+                "call torch._dynamo.disable() wrapped function"
+            ):
+                return trace_rules.check_verbose(func, is_inlined_call=True)
+            raise
+
+    orig_check = InliningInstructionTranslator.check_inlineable
+    InliningInstructionTranslator.check_inlineable = check_inlineable
+
+    try:
+        yield
+    finally:
+        InliningInstructionTranslator.check_inlineable = orig_check
+
+
+@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
         if TORCH_VERSION >= (2, 1):
             hack_stack.enter_context(set_dynamo_config())
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
+        if TORCH_VERSION >= (2, 3):
+            hack_stack.enter_context(allow_inlining_skipped_functions())
         hack_stack.enter_context(monkeypatch_accelerate())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield

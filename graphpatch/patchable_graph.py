@@ -307,7 +307,6 @@ class PatchableGraph(Module):
                 parent = cast(GraphMeta, self._original_graph[node.parent])
                 graph_module = self._graph_module.get_submodule(parent.graph_module_name)
                 state_dict[key] = getattr(graph_module, target)
-
         return (
             self._unpickle,
             (
