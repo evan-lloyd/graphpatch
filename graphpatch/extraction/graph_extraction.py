@@ -98,11 +98,17 @@ def _repair_input_signature(state: ExtractionState):
         else:
             type_annotation = None
         with graph_module.graph.inserting_after(insert_after):
+            if parameter.kind is inspect._ParameterKind.VAR_KEYWORD:
+                target = f"**{name}"
+            elif parameter.kind is inspect._ParameterKind.VAR_POSITIONAL:
+                target = "f*{name}"
+            else:
+                target = name
             new_placeholder = Node(
                 graph_module.graph,
                 name,
                 "placeholder",
-                name,
+                target,
                 # Placeholder args take the default value for any kwargs.
                 () if parameter.default is inspect.Signature.empty else (parameter.default,),
                 {},

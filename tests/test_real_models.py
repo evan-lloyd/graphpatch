@@ -21,6 +21,7 @@ from .util import (
     long_running,
     requires_bitsandbytes,
     requires_transformers,
+    assert_results_identical,
 )
 
 
@@ -30,23 +31,36 @@ def test_extract_llama_model():
     tokenizer = LlamaTokenizer.from_pretrained(model_path)
     config = AutoConfig.from_pretrained(model_path, dtype=torch.float16)
     config.num_attention_heads = 2
+    config.num_key_value_heads = 2
     config.hidden_size = 20
     config.num_hidden_layers = 1
+    config.intermediate_size = 2
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
+    original_model = LlamaModel(config=config)
     gm, _ = extract(
-        LlamaModel(config=config),
+        original_model,
         ExtractionOptions(error_on_compilation_failure=True),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
     )
-    gm(inputs.input_ids)
+    assert_results_identical(
+        original_model,
+        gm,
+        inputs.input_ids,
+        input_kwargs={"use_cache": False, "return_dict": False},
+    )
     batched_inputs = tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
         return_tensors="pt",
         padding=True,
     )
-    gm(batched_inputs.input_ids)
+    assert_results_identical(
+        original_model,
+        gm,
+        batched_inputs.input_ids,
+        input_kwargs={"use_cache": False, "return_dict": False},
+    )
 
 
 @requires_transformers
