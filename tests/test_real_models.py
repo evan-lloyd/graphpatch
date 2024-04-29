@@ -5,38 +5,29 @@ import torch
 from demos.ROME.rome import standardize_tokenizer
 from graphpatch import PatchableGraph, ZeroPatch
 from graphpatch.extraction import ExtractionOptions, extract
-from graphpatch.hacks import fix_gpt2_bool_buffers, patch_llama, TORCH_VERSION
+from graphpatch.hacks import fix_gpt2_bool_buffers, patch_llama
 from graphpatch.optional.transformers import (
-    AutoConfig,
     AutoTokenizer,
-    GPT2Attention,
     GPT2LMHeadModel,
     LlamaForCausalLM,
-    LlamaModel,
-    LlamaTokenizer,
 )
 
 from .util import (
+    assert_results_identical,
     assert_topk_tokens_identical,
     long_running,
+    requires_accelerate,
     requires_bitsandbytes,
     requires_transformers,
-    assert_results_identical,
 )
 
 
 @requires_transformers
-def test_extract_llama_model():
-    model_path = f"{os.getenv('MODEL_DIR')}/llama-7b-hf"
-    tokenizer = LlamaTokenizer.from_pretrained(model_path)
-    config = AutoConfig.from_pretrained(model_path, dtype=torch.float16)
-    config.num_attention_heads = 2
-    config.num_key_value_heads = 2
-    config.hidden_size = 20
-    config.num_hidden_layers = 1
-    config.intermediate_size = 2
-    inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
-    original_model = LlamaModel(config=config)
+def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config):
+    inputs = tiny_llama_tokenizer(
+        "The Eiffel Tower, located in", return_tensors="pt", padding=False
+    )
+    original_model = LlamaForCausalLM(config=tiny_llama_config)
     gm, _ = extract(
         original_model,
         ExtractionOptions(error_on_compilation_failure=True),
@@ -50,7 +41,7 @@ def test_extract_llama_model():
         inputs.input_ids,
         input_kwargs={"use_cache": False, "return_dict": False},
     )
-    batched_inputs = tokenizer(
+    batched_inputs = tiny_llama_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
         return_tensors="pt",
         padding=True,
@@ -64,30 +55,40 @@ def test_extract_llama_model():
 
 
 @requires_transformers
-def test_extract_gpt2_attention():
-    model_path = f"{os.getenv('MODEL_DIR')}/gpt2-xl"
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    config = AutoConfig.from_pretrained(model_path)
-    standardize_tokenizer(tokenizer)
-    inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
-    embedding = torch.nn.Embedding(config.vocab_size, config.hidden_size)
+def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config):
+    standardize_tokenizer(tiny_gpt2_tokenizer)
+    original_model = GPT2LMHeadModel(tiny_gpt2_config)
+    inputs = tiny_gpt2_tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
     gm, _ = extract(
-        GPT2Attention(config=config),
+        original_model,
         ExtractionOptions(error_on_compilation_failure=True),
-        embedding(inputs.input_ids),
+        inputs.input_ids,
+        use_cache=False,
+        return_dict=False,
     )
-    gm(embedding(inputs.input_ids))
-    batched_inputs = tokenizer(
+    assert_results_identical(
+        original_model,
+        gm,
+        inputs.input_ids,
+        input_kwargs={"use_cache": False, "return_dict": False},
+    )
+    batched_inputs = tiny_gpt2_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
         return_tensors="pt",
         padding=True,
     )
-    gm(embedding(batched_inputs.input_ids))
+    assert_results_identical(
+        original_model,
+        gm,
+        batched_inputs.input_ids,
+        input_kwargs={"use_cache": False, "return_dict": False},
+    )
 
 
 @long_running
 @requires_bitsandbytes
 @requires_transformers
+@requires_accelerate
 def test_llama(tmp_path_factory):
     model_path = f"{os.getenv('MODEL_DIR')}/llama-7b-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -110,7 +111,10 @@ def test_llama(tmp_path_factory):
         patchable_llama(
             tokenizer(
                 [
-                    "This is an input with a much longer input token length, to make sure patch_llama worked",
+                    (
+                        "This is an input with a much longer input token length,"
+                        " to make sure patch_llama worked"
+                    ),
                     "Also, added a batch dimension",
                 ],
                 padding=True,
@@ -155,6 +159,7 @@ def test_llama(tmp_path_factory):
 @long_running
 @requires_bitsandbytes
 @requires_transformers
+@requires_accelerate
 def test_gpt2(tmp_path_factory):
     model_path = f"{os.getenv('MODEL_DIR')}/gpt2-xl"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
