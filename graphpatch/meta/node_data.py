@@ -133,6 +133,21 @@ class NodeData(Generic[NodeDataType]):
 
         return _generator()
 
+    def reverse_topological_order(self) -> Iterator[NodeDataType]:
+        """Yield children before their parents, but otherwise in forward order."""
+        queue = deque([self])
+        result_stack = []
+        while queue:
+            cur = queue.popleft()
+            result_stack.append(cur)
+
+            if cur._children is NodeData._NO_VALUE:
+                continue
+
+            queue.extend(cur._children.values())
+        while result_stack:
+            yield result_stack.pop()._value
+
     def get(
         self, path: str, default: Optional[NodeDataType] = None
     ) -> Union[Optional[NodeDataType], "NodeData[NodeDataType]"]:

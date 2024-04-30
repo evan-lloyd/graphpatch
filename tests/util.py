@@ -7,6 +7,7 @@ from torch.fx.graph_module import GraphModule
 
 from graphpatch import PatchableGraph
 from graphpatch.meta import GraphMeta
+from collections import Counter
 
 
 def opaque_and_compiled(pg_fixture):
@@ -38,8 +39,8 @@ def _inner({fn_args}):
 
 def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: PatchableGraph):
     # Module hierarchy and code must be identical.
-    submodules_1 = dict(graph_1.named_modules())
-    submodules_2 = dict(graph_2.named_modules())
+    submodules_1 = dict(graph_1.named_modules(remove_duplicate=False))
+    submodules_2 = dict(graph_2.named_modules(remove_duplicate=False))
     assert set(submodules_1.keys()) == set(submodules_2.keys()), "Module hierarchies differ"
     # Comparing classes by name because each GraphModule is assigned a bespoke class.
     assert {k: v.__class__.__name__ for k, v in submodules_1.items()} == {
@@ -208,7 +209,7 @@ def assert_results_identical(module_1, module_2, *test_inputs, tolerance=None, i
     assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=tolerance)
 
 
-def validate_node_meta(meta, graph_module):
+def validate_node_meta(graph_module, meta):
     # Name attribute must match key
     assert [n.name for n in meta.values()] == list(meta.keys())
     for name, module in graph_module.named_modules():
@@ -217,6 +218,30 @@ def validate_node_meta(meta, graph_module):
             assert meta[name].parent == ".".join(name.split(".")[:-1])
     # TODO: more validation. probably don't want to use named_modules
     # ModuleList added to handle duplicate instances of submodule in original code
+
+
+def validate_module_hierarchy(graph_module):
+    # This can happen when the hierarchy has containers and something went wrong when we extracted
+    # the graph! For example, the root could have a submodule named "foo.0", but actually we were
+    # supposed to place that in a container *named* foo. PyTorch, for some reason, lets you have
+    # submodules with dots in their name, but this leads to ambiguity so we disallow it.
+    submodule_stack = [("", graph_module)]
+    while submodule_stack:
+        path, cur_module = submodule_stack.pop()
+        if path == "":
+            prefix = ""
+        else:
+            prefix = f"{path}."
+        for name, submodule in cur_module._modules.items():
+            assert (
+                "." not in name
+            ), f"Module hierarchy contains invalid name: {name} at {path or '<root>'}"
+        submodule_stack.extend((f"{prefix}{n}", m) for n, m in cur_module._modules.items())
+
+
+def validate_extraction(graph_module, meta):
+    validate_node_meta(graph_module, meta)
+    validate_module_hierarchy(graph_module)
 
 
 def requires_multi_gpu(f):

@@ -232,11 +232,10 @@ class PatchableGraph(Module):
             state_by_submodule[".".join(parent_path)][target] = parameter
 
         # GraphModule is not built to handle nested graphs, so re-inflate each sub-graph
-        # individually. Since keys will have been added in topological order, reversing guarantees
-        # that we process children before their parents.
+        # individually. Process children before their parents so we can do this in one pass.
         submodules_by_parent: Dict[str, Dict[str, Module]] = defaultdict(dict)
 
-        for meta in reversed(list(deserialized_instance._meta.values())):
+        for meta in deserialized_instance._meta.reverse_topological_order():
             if not isinstance(meta, GraphMeta):
                 continue
             name = meta.graph_module_name

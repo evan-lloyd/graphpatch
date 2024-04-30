@@ -21,11 +21,11 @@ _GRAPHPATCH_MODULE_SERIALIZATION_KEYS = (
 
 
 class GraphPatchModule(GraphModule):
+    _graphpatch_accelerate_hook: Optional[ModelHook]
     _graphpatch_module_containers: Dict[
         str, Tuple[Union[Type[ModuleList], Type[ModuleDict]], Tuple[str]]
     ]
     _graphpatch_output_indexes: "OutputArgumentIndex"
-    _graphpatch_accelerate_hook: Optional[ModelHook]
 
     def set_extra_state(self, state: Any):
         for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS:
@@ -46,9 +46,7 @@ class GraphPatchModule(GraphModule):
 
     @staticmethod
     def _is_container(module: Module):
-        return isinstance(module, (ModuleList, ModuleDict)) and not isinstance(
-            module, InvocationTrackingModuleList
-        )
+        return isinstance(module, (ModuleList, ModuleDict))
 
     @staticmethod
     def _container_passthrough(
@@ -95,7 +93,7 @@ class GraphPatchModule(GraphModule):
             for name, (
                 submodule_class,
                 container_keys,
-            ) in reversed(self._graphpatch_module_containers.items()):
+            ) in self._graphpatch_module_containers.items():
                 if submodule_class in (ModuleList, InvocationTrackingModuleList):
                     root[name] = submodule_class(root[f"{name}.{k}"] for k in container_keys)
                 else:

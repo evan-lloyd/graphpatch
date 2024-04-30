@@ -102,7 +102,7 @@ def _patched_forward(module_iterator: Iterator[Tuple[str, Module]], patch):
     finally:
         for name, submodule in module_list:
             if original[name][1]:
-                submodule.forward = original[name]
+                submodule.forward = original[name][0]
             else:
                 del submodule.forward
 
@@ -289,9 +289,14 @@ class OpaqueGraphModule(GraphPatchModule):
 
             self._initialize_proxy(root)
 
-            # Register submodules.
+            # Register submodules. Note that due to special handling of containers, targets with
+            # dots in their name will already have been handled by GraphPatchModule.
             for node in self.graph.nodes:
-                if node.op == "call_function" and isinstance(node.target, SubmoduleWrapper):
+                if (
+                    node.op == "call_function"
+                    and isinstance(node.target, SubmoduleWrapper)
+                    and "." not in node.target.module_name
+                ):
                     setattr(self, node.target.module_name, root[node.target.module_name])
             return
 

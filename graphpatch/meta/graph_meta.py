@@ -23,7 +23,6 @@ from torch.fx.node import Node
 
 from ..extraction.compiled_graph_module import CompiledGraphModule
 from ..extraction.opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
-from ..optional.accelerate import ModelHook
 from ..optional.dataclasses import dataclass, field
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
 

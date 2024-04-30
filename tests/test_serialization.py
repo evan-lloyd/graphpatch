@@ -3,7 +3,7 @@ import io
 import pytest
 import torch
 
-from graphpatch import PatchableGraph
+from graphpatch import PatchableGraph, ProbePatch
 from graphpatch.extraction import ExtractionOptions
 from graphpatch.optional.accelerate import ModelHook, add_hook_to_module
 
@@ -16,6 +16,7 @@ from .util import (
     requires_gpu,
     requires_multi_gpu,
     requires_transformers,
+    validate_extraction,
 )
 
 
@@ -26,13 +27,31 @@ def _roundtrip(module):
     return torch.load(buffer)
 
 
-def _serialization_asserts(original_module, deserialized_module, test_inputs):
+def _serialization_asserts(
+    original_module, deserialized_module, test_inputs, output_probe_node_path="output"
+):
     # After round trip...
-    # Object should match
+    # Deserialized version should be valid
+    validate_extraction(deserialized_module._graph_module, deserialized_module._original_graph)
+
+    # ... module hierarchy should match, including ordering
+    assert [t[0] for t in original_module.named_modules()] == [
+        t[0] for t in deserialized_module.named_modules()
+    ]
+
+    # ... object should match
     assert_patchable_graphs_identical(original_module, deserialized_module)
 
     # ...forward() and backward() should work, and give the same result
     assert_results_identical(original_module, deserialized_module, test_inputs)
+
+    # ...we should still be able to patch
+    with original_module.patch(
+        {output_probe_node_path: (original_probe := ProbePatch())}
+    ), deserialized_module.patch({output_probe_node_path: (deserialized_probe := ProbePatch())}):
+        original_module(test_inputs)
+        deserialized_module(test_inputs)
+        assert original_probe.activation.equal(deserialized_probe.activation)
 
 
 def test_torch_save_raises(patchable_minimal_module):
@@ -91,7 +110,9 @@ def test_tuple_output_module_serialization(
     # Tests handling of cloned GraphModules, due to original model making multiple calls to a
     # submodule.
     deserialized = _roundtrip(patchable_tuple_output_module)
-    _serialization_asserts(patchable_tuple_output_module, deserialized, tuple_output_module_inputs)
+    _serialization_asserts(
+        patchable_tuple_output_module, deserialized, tuple_output_module_inputs, "output|sub_0"
+    )
 
 
 def test_deeply_nested_output_module_serialization(
@@ -99,7 +120,10 @@ def test_deeply_nested_output_module_serialization(
 ):
     deserialized = _roundtrip(patchable_deeply_nested_output_module)
     _serialization_asserts(
-        patchable_deeply_nested_output_module, deserialized, deeply_nested_output_module_inputs
+        patchable_deeply_nested_output_module,
+        deserialized,
+        deeply_nested_output_module_inputs,
+        "output|sub_0.sub_0",
     )
 
 
