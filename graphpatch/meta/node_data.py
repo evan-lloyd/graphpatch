@@ -144,7 +144,7 @@ class NodeData(Generic[NodeDataType]):
             if cur._children is NodeData._NO_VALUE:
                 continue
 
-            queue.extend(cur._children.values())
+            queue.extend(reversed(cur._children.values()))
         while result_stack:
             yield result_stack.pop()._value
 

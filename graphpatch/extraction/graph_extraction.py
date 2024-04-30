@@ -207,7 +207,7 @@ def _clone_repeated_submodules(state: ExtractionState):
         # Update the call_module nodes to refer to a specific instance in the list.
         for i, node in enumerate(calling_nodes):
             node.target = f"{module_name}.{i}"
-        graph_module._graphpatch_module_containers[module_name] = (
+        graph_module._graphpatch_submodules[module_name] = (
             ModuleList,
             tuple(str(i) for i in range(len(calling_nodes))),
         )
@@ -253,7 +253,7 @@ def _clone_repeated_submodules(state: ExtractionState):
                         SubmoduleWrapper(f"{name}.{i}")
                     )
                     submodule_node.name = f"{node_name}_{i}"
-            graph_module._graphpatch_module_containers[name] = (
+            graph_module._graphpatch_submodules[name] = (
                 InvocationTrackingModuleList,
                 tuple(str(i) for i in range(len(child_state.invocations))),
             )
@@ -420,7 +420,7 @@ def extract(
     # eventual serialization.
     for state in extraction_state.values():
         if isinstance(state.extracted_module, GraphPatchModule):
-            state.extracted_module._set_containers_for_serialization()
+            state.extracted_module._set_submodules_for_serialization()
 
     # Postprocess after all modules have been converted. Reverse order so children are postprocessed
     # before their parents, which matters for cloned graphs.

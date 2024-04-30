@@ -33,12 +33,12 @@ def compile_module(module: Module, *args, **kwargs) -> Tuple[CompiledGraphModule
                     # Force an actual compilation of the GraphModule, which we need downstream.
                     gm.real_recompile()
                     gm.__class__.__bases__ = (CompiledGraphModule,) + tuple(
-                        GraphModule if c is _LazyGraphModule else c
-                        for c in gm.__class__.__bases__
+                        GraphModule if c is _LazyGraphModule else c for c in gm.__class__.__bases__
                     )
             else:
                 gm.__class__.__bases__ = (CompiledGraphModule,) + gm.__class__.__bases__
             gm.__class__.__name__ = CompiledGraphModule.__name__
+            gm._init(module)
             hacks._CURRENTLY_COMPILING = False
             return gm
 

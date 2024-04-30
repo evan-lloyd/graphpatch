@@ -1,4 +1,4 @@
-from collections import deque
+from collections import OrderedDict, deque
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Tuple, Type, Union
 
@@ -15,15 +15,15 @@ if TYPE_CHECKING:
 
 _GRAPHPATCH_MODULE_SERIALIZATION_KEYS = (
     "_graphpatch_accelerate_hook",
-    "_graphpatch_module_containers",
+    "_graphpatch_submodules",
     "_graphpatch_output_indexes",
 )
 
 
 class GraphPatchModule(GraphModule):
     _graphpatch_accelerate_hook: Optional[ModelHook]
-    _graphpatch_module_containers: Dict[
-        str, Tuple[Union[Type[ModuleList], Type[ModuleDict]], Tuple[str]]
+    _graphpatch_submodules: Dict[
+        str, Tuple[Union[Type[ModuleList], Type[ModuleDict], None], Tuple[str]]
     ]
     _graphpatch_output_indexes: "OutputArgumentIndex"
 
@@ -71,11 +71,57 @@ class GraphPatchModule(GraphModule):
             if self._is_container(submodule):
                 yield name, submodule
 
-    def _set_containers_for_serialization(self):
-        self._graphpatch_module_containers = {
-            name: (submodule.__class__, tuple(submodule._modules.keys()))
-            for name, submodule in self._child_containers()
+    def _set_submodules_for_serialization(self):
+        self._graphpatch_submodules = {
+            name: (
+                (
+                    submodule.__class__
+                    if submodule.__class__ in (ModuleList, ModuleDict, InvocationTrackingModuleList)
+                    else None
+                ),
+                tuple(submodule._modules.keys()),
+            )
+            for name, submodule in self._container_passthrough(self._modules.items())
         }
+
+    def _init(
+        self,
+        root: Union[Module, Dict[str, Any]],
+        accelerate_hook: Optional[ModelHook] = None,
+    ):
+        """Separating out actual initialization logic because __init__ will not get called for
+        CompiledGraphModule.
+        """
+        # Deserializing from pickle.
+        if isinstance(root, dict):
+            self.set_extra_state(root[_EXTRA_STATE_KEY_SUFFIX])
+            # Initialize containers, which aren't included in the state directly. Reversed is
+            # important, since we need to add children to the state dict before processing their
+            # parents.
+            for name, (
+                container_class,
+                container_keys,
+            ) in reversed(list(self._graphpatch_submodules.items())):
+                if container_class in (ModuleList, InvocationTrackingModuleList):
+                    root[name] = container_class(root[f"{name}.{k}"] for k in container_keys)
+                elif container_class == ModuleDict:
+                    root[name] = ModuleDict({k: root[f"{name}.{k}"] for k in container_keys})
+            for name in self._graphpatch_submodules.keys():
+                [*parent_path, local_name] = name.split(".")
+                parent_module = self.get_submodule(".".join(parent_path))
+                setattr(parent_module, local_name, root[name])
+            # Fix ordering of _modules. GraphModule constructor will have set them based on
+            # invocation order, not the original ordering.
+            orig_modules = self._modules
+            self._modules = OrderedDict()
+            for name in self._graphpatch_submodules:
+                if name in orig_modules:
+                    self._modules[name] = orig_modules[name]
+        elif isinstance(root, GraphPatchModule):
+            self.set_extra_state(root.get_extra_state())
+        else:
+            self._graphpatch_accelerate_hook = accelerate_hook
+            self._set_submodules_for_serialization()
 
     def __init__(
         self,
@@ -85,28 +131,7 @@ class GraphPatchModule(GraphModule):
         accelerate_hook: Optional[ModelHook] = None,
     ):
         super().__init__(root, graph, class_name)
-
-        # Deserializing from pickle.
-        if isinstance(root, dict):
-            self.set_extra_state(root[_EXTRA_STATE_KEY_SUFFIX])
-            # Initialize containers, which aren't included in the state directly.
-            for name, (
-                submodule_class,
-                container_keys,
-            ) in self._graphpatch_module_containers.items():
-                if submodule_class in (ModuleList, InvocationTrackingModuleList):
-                    root[name] = submodule_class(root[f"{name}.{k}"] for k in container_keys)
-                else:
-                    root[name] = submodule_class({k: root[f"{name}.{k}"] for k in container_keys})
-            for name, _ in self._graphpatch_module_containers.items():
-                [*parent_path, local_name] = name.split(".")
-                parent_module = self.get_submodule(".".join(parent_path))
-                setattr(parent_module, local_name, root[name])
-        elif isinstance(root, GraphPatchModule):
-            self.set_extra_state(root.get_extra_state())
-        else:
-            self._graphpatch_accelerate_hook = accelerate_hook
-            self._set_containers_for_serialization()
+        self._init(root, accelerate_hook)
 
     def recompile(self):
         """GraphModule recompile overwrites our forward method, so to add calls to accelerate's
