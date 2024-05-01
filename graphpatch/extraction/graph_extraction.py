@@ -87,7 +87,9 @@ def _repair_input_signature(state: ExtractionState):
     graph_module = state.extracted_module
     insert_after = graph_module.graph._root
     existing_placeholders = {n.target: n for n in graph_module.graph.nodes if n.op == "placeholder"}
-    forward_parameters = inspect.signature(state.original_module.forward).parameters
+    forward_parameters = inspect.signature(
+        state.wrapped_module._graphpatch_wrapped_module.forward
+    ).parameters
 
     # Construct (possibly new) graph inputs in the correct order.
     for name, parameter in forward_parameters.items():
@@ -136,7 +138,7 @@ def _repair_input_signature(state: ExtractionState):
             setattr(
                 graph_module,
                 placeholder.target,
-                getattr(state.original_module, original_attribute_name),
+                getattr(state.wrapped_module._graphpatch_wrapped_module, original_attribute_name),
             )
             get_attr_node = Node(graph_module.graph, name, "get_attr", placeholder.target, (), {})
             hacks.replace_node_keeping_original_name(placeholder, get_attr_node, name)
@@ -306,7 +308,7 @@ def _run_extraction(
             extracted_module._graphpatch_accelerate_hook = state.accelerate_hook
     else:
         extracted_module = OpaqueGraphModule(
-            state.original_module, accelerate_hook=state.accelerate_hook
+            state.wrapped_module._graphpatch_wrapped_module, accelerate_hook=state.accelerate_hook
         )
         state.wrapped_module(*args, **kwargs)
 
@@ -399,7 +401,8 @@ def extract(
                 )
             else:
                 state.extracted_module = OpaqueGraphModule(
-                    state.original_module, accelerate_hook=state.accelerate_hook
+                    state.wrapped_module._graphpatch_wrapped_module,
+                    accelerate_hook=state.accelerate_hook,
                 )
 
     # Undo the unrolling of containers performed by compile(), so we'll end up with the same

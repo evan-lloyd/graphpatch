@@ -60,9 +60,16 @@ def test_torch_save_raises(patchable_minimal_module):
         torch.save(patchable_minimal_module, buffer)
 
 
+@opaque_and_compiled("patchable_minimal_module")
 def test_minimal_module_serialization(patchable_minimal_module, minimal_module_inputs):
     deserialized = _roundtrip(patchable_minimal_module)
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
+
+
+@opaque_and_compiled("patchable_buffer_module")
+def test_buffer_module_serialization(patchable_buffer_module, buffer_module_inputs):
+    deserialized = _roundtrip(patchable_buffer_module)
+    _serialization_asserts(patchable_buffer_module, deserialized, buffer_module_inputs)
 
 
 def test_opaque_submodule_serialization(minimal_module, minimal_module_inputs):
@@ -77,6 +84,7 @@ def test_opaque_submodule_serialization(minimal_module, minimal_module_inputs):
     _serialization_asserts(patchable_minimal_module, deserialized, minimal_module_inputs)
 
 
+@opaque_and_compiled("patchable_graph_break_module")
 def test_uncompilable_module_serialization(patchable_graph_break_module, graph_break_module_inputs):
     deserialized = _roundtrip(patchable_graph_break_module)
     _serialization_asserts(patchable_graph_break_module, deserialized, graph_break_module_inputs)
@@ -93,17 +101,20 @@ def test_layer_norm_module_serialization(patchable_layer_norm_module, layer_norm
     _serialization_asserts(patchable_layer_norm_module, deserialized, layer_norm_module_inputs)
 
 
+@opaque_and_compiled("patchable_attribute_module")
 def test_attribute_module_serialization(patchable_attribute_module, attribute_module_inputs):
     # Tests handling of non-state attributes on module.
     deserialized = _roundtrip(patchable_attribute_module)
     _serialization_asserts(patchable_attribute_module, deserialized, attribute_module_inputs)
 
 
+@opaque_and_compiled("patchable_nested_module")
 def test_nested_module_serialization(patchable_nested_module, nested_module_inputs):
     deserialized = _roundtrip(patchable_nested_module)
     _serialization_asserts(patchable_nested_module, deserialized, nested_module_inputs)
 
 
+@opaque_and_compiled("patchable_tuple_output_module")
 def test_tuple_output_module_serialization(
     patchable_tuple_output_module, tuple_output_module_inputs
 ):
@@ -115,6 +126,7 @@ def test_tuple_output_module_serialization(
     )
 
 
+@opaque_and_compiled("patchable_deeply_nested_output_module")
 def test_deeply_nested_output_module_serialization(
     patchable_deeply_nested_output_module, deeply_nested_output_module_inputs
 ):
@@ -134,6 +146,7 @@ def test_container_module_serialization(patchable_container_module, container_mo
 
 
 @requires_transformers
+@opaque_and_compiled("patchable_pretrained_module")
 def test_pretrained_module_serialization(patchable_pretrained_module, pretrained_module_inputs):
     deserialized = _roundtrip(patchable_pretrained_module)
     _serialization_asserts(patchable_pretrained_module, deserialized, pretrained_module_inputs)
@@ -142,6 +155,7 @@ def test_pretrained_module_serialization(patchable_pretrained_module, pretrained
 @requires_multi_gpu
 @requires_transformers
 @requires_accelerate
+@opaque_and_compiled("patchable_accelerate_pretrained_module")
 def test_multiple_device_serialization(
     patchable_accelerate_pretrained_module, accelerate_pretrained_module_inputs, mocker
 ):
@@ -174,6 +188,7 @@ def test_mixed_cpu_module_serialization(
 @requires_transformers
 @requires_accelerate
 @requires_bitsandbytes
+@opaque_and_compiled("patchable_quantized_pretrained_module")
 def test_quantized_pretrained_module_serialization(
     patchable_quantized_pretrained_module, quantized_pretrained_module_inputs
 ):

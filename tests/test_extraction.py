@@ -33,6 +33,15 @@ def test_extract_minimal_module(minimal_module, minimal_module_inputs):
     assert_results_identical(minimal_module, graph_module, minimal_module_inputs)
 
 
+def test_extract_buffer_module(buffer_module, buffer_module_inputs):
+    graph_module, meta = extract(
+        buffer_module, ExtractionOptions(error_on_compilation_failure=True), buffer_module_inputs
+    )
+    validate_extraction(graph_module, meta)
+    assert_results_identical(buffer_module, graph_module, buffer_module_inputs)
+    assert "buffer" in graph_module._buffers
+
+
 def test_extract_nested_module(nested_module, nested_module_inputs):
     graph_module, meta = extract(
         nested_module, ExtractionOptions(error_on_compilation_failure=True), nested_module_inputs

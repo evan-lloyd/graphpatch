@@ -269,7 +269,10 @@ class OpaqueGraphModule(GraphPatchModule):
         # the possibility that the user wants to patch them.
         if isinstance(root, Module):
             for name in self._graphpatch_patchable_attributes:
-                setattr(self, name, getattr(root, name))
+                if name in root._buffers:
+                    self.register_buffer(name, getattr(root, name))
+                else:
+                    setattr(self, name, getattr(root, name))
         for name, value in self._graphpatch_static_attributes.items():
             setattr(self._graphpatch_opaque_module_proxy, name, value)
 

@@ -132,7 +132,6 @@ class ExtractionWrapper(Module):
         new_instance._graphpatch_extraction_state = self._graphpatch_extraction_state
         new_instance._graphpatch_record_invocations = self._graphpatch_record_invocations
         new_instance._graphpatch_accelerate_hook = deepcopy(self._graphpatch_accelerate_hook)
-        # new_instance._graphpatch_accelerate_hook = self._graphpatch_accelerate_hook
         with new_instance.substitute_submodules(self._graphpatch_wrapped_module):
             object.__setattr__(
                 new_instance,

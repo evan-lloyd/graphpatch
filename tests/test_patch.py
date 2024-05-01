@@ -287,3 +287,12 @@ def test_patch_container_module(pg, container_module_inputs):
     assert output.allclose(
         sum_probe_0.activation + sum_probe_1.activation + sum_probe_2.activation + 1
     )
+
+
+@opaque_and_compiled("patchable_buffer_module")
+def test_patch_buffer_module(pg, buffer_module_inputs):
+    original_output = pg(buffer_module_inputs)
+    with pg.patch({"buffer": ZeroPatch()}):
+        patched_output = pg(buffer_module_inputs)
+    # Buffer is full of ones and added to linear
+    assert original_output.equal(patched_output + 1)
