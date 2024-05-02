@@ -10,7 +10,14 @@ from graphpatch import (
     ZeroPatch,
 )
 
-from .util import opaque_and_compiled
+from .util import (
+    opaque_and_compiled,
+    requires_transformers,
+    requires_multi_gpu,
+    requires_accelerate,
+    requires_bitsandbytes,
+    requires_gpu,
+)
 
 
 @opaque_and_compiled("patchable_minimal_module")
@@ -296,3 +303,54 @@ def test_patch_buffer_module(pg, buffer_module_inputs):
         patched_output = pg(buffer_module_inputs)
     # Buffer is full of ones and added to linear
     assert original_output.equal(patched_output + 1)
+
+
+def _pretrained_module_patch_asserts(pg, inputs):
+    with pg.patch(
+        {
+            "model.root_linear.weight": ZeroPatch(),
+            "model.root_linear.bias": ZeroPatch(),
+            "output": [output_probe := ProbePatch()],
+        }
+    ):
+        output = pg(inputs)
+    assert output.count_nonzero() == 0
+    assert output_probe.activation.count_nonzero() == 0
+
+
+@requires_transformers
+@opaque_and_compiled("patchable_pretrained_module")
+def test_patch_pretrained_module(pg, pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+
+
+@requires_multi_gpu
+@requires_transformers
+@requires_accelerate
+@opaque_and_compiled("patchable_accelerate_pretrained_module")
+def test_patch_accelerate_pretrained_module(pg, pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+
+
+@requires_gpu
+@requires_transformers
+@requires_accelerate
+@opaque_and_compiled("patchable_mixed_cpu_pretrained_module")
+def test_patch_mixed_cpu_pretrained_module(pg, pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+
+
+@requires_transformers
+@requires_accelerate
+@opaque_and_compiled("patchable_disk_offload_pretrained_module")
+def test_patch_disk_offload_pretrained_module(pg, pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+
+
+@requires_gpu
+@requires_transformers
+@requires_accelerate
+@requires_bitsandbytes
+@opaque_and_compiled("patchable_quantized_pretrained_module")
+def test_patch_quantized_pretrained_module(pg, pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)

@@ -28,6 +28,7 @@ _UNCOPYABLE_MODULE_ATTRIBUTES = frozenset(
         "__slotnames__",
         # accelerate
         "_hf_hook",
+        "_is_hf_initialized",
         # Python internals not covered by the above.
         "__class__",
     }
@@ -39,7 +40,6 @@ _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset(
         *(k for k in PreTrainedModel.__dict__),
         *(k for k in PreTrainedModel.__annotations__),
         # These aren't declared, but are still used.
-        "_is_hf_initialized",
         "config",
         "device",
         "dtype",
@@ -48,6 +48,11 @@ _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset(
         "is_loaded_in_8bit",
         "name_or_path",
         "warnings_issued",
+        "_hf_peft_config_loaded",
+        "hf_quantizer",
+        "is_8bit_serializable",
+        "is_quantized",
+        "quantization_method",
     }
 )
 

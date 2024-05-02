@@ -184,6 +184,20 @@ def test_mixed_cpu_module_serialization(
     )
 
 
+@requires_transformers
+@requires_accelerate
+@opaque_and_compiled("patchable_disk_offload_pretrained_module")
+def test_disk_offload_module_serialization(
+    patchable_disk_offload_pretrained_module, disk_offload_pretrained_module_inputs
+):
+    deserialized = _roundtrip(patchable_disk_offload_pretrained_module)
+    _serialization_asserts(
+        patchable_disk_offload_pretrained_module,
+        deserialized,
+        disk_offload_pretrained_module_inputs,
+    )
+
+
 @requires_gpu
 @requires_transformers
 @requires_accelerate
