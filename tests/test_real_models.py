@@ -8,6 +8,7 @@ from graphpatch.extraction import ExtractionOptions, extract
 from graphpatch.hacks import fix_gpt2_bool_buffers, patch_llama
 from graphpatch.optional.transformers import (
     AutoTokenizer,
+    BitsAndBytesConfig,
     GPT2LMHeadModel,
     LlamaForCausalLM,
 )
@@ -94,7 +95,10 @@ def test_llama(tmp_path_factory):
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     standardize_tokenizer(tokenizer)
     llama = LlamaForCausalLM.from_pretrained(
-        model_path, device_map="auto", load_in_8bit=True, torch_dtype=torch.float16
+        model_path,
+        device_map="auto",
+        quantization_config=BitsAndBytesConfig(load_in_8bit=True),
+        torch_dtype=torch.float16,
     )
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(
         device=torch.device("cuda:0")
@@ -165,7 +169,10 @@ def test_gpt2(tmp_path_factory):
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     standardize_tokenizer(tokenizer)
     gpt2 = GPT2LMHeadModel.from_pretrained(
-        model_path, device_map="auto", load_in_8bit=True, torch_dtype=torch.float16
+        model_path,
+        device_map="auto",
+        quantization_config=BitsAndBytesConfig(load_in_8bit=True),
+        torch_dtype=torch.float16,
     )
     fix_gpt2_bool_buffers(gpt2)
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(

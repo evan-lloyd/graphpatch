@@ -13,7 +13,7 @@ operations in a context created by :meth:`PatchableGraph.patch`:
    model = GPT2LMHeadModel.from_pretrained(
       "gpt2-xl",
       device_map="auto",
-      load_in_8bit=True,
+      quantization_config=BitsAndBytesConfig(load_in_8bit=True),
       torch_dtype=torch.float16
    )
    tokenizer = AutoTokenizer.from_pretrained("gpt2-xl")
@@ -77,7 +77,10 @@ multiple GPU's and/or with quantized inference very easily on models provided by
 .. code::
 
    model = LlamaForCausalLM.from_pretrained(
-      model_path, device_map="auto", load_in_8bit=True, torch_dtype=torch.float16
+      model_path,
+      device_map="auto",
+      quantization_config=BitsAndBytesConfig(load_in_8bit=True),
+      torch_dtype=torch.float16,
    )
    pg = PatchableGraph(model, **example_inputs)
 

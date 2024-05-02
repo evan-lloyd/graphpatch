@@ -2,7 +2,7 @@ import torch
 from pytest import fixture
 
 from graphpatch import ExtractionOptions, PatchableGraph
-from graphpatch.optional.transformers import AutoModel
+from graphpatch.optional.transformers import AutoModel, BitsAndBytesConfig
 
 from .pretrained.test_model_tokenizer import DummyTokenizer
 
@@ -63,7 +63,7 @@ def quantized_pretrained_module(pretrained_module_path):
     return AutoModel.from_pretrained(
         pretrained_module_path,
         device_map="auto",
-        load_in_8bit=True,
+        quantization_config=BitsAndBytesConfig(load_in_8bit=True),
         torch_dtype=torch.float16,
     )
 

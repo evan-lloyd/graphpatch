@@ -95,7 +95,11 @@ def wrap_node_path(meta: NodeData[Union[GraphMeta, NodeMeta]]) -> NodePath:
             kwargs["_original_type"] = node.shape._original_type
             kwargs["_value"] = node.shape._value
             kwargs["_node_meta"] = node
-            kwargs["_children"] = cast(NodePath, node.shape.map(shape_value, make_shape))._children
+            children = cast(NodePath, node.shape.map(shape_value, make_shape))
+            if children is NodeData._NO_VALUE:
+                kwargs["_children"] = children
+            else:
+                kwargs["_children"] = children._children
 
         return NodePath(show_containers=True, **kwargs)
 

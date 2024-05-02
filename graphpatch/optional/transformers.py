@@ -10,6 +10,7 @@ try:
         PretrainedConfig,
         PreTrainedModel,
         PreTrainedTokenizer,
+        BitsAndBytesConfig,
     )
     from transformers.models.gpt2.modeling_gpt2 import GPT2Attention
 
@@ -47,6 +48,9 @@ except ImportError:
         pass
 
     class LlamaTokenizer:
+        pass
+
+    class BitsAndBytesConfig:
         pass
 
     AVAILABLE = False

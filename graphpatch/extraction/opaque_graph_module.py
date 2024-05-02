@@ -33,7 +33,7 @@ _UNCOPYABLE_MODULE_ATTRIBUTES = frozenset(
     }
 )
 
-# Only applicable if the Module is a PreTrainedModel.
+# Clean up some unhelpful attributes from the graph for transformers PreTrainedModel.
 _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset(
     {
         *(k for k in PreTrainedModel.__dict__),
