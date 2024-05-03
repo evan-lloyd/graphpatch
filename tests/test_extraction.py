@@ -1,17 +1,19 @@
 from itertools import chain, combinations
 
 from torch.nn import Linear
+from torch.fx import Graph
 
 from graphpatch.extraction import (
     CompiledGraphModule,
     ExtractionOptions,
     OpaqueGraphModule,
 )
-from graphpatch.extraction.graph_extraction import extract
+from graphpatch.extraction.graph_extraction import extract, CompilationWarning
 from graphpatch.extraction.invocation_tracking_module_list import (
     InvocationTrackingModuleList,
 )
 from tests.fixtures.nested_module import A, B, C, NestedModule
+import pytest
 
 from .util import (
     assert_outputs_identical,
@@ -121,6 +123,87 @@ def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
     # Child module should have been compiled despite failure at root.
     assert isinstance(graph_module.linear, InvocationTrackingModuleList)
     assert [isinstance(m, CompiledGraphModule) for m in graph_module.linear] == [True] * 3
+
+    # User should see the original raised exception with error_on_compilation_failure
+    with pytest.raises(Exception) as exc:
+        extract(
+            graph_break_module,
+            ExtractionOptions(
+                error_on_compilation_failure=True,
+            ),
+            graph_break_module_inputs,
+        )
+    assert "skip function graph_break" in str(exc.value)
+
+    # User should get a warning referencing the original exception.
+    with pytest.warns(CompilationWarning, match=r"skip function graph_break"):
+        graph_module, meta = extract(
+            graph_break_module,
+            ExtractionOptions(
+                warn_on_compilation_failure=True,
+            ),
+            graph_break_module_inputs,
+        )
+
+
+def test_custom_extraction_function(minimal_module, minimal_module_inputs):
+    # Dummy graph that just returns its input.
+    def generate_dummy_graph(module):
+        graph = Graph()
+        placeholder = graph.placeholder("input")
+
+        def foo():
+            pass
+
+        graph.call_function(foo)
+        graph.output((placeholder,))
+        return graph
+
+    graph_module, meta = extract(
+        minimal_module,
+        ExtractionOptions(custom_extraction_functions={Linear: generate_dummy_graph}),
+        minimal_module_inputs,
+    )
+    assert graph_module(minimal_module_inputs).equal(minimal_module_inputs)
+    assert "linear.foo" in meta
+    assert isinstance(graph_module.linear, CompiledGraphModule)
+
+
+def test_custom_extraction_fallback(minimal_module, minimal_module_inputs):
+    def simulate_extraction_failure(module):
+        raise Exception("simulated failure")
+
+    # Should fall back to opaque.
+    graph_module, meta = extract(
+        minimal_module,
+        ExtractionOptions(custom_extraction_functions={Linear: simulate_extraction_failure}),
+        minimal_module_inputs,
+    )
+    assert isinstance(graph_module.linear, OpaqueGraphModule)
+    assert_results_identical(minimal_module, graph_module, minimal_module_inputs)
+
+    # User should see the original raised exception with error_on_compilation_failure
+    with pytest.raises(Exception) as exc:
+        extract(
+            minimal_module,
+            ExtractionOptions(
+                custom_extraction_functions={Linear: simulate_extraction_failure},
+                error_on_compilation_failure=True,
+            ),
+            minimal_module_inputs,
+        )
+    assert "simulated failure" in str(exc.value)
+
+    # User should get a warning referencing the original exception.
+    with pytest.warns(CompilationWarning, match=r"simulated failure"):
+        graph_module, meta = extract(
+            minimal_module,
+            ExtractionOptions(
+                custom_extraction_functions={Linear: simulate_extraction_failure},
+                warn_on_compilation_failure=True,
+            ),
+            minimal_module_inputs,
+        )
 
 
 @requires_transformers

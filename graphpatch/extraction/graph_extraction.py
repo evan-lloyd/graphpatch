@@ -8,6 +8,7 @@ from warnings import warn
 from torch.fx import Node
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleList
+from enum import Enum
 
 from .. import hacks
 from ..exceptions import GraphPatchWarning
@@ -37,6 +38,9 @@ class CompilationWarning(GraphPatchWarning):
     pass
 
 
+ExtractionMethod = Enum("ExtractionMethod", ("custom", "compiled", "opaque"))
+
+
 def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
     """Unflatten the args to an output node to match the original output shape."""
     if not indexes._value.should_unwrap:
@@ -47,7 +51,7 @@ def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
     ).unwrap()
 
 
-def clone_graph_module(
+def _clone_graph_module(
     module: Union[CompiledGraphModule, OpaqueGraphModule]
 ) -> Union[CompiledGraphModule, OpaqueGraphModule]:
     if isinstance(module, OpaqueGraphModule):
@@ -59,7 +63,7 @@ def _should_skip_compilation(options: ExtractionOptions, module: Module):
     return options.skip_compilation or module.__class__ in options.classes_to_skip_compiling
 
 
-def retarget_submodule_calls(state: ExtractionState):
+def _retarget_submodule_calls(state: ExtractionState):
     """compile() unrolls all containers, modifying the module hierarchy. Our later code is much
     simplified if we instead retain the original hierarchy. This also looks nicer when the user
     inspects the returned GraphModule.
@@ -204,7 +208,7 @@ def _clone_repeated_submodules(state: ExtractionState):
         setattr(
             graph_module.get_submodule(".".join(parent_path)),
             local_name,
-            ModuleList([submodule] + [clone_graph_module(submodule) for _ in calling_nodes[1:]]),
+            ModuleList([submodule] + [_clone_graph_module(submodule) for _ in calling_nodes[1:]]),
         )
         # Update the call_module nodes to refer to a specific instance in the list.
         for i, node in enumerate(calling_nodes):
@@ -241,7 +245,7 @@ def _clone_repeated_submodules(state: ExtractionState):
                 InvocationTrackingModuleList(
                     [submodule]
                     + [
-                        clone_graph_module(submodule)
+                        _clone_graph_module(submodule)
                         for _ in range(len(child_state.invocations) - 1)
                     ]
                 ),
@@ -292,7 +296,11 @@ def _postprocess_graph(state: ExtractionState):
 
 
 def _run_extraction(
-    state: ExtractionState, compile: bool, *args, **kwargs
+    state: ExtractionState,
+    extraction_method: ExtractionMethod,
+    custom_extraction_function=None,
+    *args,
+    **kwargs,
 ) -> Tuple[GraphPatchModule, Any]:
     should_trace = state.name == ""
     for submodule in state.wrapped_module.modules():
@@ -302,14 +310,26 @@ def _run_extraction(
             if should_trace:
                 submodule._graphpatch_extraction_state.invocations = []
 
-    if compile:
+    if extraction_method is ExtractionMethod.custom:
+        graph = custom_extraction_function(state.wrapped_module._graphpatch_wrapped_module)
+        extracted_module = CompiledGraphModule(
+            state.wrapped_module._graphpatch_wrapped_module,
+            graph,
+            "CompiledGraphModule",
+            state.accelerate_hook,
+        )
+    elif extraction_method is ExtractionMethod.compiled:
         with compilation_context(state):
             extracted_module = compile_module(state.wrapped_module, *args, **kwargs)
             extracted_module._graphpatch_accelerate_hook = state.accelerate_hook
+        # compile_module will already have run inference.
+        should_trace = False
     else:
         extracted_module = OpaqueGraphModule(
             state.wrapped_module._graphpatch_wrapped_module, accelerate_hook=state.accelerate_hook
         )
+
+    if should_trace:
         state.wrapped_module(*args, **kwargs)
 
     return extracted_module
@@ -363,81 +383,77 @@ def extract(
             state.extracted_module = state.wrapped_module
             continue
 
-        # Custom extraction function preempts other compilation options.
-        if (
+        custom_extraction_function = options.custom_extraction_functions.get(
             type(state.wrapped_module._graphpatch_wrapped_module)
-            in options.custom_extraction_functions
-        ):
-            graph = options.custom_extraction_functions[
-                type(state.wrapped_module._graphpatch_wrapped_module)
-            ](state.wrapped_module._graphpatch_wrapped_module)
-            state.extracted_module = CompiledGraphModule(
-                state.wrapped_module._graphpatch_wrapped_module,
-                graph,
-                "CompiledGraphModule",
-                state.accelerate_hook,
-            )
-            if state is root_state:
-                state.wrapped_module(*trace_args, **trace_kwargs)
-            continue
+        )
+        if custom_extraction_function is not None:
+            extraction_method = ExtractionMethod.custom
+        elif not _should_skip_compilation(options, state.original_module):
+            extraction_method = ExtractionMethod.compiled
+        else:
+            extraction_method = ExtractionMethod.opaque
 
-        should_compile = not _should_skip_compilation(options, state.original_module)
-
-        if should_compile:
-            try:
-                if state is not root_state and len(state.invocations) == 0:
+        # Attempt graph extraction, with the following priority on extraction methods:
+        # 1) CompiledGraphModule from custom extraction function. Fall back to 3.
+        # 2) Extract CompiledGraphModule using torch.compile(). Fall back to 3.
+        # 3) Wrap with OpaqueGraphModule.
+        def do_extraction():
+            if extraction_method is ExtractionMethod.custom:
+                args = []
+                kwargs = {}
+            elif state is root_state:
+                args = trace_args
+                kwargs = trace_kwargs
+            else:
+                if len(state.invocations) == 0:
                     raise ValueError(
                         f"Unable to compile {state.torch_name}; it was never called when"
                         " evaluating the given example inputs."
                     )
+                args = state.invocations[-1].args
+                kwargs = state.invocations[-1].kwargs
+            state.extracted_module = _run_extraction(
+                state, extraction_method, custom_extraction_function, *args, **kwargs
+            )
 
-                if state is root_state:
-                    args = trace_args
-                    kwargs = trace_kwargs
-                else:
-                    args = state.invocations[-1].args
-                    kwargs = state.invocations[-1].kwargs
-                state.extracted_module = _run_extraction(state, should_compile, *args, **kwargs)
-
-            except Exception as exc:
-                if options.error_on_compilation_failure:
-                    raise
-                if options.warn_on_compilation_failure:
-                    warn(
-                        (
-                            f"Compilation of {state.torch_name or '<root>'} failed.\n\n"
-                            "Torch-generated exception:\n"
-                            "**************************\n"
-                            f"{exc}"
-                            "**************************\n\n"
-                            "User code:\n"
-                        ),
-                        CompilationWarning,
-                        # Shows the user code as the call to PatchableGraph, assuming that the
-                        # user isn't trying to call extract directly.
-                        stacklevel=3,
-                    )
-                should_compile = False
-
-        # Either we wanted to skip compilation, or we fell back to doing so.
-        if not should_compile:
-            # We still need to run inference on the root to record module outputs.
-            if state is root_state:
-                state.extracted_module = _run_extraction(
-                    state, should_compile, *trace_args, **trace_kwargs
+        if custom_extraction_function is not None:
+            for_method = "Custom extraction function"
+        else:
+            for_method = "Compilation"
+        try:
+            do_extraction()
+        except Exception as exc:
+            # No fallback for OpaqueGraphModule failure.
+            if options.error_on_compilation_failure or extraction_method is ExtractionMethod.opaque:
+                raise
+            if options.warn_on_compilation_failure:
+                warn(
+                    (
+                        f"{for_method} for {state.torch_name or '<root>'} failed.\n\n"
+                        "Exception:\n"
+                        "**************************\n"
+                        f"{exc}"
+                        "**************************\n\n"
+                        "User code:\n"
+                    ),
+                    CompilationWarning,
+                    # Shows the user code as the call to PatchableGraph, assuming that the
+                    # user isn't trying to call extract directly.
+                    stacklevel=3,
                 )
-            else:
-                state.extracted_module = OpaqueGraphModule(
-                    state.wrapped_module._graphpatch_wrapped_module,
-                    accelerate_hook=state.accelerate_hook,
-                )
+            # Fall back to OpaqueGraphModule.
+            extraction_method = ExtractionMethod.opaque
+
+        # Final fallback.
+        if state.extracted_module is None:
+            do_extraction()
 
     # Undo the unrolling of containers performed by compile(), so we'll end up with the same
     # module hierarchy as originally. Reset _modules so we'll additionally restore the original
     # ordering (compile re-orders them to the order in which they are invoked).
     for torch_qual_name, state in extraction_state.items():
         if isinstance(state.extracted_module, CompiledGraphModule):
-            retarget_submodule_calls(state)
+            _retarget_submodule_calls(state)
             state.extracted_module._modules = OrderedDict()
         if torch_qual_name == "":
             continue
