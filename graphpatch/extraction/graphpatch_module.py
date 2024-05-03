@@ -1,5 +1,5 @@
 from collections import OrderedDict, deque
-from copy import deepcopy
+from copy import copy, deepcopy
 from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Tuple, Type, Union
 
 from torch.fx import Graph, GraphModule
@@ -14,10 +14,32 @@ if TYPE_CHECKING:
     from ..meta import OutputArgumentIndex
 
 _GRAPHPATCH_MODULE_SERIALIZATION_KEYS = (
-    "_graphpatch_accelerate_hook",
     "_graphpatch_submodules",
     "_graphpatch_output_indexes",
+    # _graphpatch_accelerate_hook handled specially, since it may contain the model's weights.
 )
+
+
+def _deepcopy_hook_without_weights_map(hook: ModelHook):
+    NONEXISTENT = object()
+    if hook is None:
+        return None
+    try:
+        orig_weights_map = getattr(hook, "weights_map", NONEXISTENT)
+        orig_tied_params_map = getattr(hook, "tied_params_map", NONEXISTENT)
+        hook.weights_map = None
+        hook.tied_params_map = None
+        copied_hook = deepcopy(hook)
+    finally:
+        if orig_weights_map is not NONEXISTENT:
+            hook.weights_map = orig_weights_map
+        else:
+            del hook.weight_map
+        if orig_tied_params_map is not NONEXISTENT:
+            hook.tied_params_map = orig_tied_params_map
+        else:
+            del hook.tied_params_map
+        return copied_hook
 
 
 class GraphPatchModule(GraphModule):
@@ -30,10 +52,32 @@ class GraphPatchModule(GraphModule):
     def set_extra_state(self, state: Any):
         for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS:
             setattr(self, k, deepcopy(state[k]))
+        self._graphpatch_accelerate_hook = _deepcopy_hook_without_weights_map(
+            state["_graphpatch_accelerate_hook"]
+        )
+        if hasattr(state["_graphpatch_accelerate_hook"], "weights_map"):
+            self._graphpatch_accelerate_hook.weights_map = copy(
+                state["_graphpatch_accelerate_hook"].weights_map
+            )
+        if hasattr(state["_graphpatch_accelerate_hook"], "tied_params_map"):
+            self._graphpatch_accelerate_hook.tied_params_map = copy(
+                state["_graphpatch_accelerate_hook"].tied_params_map
+            )
 
     def get_extra_state(self) -> Any:
-        state = {k: getattr(self, k) for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS}
-        return deepcopy(state)
+        state = {k: deepcopy(getattr(self, k)) for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS}
+        state["_graphpatch_accelerate_hook"] = _deepcopy_hook_without_weights_map(
+            self._graphpatch_accelerate_hook
+        )
+        if hasattr(self._graphpatch_accelerate_hook, "weights_map"):
+            state["_graphpatch_accelerate_hook"].weights_map = copy(
+                self._graphpatch_accelerate_hook.weights_map
+            )
+        if hasattr(self._graphpatch_accelerate_hook, "tied_params_map"):
+            state["_graphpatch_accelerate_hook"].tied_params_map = copy(
+                self._graphpatch_accelerate_hook.tied_params_map
+            )
+        return state
 
     def __getitem__(self, index: Any) -> Module:
         """Convenience to get access to submodules that would be inaccessible to ordinary attribute

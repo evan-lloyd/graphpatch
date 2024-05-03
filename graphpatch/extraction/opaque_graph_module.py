@@ -154,8 +154,10 @@ class OpaqueGraphModule(GraphPatchModule):
 
     def get_extra_state(self) -> Any:
         state = super().get_extra_state()
-        state.update({k: getattr(self, k) for k in _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS})
-        return deepcopy(state)
+        state.update(
+            {k: deepcopy(getattr(self, k)) for k in _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS}
+        )
+        return state
 
     def set_extra_state(self, state: Any) -> None:
         super().set_extra_state(state)

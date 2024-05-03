@@ -604,7 +604,9 @@ class PatchableGraph(Module):
                 # Add a placeholder to receive the patching context
                 last_placeholder = None
                 for n in (n for n in meta.graph.nodes if n.op == "placeholder"):
-                    last_placeholder = n
+                    # Must insert before varkwargs.
+                    if not n.target.startswith("**"):
+                        last_placeholder = n
 
                 if last_placeholder is not None:
                     insertion_context = meta.graph.inserting_after(last_placeholder)

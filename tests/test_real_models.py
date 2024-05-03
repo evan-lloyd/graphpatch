@@ -53,6 +53,19 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config):
         batched_inputs.input_ids,
         input_kwargs={"use_cache": False, "return_dict": False},
     )
+    pg = PatchableGraph(
+        original_model,
+        ExtractionOptions(error_on_compilation_failure=True),
+        inputs.input_ids,
+        use_cache=False,
+        return_dict=False,
+    )
+    assert_results_identical(
+        original_model,
+        pg._graph_module,
+        batched_inputs.input_ids,
+        input_kwargs={"use_cache": False, "return_dict": False},
+    )
 
 
 @requires_transformers
@@ -84,6 +97,19 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config):
         batched_inputs.input_ids,
         input_kwargs={"use_cache": False, "return_dict": False},
     )
+    pg = PatchableGraph(
+        original_model,
+        ExtractionOptions(error_on_compilation_failure=True),
+        inputs.input_ids,
+        use_cache=False,
+        return_dict=False,
+    )
+    assert_results_identical(
+        original_model,
+        pg._graph_module,
+        batched_inputs.input_ids,
+        input_kwargs={"use_cache": False, "return_dict": False},
+    )
 
 
 @long_running
@@ -99,6 +125,7 @@ def test_llama(tmp_path_factory):
         device_map="auto",
         quantization_config=BitsAndBytesConfig(load_in_8bit=True),
         torch_dtype=torch.float16,
+        attn_implementation="eager",
     )
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(
         device=torch.device("cuda:0")
