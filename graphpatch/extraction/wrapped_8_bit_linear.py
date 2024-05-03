@@ -56,7 +56,7 @@ class Wrapped8BitLinear(Module):
         weight = (self.CB * self.SCB) / 127
         return matmul_8bit(x, weight, self.bias, self.threshold)
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: Any):
         """Prevents an error when torch attempts to fakify our 8-bit parameters, which fails because
         they are a Tensor subclass."""
         if hacks.in_fake_mode():

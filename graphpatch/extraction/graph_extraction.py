@@ -339,12 +339,21 @@ class ExtractionStateWrapper(NodeDataWrapper[ExtractionState]):
         )
 
 
+def _process_extraction_options(options: ExtractionOptions):
+    new_options = deepcopy(options)
+    # TODO: we should be able to make weight patchable for OpaqueGraphModule without making it a
+    # special case
+    hacks.maybe_add_8_bit_linear_custom_compilation(new_options)
+    return new_options
+
+
 def extract(
     root_module: Module,
     options: ExtractionOptions,
     *trace_args: Any,
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
+    options = _process_extraction_options(options)
     extraction_state = ExtractionStateWrapper().wrap(root_module)
     root_state = extraction_state[""]
 
@@ -352,6 +361,24 @@ def extract(
     for state in extraction_state.values():
         if is_container(state.wrapped_module):
             state.extracted_module = state.wrapped_module
+            continue
+
+        # Custom extraction function preempts other compilation options.
+        if (
+            type(state.wrapped_module._graphpatch_wrapped_module)
+            in options.custom_extraction_functions
+        ):
+            graph = options.custom_extraction_functions[
+                type(state.wrapped_module._graphpatch_wrapped_module)
+            ](state.wrapped_module._graphpatch_wrapped_module)
+            state.extracted_module = CompiledGraphModule(
+                state.wrapped_module._graphpatch_wrapped_module,
+                graph,
+                "CompiledGraphModule",
+                state.accelerate_hook,
+            )
+            if state is root_state:
+                state.wrapped_module(*trace_args, **trace_kwargs)
             continue
 
         should_compile = not _should_skip_compilation(options, state.original_module)

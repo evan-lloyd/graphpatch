@@ -488,3 +488,28 @@ def replace_node_keeping_original_name(node, replacement, name):
     node.graph._graph_namespace._obj_to_name[replacement] = name
     replacement.name = name
     node.graph._insert(replacement)
+
+
+def maybe_add_8_bit_linear_custom_compilation(options):
+    import operator
+
+    from torch.fx import Graph
+
+    from .extraction.wrapped_8_bit_linear import Wrapped8BitLinear, matmul_8bit
+
+    def compile_8_bit_linear(module):
+        graph = Graph()
+        x = graph.placeholder("x", torch.Tensor)
+        cb = graph.get_attr("CB")
+        scb = graph.get_attr("SCB")
+        bias = graph.get_attr("bias")
+        threshold = graph.get_attr("threshold")
+        mul = graph.call_function(operator.mul, (cb, scb))
+        weight = graph.call_function(operator.truediv, (mul, 127))
+        weight.name = "weight"
+        output = graph.call_function(matmul_8bit, (x, weight, bias, threshold))
+        graph.output((output,))
+        return graph
+
+    if Wrapped8BitLinear not in options.custom_extraction_functions:
+        options.custom_extraction_functions[Wrapped8BitLinear] = compile_8_bit_linear

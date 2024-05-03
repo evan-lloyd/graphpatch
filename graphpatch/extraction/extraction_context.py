@@ -6,7 +6,7 @@ import torch
 from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
 
 from .. import hacks
-from ..optional.accelerate import ModelHook, add_hook_to_module, remove_hook_from_module
+from ..optional.accelerate import ModelHook
 from ..optional.bitsandbytes import Linear8bitLt
 from ..optional.typing_extensions import TypeAlias
 from .graphpatch_module import GraphPatchModule
@@ -212,14 +212,14 @@ def detach_accelerate_hooks(module: Module) -> Iterator[Optional[ModelHook]]:
 
     hook = getattr(module, "_hf_hook", None)
     if hook is not None:
-        remove_hook_from_module(module)
         # Instance-level forward function doesn't play nice with torch.compile
+        hooked_forward = module.forward
         del module.forward
     try:
         yield hook
     finally:
         if hook is not None:
-            add_hook_to_module(module, hook)
+            module.forward = hooked_forward
 
 
 @contextmanager

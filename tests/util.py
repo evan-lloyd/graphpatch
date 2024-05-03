@@ -7,10 +7,10 @@ from torch.fx.graph_module import GraphModule
 
 from graphpatch import PatchableGraph
 from graphpatch.meta import GraphMeta
-from collections import Counter
 
 
 def opaque_and_compiled(pg_fixture):
+    # TODO: seems like pytest-cases might offer a better solution here.
     def _decorator(test_fn):
         # Assume the PatchableGraph fixture comes first.
         extra_fixtures = list(inspect.signature(test_fn).parameters.keys())[1:]

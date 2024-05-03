@@ -220,6 +220,6 @@ class ZeroPatch(Patch[PatchableValue]):
             original_output[self.slice] = 0
             return original_output
         else:
-            return self.value
+            return 0
 
     slice: Optional[TensorSlice] = None

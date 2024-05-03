@@ -33,6 +33,8 @@ class TestModel(PreTrainedModel):
 
 @fixture(scope="session")
 def pretrained_module_path(tmp_path_factory):
+    # TODO: pyfakefs might offer speedups, if we can get it working with Safetensors' rust
+    # implementation (or easily swap for real fs for tests that need it)
     config = TestModelConfig()
     model = TestModel(config)
 
