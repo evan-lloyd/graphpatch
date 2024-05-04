@@ -2,13 +2,13 @@ import inspect
 import warnings
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
+from enum import Enum
 from typing import Any, Optional, Tuple, Union
 from warnings import warn
 
 from torch.fx import Node
 from torch.fx.graph_module import GraphModule
-from torch.nn import Module, ModuleList
-from enum import Enum
+from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
 from ..exceptions import GraphPatchWarning
@@ -51,12 +51,34 @@ def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
     ).unwrap()
 
 
-def _clone_graph_module(
-    module: Union[CompiledGraphModule, OpaqueGraphModule]
+def _clone_module(
+    module: Union[CompiledGraphModule, OpaqueGraphModule, ModuleList, ModuleDict]
 ) -> Union[CompiledGraphModule, OpaqueGraphModule]:
     if isinstance(module, OpaqueGraphModule):
         return OpaqueGraphModule(module)
-    return CompiledGraphModule(module, deepcopy(module.graph), "CompiledGraphModule")
+    elif isinstance(module, CompiledGraphModule):
+        return CompiledGraphModule(module, deepcopy(module.graph), "CompiledGraphModule")
+    elif isinstance(module, ModuleList):
+        return module.__class__([Module() for _ in range(len(module))])
+    elif isinstance(module, ModuleDict):
+        return module.__class__()
+
+    # Should not happen, but things will be broken if it does.
+    raise ValueError("Internal GraphPatch error: unexpected module class in _clone_module.")
+
+
+def _clone_module_with_submodules(
+    module: Union[CompiledGraphModule, OpaqueGraphModule, ModuleList, ModuleDict]
+):
+    clones = {name: _clone_module(submodule) for name, submodule in module.named_modules()}
+    for name in reversed(clones.keys()):
+        if name == "":
+            continue
+        [*parent_path, local_name] = name.split(".")
+        parent = clones[""].get_submodule(".".join(parent_path))
+        setattr(parent, local_name, clones[name])
+
+    return clones[""]
 
 
 def _should_skip_compilation(options: ExtractionOptions, module: Module):
@@ -208,7 +230,9 @@ def _clone_repeated_submodules(state: ExtractionState):
         setattr(
             graph_module.get_submodule(".".join(parent_path)),
             local_name,
-            ModuleList([submodule] + [_clone_graph_module(submodule) for _ in calling_nodes[1:]]),
+            ModuleList(
+                [submodule] + [_clone_module_with_submodules(submodule) for _ in calling_nodes[1:]]
+            ),
         )
         # Update the call_module nodes to refer to a specific instance in the list.
         for i, node in enumerate(calling_nodes):
@@ -245,7 +269,7 @@ def _clone_repeated_submodules(state: ExtractionState):
                 InvocationTrackingModuleList(
                     [submodule]
                     + [
-                        _clone_graph_module(submodule)
+                        _clone_module_with_submodules(submodule)
                         for _ in range(len(child_state.invocations) - 1)
                     ]
                 ),
@@ -401,7 +425,7 @@ def extract(
             if extraction_method is ExtractionMethod.custom:
                 args = []
                 kwargs = {}
-            elif state is root_state:
+            elif state is root_state or extraction_method is ExtractionMethod.opaque:
                 args = trace_args
                 kwargs = trace_kwargs
             else:
@@ -416,10 +440,6 @@ def extract(
                 state, extraction_method, custom_extraction_function, *args, **kwargs
             )
 
-        if custom_extraction_function is not None:
-            for_method = "Custom extraction function"
-        else:
-            for_method = "Compilation"
         try:
             do_extraction()
         except Exception as exc:
@@ -427,9 +447,13 @@ def extract(
             if options.error_on_compilation_failure or extraction_method is ExtractionMethod.opaque:
                 raise
             if options.warn_on_compilation_failure:
+                if extraction_method is ExtractionMethod.custom:
+                    method_description = "Custom extraction function"
+                else:
+                    method_description = "Compilation"
                 warn(
                     (
-                        f"{for_method} for {state.torch_name or '<root>'} failed.\n\n"
+                        f"{method_description} for {state.torch_name or '<root>'} failed.\n\n"
                         "Exception:\n"
                         "**************************\n"
                         f"{exc}"

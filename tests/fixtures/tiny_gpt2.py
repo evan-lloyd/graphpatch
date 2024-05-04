@@ -6,7 +6,7 @@ import torch
 from graphpatch.optional.transformers import AutoConfig, AutoTokenizer
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def tiny_gpt2_path(tmp_path_factory):
     save_path = tmp_path_factory.mktemp("tiny_llama")
     config = {

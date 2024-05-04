@@ -1,7 +1,6 @@
 import inspect
 from contextlib import contextmanager
 from copy import deepcopy
-from enum import Enum
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
 
 from torch.fx.graph import Graph
@@ -10,8 +9,6 @@ from torch.nn import Module
 from ..optional.accelerate import ModelHook
 from ..optional.transformers import PreTrainedModel
 from .graphpatch_module import GraphPatchModule
-
-MethodBindingType = Enum("MethodBindingType", ("_none", "_instance", "_class"))
 
 _UNCOPYABLE_MODULE_ATTRIBUTES = frozenset(
     {
@@ -66,29 +63,44 @@ def _is_property(cls: Type[Module], name: str) -> bool:
     return isinstance(getattr(cls, name, None), property)
 
 
-def _module_attributes(module: Module) -> Iterator[Any]:
+def _patchable_module_attributes(module: Module) -> Iterator[Any]:
     def _filter(t: Tuple[str, Any]) -> bool:
-        return not _is_routine(t[1]) and not _is_property(type(module), t[0])
+        return (
+            t[0] not in _UNCOPYABLE_MODULE_ATTRIBUTES
+            and not _is_property(type(module), t[0])
+            and not _is_routine(t[1])
+        ) and not (
+            isinstance(module, PreTrainedModel) and t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES
+        )
 
     return filter(_filter, inspect.getmembers(module))
 
 
-def _patchable_module_attributes(module: Module) -> Iterator[Any]:
-    def _filter(t: Tuple[str, Any]) -> bool:
-        return t[0] not in _UNCOPYABLE_MODULE_ATTRIBUTES and not (
-            isinstance(module, PreTrainedModel) and t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES
+def _static_module_attributes(module: Module, patchable_attributes) -> Iterator[Any]:
+    def _static_transformers_attributes(t: Tuple[str, Any]) -> bool:
+        return (
+            t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES
+            and t[0] not in _UNCOPYABLE_MODULE_ATTRIBUTES
+            and not _is_property(type(module), t[0])
+            and not _is_routine(t[1])
+            and t[0] not in patchable_attributes
         )
 
-    return filter(_filter, _module_attributes(module))
+    if isinstance(module, PreTrainedModel):
+        return filter(_static_transformers_attributes, inspect.getmembers(module))
 
-
-def _static_module_attributes(module: Module) -> Iterator[Any]:
     def _filter(t: Tuple[str, Any]) -> bool:
-        return t[0] not in _UNCOPYABLE_MODULE_ATTRIBUTES and (
-            isinstance(module, PreTrainedModel) and t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES
+        # Let attributes that happen to be regular functions (like activation functions)
+        # through, if we haven't already added them.
+        return (
+            t[0] not in _UNCOPYABLE_MODULE_ATTRIBUTES
+            and _is_routine(t[1])
+            and not hasattr(t[1], "__self__")
+            and not _is_property(type(module), t[0])
+            and t[0] not in patchable_attributes
         )
 
-    return filter(_filter, _module_attributes(module))
+    return filter(_filter, inspect.getmembers(module))
 
 
 @contextmanager
@@ -224,7 +236,10 @@ class OpaqueGraphModule(GraphPatchModule):
             if not isinstance(value, Module)
         )
         self._graphpatch_static_attributes = {
-            name: value for name, value in _static_module_attributes(module)
+            name: value
+            for name, value in _static_module_attributes(
+                module, self._graphpatch_patchable_attributes
+            )
         }
         attribute_nodes = [graph.get_attr(name) for name in self._graphpatch_patchable_attributes]
 
@@ -315,7 +330,7 @@ class OpaqueGraphModule(GraphPatchModule):
 
         # Cloning an existing OpaqueGraphModule.
         if isinstance(root, OpaqueGraphModule):
-            self.set_extra_state(deepcopy(root.get_extra_state()))
+            self.set_extra_state(root.get_extra_state())
             self.graph = deepcopy(root.graph)
         # Constructing from scratch.
         else:

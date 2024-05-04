@@ -280,6 +280,14 @@ def requires_transformers(f):
     return f
 
 
+def requires_transformer_lens(f):
+    from graphpatch.optional import transformer_lens
+
+    if not transformer_lens.AVAILABLE:
+        return pytest.mark.skip("transformer_lens must be installed to run this test")(f)
+    return f
+
+
 def long_running(f):
     if not os.getenv("RUN_LONG_TESTS"):
         return pytest.mark.skip(
