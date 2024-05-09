@@ -5137,13 +5137,13 @@ test = ["argcomplete (>=3.0.3)", "mypy (>=1.7.0)", "pre-commit", "pytest (>=7.0,
 
 [[package]]
 name = "transformer-lens"
-version = "1.17.0"
+version = "1.16.0"
 description = "An implementation of transformers tailored for mechanistic interpretability."
 optional = true
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "transformer_lens-1.17.0-py3-none-any.whl", hash = "sha256:25e3817bc9d2ec6145ce709c2d5839340d187a1c229f0cf8b571568d8ee7851f"},
-    {file = "transformer_lens-1.17.0.tar.gz", hash = "sha256:0513efb359405f56264da6c68881decc083279b8f6131629066d6c1c6647fb5a"},
+    {file = "transformer_lens-1.16.0-py3-none-any.whl", hash = "sha256:f595ff005971254f4a4fd8ad70011ddc428fb0a001c7a8916cac3d2294ae59d5"},
+    {file = "transformer_lens-1.16.0.tar.gz", hash = "sha256:f3a53e58ddaa732f59c1d1fe0ef913792e301a90cdaecef6401c3b808d1b594f"},
 ]
 
 [package.dependencies]
@@ -5299,22 +5299,22 @@ files = [
 
 [[package]]
 name = "typeguard"
-version = "4.2.1"
+version = "3.0.2"
 description = "Run-time type checker for Python"
 optional = true
-python-versions = ">=3.8"
+python-versions = ">=3.7.4"
 files = [
-    {file = "typeguard-4.2.1-py3-none-any.whl", hash = "sha256:7da3bd46e61f03e0852f8d251dcbdc2a336aa495d7daff01e092b55327796eb8"},
-    {file = "typeguard-4.2.1.tar.gz", hash = "sha256:c556a1b95948230510070ca53fa0341fb0964611bd05d598d87fb52115d65fee"},
+    {file = "typeguard-3.0.2-py3-none-any.whl", hash = "sha256:bbe993854385284ab42fd5bd3bee6f6556577ce8b50696d6cb956d704f286c8e"},
+    {file = "typeguard-3.0.2.tar.gz", hash = "sha256:fee5297fdb28f8e9efcb8142b5ee219e02375509cd77ea9d270b5af826358d5a"},
 ]
 
 [package.dependencies]
 importlib-metadata = {version = ">=3.6", markers = "python_version < \"3.10\""}
-typing-extensions = {version = ">=4.10.0", markers = "python_version < \"3.13\""}
+typing-extensions = {version = ">=4.4.0", markers = "python_version < \"3.11\""}
 
 [package.extras]
-doc = ["Sphinx (>=7)", "packaging", "sphinx-autodoc-typehints (>=1.2.0)"]
-test = ["coverage[toml] (>=7)", "mypy (>=1.2.0)", "pytest (>=7)"]
+doc = ["packaging", "sphinx-autodoc-typehints (>=1.2.0)", "sphinx-rtd-theme"]
+test = ["mypy (>=0.991)", "pytest (>=7)"]
 
 [[package]]
 name = "types-python-dateutil"
@@ -5826,4 +5826,4 @@ transformers = ["accelerate", "bitsandbytes", "sentencepiece", "transformers"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.8.1, <3.12"
-content-hash = "dbb3700cb115af46f9ed9e94aede9f7d94edf49dff013b93cfd8f57084cd07be"
+content-hash = "28672cac8a965df03c0611bbb1160d5dc7d51cd88b60a1b2c8aefd2227dfed97"

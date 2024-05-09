@@ -6,6 +6,7 @@ import torch
 from torch.fx.graph_module import GraphModule
 
 from graphpatch import PatchableGraph
+from graphpatch.extraction.multiply_invoked_module import MultiplyInvokedModule
 from graphpatch.meta import GraphMeta
 
 
@@ -220,28 +221,33 @@ def validate_node_meta(graph_module, meta):
     # ModuleList added to handle duplicate instances of submodule in original code
 
 
-def validate_module_hierarchy(graph_module):
-    # This can happen when the hierarchy has containers and something went wrong when we extracted
-    # the graph! For example, the root could have a submodule named "foo.0", but actually we were
-    # supposed to place that in a container *named* foo. PyTorch, for some reason, lets you have
-    # submodules with dots in their name, but this leads to ambiguity so we disallow it.
-    submodule_stack = [("", graph_module)]
+def validate_module_hierarchy(graph_module, original_module):
+    submodule_stack = [("", graph_module, original_module)]
     while submodule_stack:
-        path, cur_module = submodule_stack.pop()
+        path, cur_module, cur_orig = submodule_stack.pop()
+        if not isinstance(cur_module, MultiplyInvokedModule):
+            assert list(cur_module._modules.keys()) == list(
+                cur_orig._modules.keys()
+            ), f"Submodule contents or ordering differs at {path or '<root>'}"
         if path == "":
             prefix = ""
         else:
             prefix = f"{path}."
-        for name, submodule in cur_module._modules.items():
-            assert (
-                "." not in name
-            ), f"Module hierarchy contains invalid name: {name} at {path or '<root>'}"
-        submodule_stack.extend((f"{prefix}{n}", m) for n, m in cur_module._modules.items())
+        if isinstance(cur_module, MultiplyInvokedModule) and not isinstance(
+            cur_orig, MultiplyInvokedModule
+        ):
+            submodule_stack.extend(
+                (f"{prefix}{n}", m, cur_orig) for n, m in cur_module._modules.items()
+            )
+        else:
+            submodule_stack.extend(
+                (f"{prefix}{n}", m, getattr(cur_orig, n)) for n, m in cur_module._modules.items()
+            )
 
 
-def validate_extraction(graph_module, meta):
+def validate_extraction(graph_module, original_module, meta):
     validate_node_meta(graph_module, meta)
-    validate_module_hierarchy(graph_module)
+    validate_module_hierarchy(graph_module, original_module)
 
 
 def requires_multi_gpu(f):

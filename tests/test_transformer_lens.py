@@ -45,7 +45,6 @@ def test_transformer_lens(tiny_gpt2_config, tiny_gpt2_tokenizer, mocker):
     )
     model = HookedTransformer(config, tiny_gpt2_tokenizer, move_to_device=False)
     model._init_weights_gpt2()
-    # breakpoint()
     pg = PatchableGraph(model, "foo")
     assert_results_identical(
         model, pg._graph_module, ["hello transformer_lens", "and yes it also handles batch"]

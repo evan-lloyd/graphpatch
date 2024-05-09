@@ -9,8 +9,8 @@ from graphpatch.extraction import (
     OpaqueGraphModule,
 )
 from graphpatch.extraction.graph_extraction import extract, CompilationWarning
-from graphpatch.extraction.invocation_tracking_module_list import (
-    InvocationTrackingModuleList,
+from graphpatch.extraction.multiply_invoked_module import (
+    MultiplyInvokedModule,
 )
 from tests.fixtures.nested_module import A, B, C, NestedModule
 import pytest
@@ -31,7 +31,7 @@ def test_extract_minimal_module(minimal_module, minimal_module_inputs):
     graph_module, meta = extract(
         minimal_module, ExtractionOptions(error_on_compilation_failure=True), minimal_module_inputs
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, minimal_module, meta)
     assert_results_identical(minimal_module, graph_module, minimal_module_inputs)
 
 
@@ -39,7 +39,7 @@ def test_extract_buffer_module(buffer_module, buffer_module_inputs):
     graph_module, meta = extract(
         buffer_module, ExtractionOptions(error_on_compilation_failure=True), buffer_module_inputs
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, buffer_module, meta)
     assert_results_identical(buffer_module, graph_module, buffer_module_inputs)
     assert "buffer" in graph_module._buffers
 
@@ -48,7 +48,7 @@ def test_extract_nested_module(nested_module, nested_module_inputs):
     graph_module, meta = extract(
         nested_module, ExtractionOptions(error_on_compilation_failure=True), nested_module_inputs
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, nested_module, meta)
     assert_results_identical(nested_module, graph_module, nested_module_inputs)
 
 
@@ -58,7 +58,7 @@ def test_extract_tuple_output_module(tuple_output_module, tuple_output_module_in
         ExtractionOptions(error_on_compilation_failure=True),
         tuple_output_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, tuple_output_module, meta)
     assert_results_identical(tuple_output_module, graph_module, tuple_output_module_inputs)
 
 
@@ -70,7 +70,7 @@ def test_extract_deeply_nested_module(
         ExtractionOptions(error_on_compilation_failure=True),
         deeply_nested_output_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, deeply_nested_output_module, meta)
     assert_results_identical(
         deeply_nested_output_module, graph_module, deeply_nested_output_module_inputs
     )
@@ -90,7 +90,7 @@ def test_extract_with_opaque_modules(nested_module, nested_module_inputs):
             ),
             nested_module_inputs,
         )
-        validate_extraction(graph_module, meta)
+        validate_extraction(graph_module, nested_module, meta)
         assert_results_identical(nested_module, graph_module, nested_module_inputs)
 
 
@@ -100,13 +100,13 @@ def test_extract_container_module(container_module, container_module_inputs):
         ExtractionOptions(error_on_compilation_failure=True),
         container_module_inputs,
     )
-    validate_extraction(compiled_graph_module, meta)
+    validate_extraction(compiled_graph_module, container_module, meta)
     assert_results_identical(container_module, compiled_graph_module, container_module_inputs)
 
     opaque_graph_module, meta = extract(
         container_module, ExtractionOptions(skip_compilation=True), container_module_inputs
     )
-    validate_extraction(opaque_graph_module, meta)
+    validate_extraction(opaque_graph_module, container_module, meta)
     assert_results_identical(container_module, opaque_graph_module, container_module_inputs)
 
 
@@ -117,11 +117,11 @@ def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
         ExtractionOptions(),
         graph_break_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, graph_break_module, meta)
     assert_results_identical(graph_break_module, graph_module, graph_break_module_inputs)
     assert isinstance(graph_module, OpaqueGraphModule)
     # Child module should have been compiled despite failure at root.
-    assert isinstance(graph_module.linear, InvocationTrackingModuleList)
+    assert isinstance(graph_module.linear, MultiplyInvokedModule)
     assert [isinstance(m, CompiledGraphModule) for m in graph_module.linear] == [True] * 3
 
     # User should see the original raised exception with error_on_compilation_failure
@@ -213,7 +213,7 @@ def test_extract_pretrained_module(pretrained_module, pretrained_module_inputs):
         ExtractionOptions(error_on_compilation_failure=True),
         pretrained_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, pretrained_module, meta)
     assert_results_identical(pretrained_module, graph_module, pretrained_module_inputs)
 
 
@@ -226,7 +226,7 @@ def test_extract_mixed_cpu_module(mixed_cpu_pretrained_module, mixed_cpu_pretrai
         ExtractionOptions(error_on_compilation_failure=True),
         mixed_cpu_pretrained_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, mixed_cpu_pretrained_module, meta)
     assert_results_identical(
         mixed_cpu_pretrained_module, graph_module, mixed_cpu_pretrained_module_inputs
     )
@@ -242,7 +242,7 @@ def test_extract_disk_offload_module(
         ExtractionOptions(error_on_compilation_failure=True),
         disk_offload_pretrained_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, disk_offload_pretrained_module, meta)
     assert_results_identical(
         disk_offload_pretrained_module, graph_module, disk_offload_pretrained_module_inputs
     )
@@ -259,7 +259,7 @@ def test_extract_multiple_device_module(
         ExtractionOptions(error_on_compilation_failure=True),
         accelerate_pretrained_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, accelerate_pretrained_module, meta)
     assert_results_identical(
         accelerate_pretrained_module, graph_module, accelerate_pretrained_module_inputs
     )
@@ -277,7 +277,7 @@ def test_extract_quantized_pretrained_module(
         ExtractionOptions(error_on_compilation_failure=True),
         quantized_pretrained_module_inputs,
     )
-    validate_extraction(graph_module, meta)
+    validate_extraction(graph_module, quantized_pretrained_module, meta)
     # Only asserting on outputs since with default quantization we get no gradient.
     assert_outputs_identical(
         quantized_pretrained_module,

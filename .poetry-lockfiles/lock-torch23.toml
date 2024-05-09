@@ -42,7 +42,7 @@ sentencepiece = { version = ">=0.1.94", optional = true }
 # Somewhat arbitrary, but this is the first version with Llama, which we use in tests
 transformers = { version = ">=4.28.0", optional = true }
 bitsandbytes = { version = ">=0.35.4", optional = true, markers = "sys_platform != 'darwin'" }
-transformer-lens = { version = ">=1.17.0", optional = true }
+transformer-lens = { version = ">=1.16.0", optional = true }
 
 [tool.poetry.extras]
 transformers = [

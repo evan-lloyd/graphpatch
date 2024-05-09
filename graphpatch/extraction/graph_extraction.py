@@ -30,7 +30,7 @@ from .extraction_context import (
 )
 from .extraction_options import ExtractionOptions
 from .graphpatch_module import GraphPatchModule
-from .invocation_tracking_module_list import InvocationTrackingModuleList
+from .multiply_invoked_module import MultiplyInvokedModule
 from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 
 
@@ -230,7 +230,7 @@ def _clone_repeated_submodules(state: ExtractionState):
         setattr(
             graph_module.get_submodule(".".join(parent_path)),
             local_name,
-            ModuleList(
+            MultiplyInvokedModule(
                 [submodule] + [_clone_module_with_submodules(submodule) for _ in calling_nodes[1:]]
             ),
         )
@@ -238,7 +238,7 @@ def _clone_repeated_submodules(state: ExtractionState):
         for i, node in enumerate(calling_nodes):
             node.target = f"{module_name}.{i}"
         graph_module._graphpatch_submodules[module_name] = (
-            ModuleList,
+            MultiplyInvokedModule,
             tuple(str(i) for i in range(len(calling_nodes))),
         )
 
@@ -266,7 +266,7 @@ def _clone_repeated_submodules(state: ExtractionState):
             setattr(
                 parent,
                 local_name,
-                InvocationTrackingModuleList(
+                MultiplyInvokedModule(
                     [submodule]
                     + [
                         _clone_module_with_submodules(submodule)
@@ -284,7 +284,7 @@ def _clone_repeated_submodules(state: ExtractionState):
                     )
                     submodule_node.name = f"{node_name}_{i}"
             graph_module._graphpatch_submodules[name] = (
-                InvocationTrackingModuleList,
+                MultiplyInvokedModule,
                 tuple(str(i) for i in range(len(child_state.invocations))),
             )
 

@@ -7,7 +7,7 @@ from torch.nn import Module, ModuleDict, ModuleList
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 
 from ..optional.accelerate import ModelHook
-from .invocation_tracking_module_list import InvocationTrackingModuleList
+from .multiply_invoked_module import MultiplyInvokedModule
 
 # TODO: resolve circular import more cleanly
 if TYPE_CHECKING:
@@ -120,7 +120,7 @@ class GraphPatchModule(GraphModule):
             name: (
                 (
                     submodule.__class__
-                    if submodule.__class__ in (ModuleList, ModuleDict, InvocationTrackingModuleList)
+                    if submodule.__class__ in (ModuleList, ModuleDict, MultiplyInvokedModule)
                     else None
                 ),
                 tuple(submodule._modules.keys()),
@@ -146,7 +146,7 @@ class GraphPatchModule(GraphModule):
                 container_class,
                 container_keys,
             ) in reversed(list(self._graphpatch_submodules.items())):
-                if container_class in (ModuleList, InvocationTrackingModuleList):
+                if container_class in (ModuleList, MultiplyInvokedModule):
                     root[name] = container_class(root[f"{name}.{k}"] for k in container_keys)
                 elif container_class == ModuleDict:
                     root[name] = ModuleDict({k: root[f"{name}.{k}"] for k in container_keys})

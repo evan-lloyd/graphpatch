@@ -32,7 +32,11 @@ def _serialization_asserts(
 ):
     # After round trip...
     # Deserialized version should be valid
-    validate_extraction(deserialized_module._graph_module, deserialized_module._original_graph)
+    validate_extraction(
+        deserialized_module._graph_module,
+        original_module._graph_module,
+        deserialized_module._original_graph,
+    )
 
     # ... module hierarchy should match, including ordering
     assert [t[0] for t in original_module.named_modules()] == [
