@@ -16,6 +16,7 @@ class GraphBreakModule(Module):
         self.linear = Linear(*GraphBreakModule._shape)
         self.instance_value = 7
         self.shadowed_class_var = 8
+        self.unused_submodule = Linear(*GraphBreakModule._shape)
 
     def member_function(self, n):
         return ones(self._shape) - n

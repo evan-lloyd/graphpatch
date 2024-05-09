@@ -136,13 +136,18 @@ def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
     assert "skip function graph_break" in str(exc.value)
 
     # User should get a warning referencing the original exception.
-    with pytest.warns(CompilationWarning, match=r"skip function graph_break"):
+    with pytest.warns(CompilationWarning) as warnings:
         graph_module, meta = extract(
             graph_break_module,
             ExtractionOptions(
                 warn_on_compilation_failure=True,
             ),
             graph_break_module_inputs,
+        )
+        assert len(warnings) == 2
+        assert "skip function graph_break" in warnings[0].message.args[0]
+        assert (
+            "Unable to compile unused_submodule; it was never called" in warnings[1].message.args[0]
         )
 
 
