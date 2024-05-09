@@ -12,11 +12,11 @@ from graphpatch import (
 
 from .util import (
     opaque_and_compiled,
-    requires_transformers,
-    requires_multi_gpu,
     requires_accelerate,
     requires_bitsandbytes,
     requires_gpu,
+    requires_multi_gpu,
+    requires_transformers,
 )
 
 

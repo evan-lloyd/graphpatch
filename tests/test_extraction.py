@@ -1,19 +1,17 @@
 from itertools import chain, combinations
 
-from torch.nn import Linear
+import pytest
 from torch.fx import Graph
+from torch.nn import Linear
 
 from graphpatch.extraction import (
     CompiledGraphModule,
     ExtractionOptions,
     OpaqueGraphModule,
 )
-from graphpatch.extraction.graph_extraction import extract, CompilationWarning
-from graphpatch.extraction.multiply_invoked_module import (
-    MultiplyInvokedModule,
-)
+from graphpatch.extraction.graph_extraction import CompilationWarning, extract
+from graphpatch.extraction.multiply_invoked_module import MultiplyInvokedModule
 from tests.fixtures.nested_module import A, B, C, NestedModule
-import pytest
 
 from .util import (
     assert_outputs_identical,

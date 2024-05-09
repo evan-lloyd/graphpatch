@@ -3,8 +3,8 @@ from typing import Any, Tuple
 from torch import compile
 from torch.fx import Graph, GraphModule
 from torch.nn import Module
-from .. import hacks
 
+from .. import hacks
 from .graphpatch_module import GraphPatchModule
 
 

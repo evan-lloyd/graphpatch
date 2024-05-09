@@ -1,6 +1,6 @@
 import pytest
 from torch import ones
-from torch.nn import Linear, Module, Sequential, ModuleList, ModuleDict
+from torch.nn import Linear, Module, ModuleDict, ModuleList, Sequential
 
 from graphpatch import ExtractionOptions, PatchableGraph
 

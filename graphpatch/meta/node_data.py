@@ -71,9 +71,9 @@ class NodeData(Generic[NodeDataType]):
     _NO_VALUE: ClassVar[Literal[Sentinels._NO_VALUE]] = Sentinels._NO_VALUE
     _UNHANDLED_VALUE: ClassVar[Literal[Sentinels._UNHANDLED_VALUE]] = Sentinels._UNHANDLED_VALUE
 
-    _children: Union[Dict[str, "NodeData[NodeDataType]"], Literal[Sentinels._NO_VALUE]] = (
-        Sentinels._NO_VALUE
-    )
+    _children: Union[
+        Dict[str, "NodeData[NodeDataType]"], Literal[Sentinels._NO_VALUE]
+    ] = Sentinels._NO_VALUE
     _value: Union[NodeDataType, Literal[Sentinels._NO_VALUE]] = Sentinels._NO_VALUE
     _original_type: str
     _path: str

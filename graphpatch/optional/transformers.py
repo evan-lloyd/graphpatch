@@ -3,6 +3,7 @@ try:
         AutoConfig,
         AutoModel,
         AutoTokenizer,
+        BitsAndBytesConfig,
         GPT2LMHeadModel,
         LlamaForCausalLM,
         LlamaModel,
@@ -10,7 +11,6 @@ try:
         PretrainedConfig,
         PreTrainedModel,
         PreTrainedTokenizer,
-        BitsAndBytesConfig,
     )
     from transformers.models.gpt2.modeling_gpt2 import GPT2Attention
 

@@ -34,8 +34,8 @@ class ExtractionOptions:
     """
 
     classes_to_skip_compiling: Set[Type[Module]] = field(default_factory=set)
-    custom_extraction_functions: Dict[Type[Module], Callable[[Module], Graph]] = (
-        field(default_factory=dict)
+    custom_extraction_functions: Dict[Type[Module], Callable[[Module], Graph]] = field(
+        default_factory=dict
     )
     error_on_compilation_failure: bool = False
     postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None

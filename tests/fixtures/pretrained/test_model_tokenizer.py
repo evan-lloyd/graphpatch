@@ -17,7 +17,7 @@ class DummyTokens(UserDict):
 class DummyVocab:
     def __getitem__(self, word):
         return (sum(ord(c) for c in word) % 100) + 1
-    
+
     def __len__(self):
         return 100
 
