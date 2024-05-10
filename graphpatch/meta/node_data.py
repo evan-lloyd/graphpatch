@@ -26,6 +26,7 @@ NodeDataType = TypeVar("NodeDataType")
 OtherNodeDataType = TypeVar("OtherNodeDataType")
 MaybeNodeData: TypeAlias = Union["NodeData[NodeDataType]", "Literal[NodeData.Sentinels._NO_VALUE]"]
 MaybeNodeDataType: TypeAlias = Union[NodeDataType, "Literal[NodeData.Sentinels._NO_VALUE]"]
+MaybeOtherNodeDataType: TypeAlias = Union[OtherNodeDataType, "Literal[NodeData.Sentinels._NO_VALUE]"]
 MaybeHandledData: TypeAlias = Union["NodeData", "Literal[NodeData.Sentinels._UNHANDLED_VALUE]"]
 
 
@@ -262,7 +263,7 @@ class NodeData(Generic[NodeDataType]):
 
     def map(
         self,
-        fn: Callable[[str, "NodeData[NodeDataType]"], "NodeData[OtherNodeDataType]"],
+        fn: Callable[[str, NodeDataType], MaybeOtherNodeDataType],
         node_constructor: Optional[Callable[..., "NodeData[OtherNodeDataType]"]] = None,
         root_prefix: str = "",
     ) -> "NodeData[OtherNodeDataType]":

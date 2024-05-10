@@ -1,5 +1,6 @@
 import os
 
+import pytest
 import torch
 
 from demos.ROME.rome import standardize_tokenizer
@@ -24,14 +25,15 @@ from .util import (
 
 
 @requires_transformers
-def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config):
+@pytest.mark.parametrize("opacity", ["compiled", "opaque"])
+def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
     inputs = tiny_llama_tokenizer(
         "The Eiffel Tower, located in", return_tensors="pt", padding=False
     )
     original_model = LlamaForCausalLM(config=tiny_llama_config)
     gm, _ = extract(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True),
+        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
@@ -116,7 +118,8 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config):
 @requires_bitsandbytes
 @requires_transformers
 @requires_accelerate
-def test_llama(tmp_path_factory):
+@pytest.mark.parametrize("opacity", ["compiled", "opaque"])
+def test_llama(tmp_path_factory, opacity):
     model_path = f"{os.getenv('MODEL_DIR')}/llama-7b-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     standardize_tokenizer(tokenizer)
@@ -132,7 +135,11 @@ def test_llama(tmp_path_factory):
     )
     patchable_llama = PatchableGraph(
         llama,
-        ExtractionOptions(error_on_compilation_failure=True, postprocessing_function=patch_llama),
+        ExtractionOptions(
+            error_on_compilation_failure=True,
+            postprocessing_function=patch_llama,
+            skip_compilation=opacity == "opaque",
+        ),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
@@ -191,7 +198,8 @@ def test_llama(tmp_path_factory):
 @requires_bitsandbytes
 @requires_transformers
 @requires_accelerate
-def test_gpt2(tmp_path_factory):
+@pytest.mark.parametrize("opacity", ["compiled", "opaque"])
+def test_gpt2(tmp_path_factory, opacity):
     model_path = f"{os.getenv('MODEL_DIR')}/gpt2-xl"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     standardize_tokenizer(tokenizer)
@@ -207,9 +215,7 @@ def test_gpt2(tmp_path_factory):
     )
     patchable_gpt2 = PatchableGraph(
         gpt2,
-        ExtractionOptions(
-            error_on_compilation_failure=True,
-        ),
+        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,

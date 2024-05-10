@@ -1,6 +1,17 @@
 from collections import OrderedDict, deque
 from copy import copy, deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Tuple, Type, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterator,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    Union,
+    overload,
+)
 
 from torch.fx import Graph, GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
@@ -45,7 +56,11 @@ def _deepcopy_hook_without_weights_map(hook: ModelHook):
 class GraphPatchModule(GraphModule):
     _graphpatch_accelerate_hook: Optional[ModelHook]
     _graphpatch_submodules: Dict[
-        str, Tuple[Union[Type[ModuleList], Type[ModuleDict], None], Tuple[str]]
+        str,
+        Tuple[
+            Union[Type[ModuleList], Type[ModuleDict], None],
+            Tuple[str, ...],
+        ],
     ]
     _graphpatch_output_indexes: "OutputArgumentIndex"
 
@@ -176,6 +191,20 @@ class GraphPatchModule(GraphModule):
     ):
         super().__init__(root, graph, class_name)
         self._init(root, accelerate_hook)
+
+    def get_submodule(self, target: str) -> "GraphPatchModule":
+        return super().get_submodule(target)
+
+    def named_children(self) -> Iterator[Tuple[str, "GraphPatchModule"]]:
+        return super().named_children()
+
+    def modules(self) -> Iterator["GraphPatchModule"]:
+        return super().modules()
+
+    def named_modules(
+        self, memo: Optional[Set["Module"]] = None, prefix: str = "", remove_duplicate: bool = True
+    ) -> Iterator[Tuple[str, "GraphPatchModule"]]:
+        return super().named_modules(memo, prefix, remove_duplicate)
 
     def recompile(self):
         """GraphModule recompile overwrites our forward method, so to add calls to accelerate's

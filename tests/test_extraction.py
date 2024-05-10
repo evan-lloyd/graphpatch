@@ -108,6 +108,41 @@ def test_extract_container_module(container_module, container_module_inputs):
     assert_results_identical(container_module, opaque_graph_module, container_module_inputs)
 
 
+def test_extract_varargs_module(varargs_module, varargs_module_inputs):
+    varargs = (
+        varargs_module_inputs,
+        varargs_module_inputs,
+    )
+    varkwargs = {"hmm": varargs_module_inputs, "aha": varargs_module_inputs}
+    compiled_graph_module, meta = extract(
+        varargs_module,
+        ExtractionOptions(error_on_compilation_failure=True),
+        varargs_module_inputs,
+        *varargs,
+        **varkwargs,
+    )
+    validate_extraction(compiled_graph_module, varargs_module, meta)
+    assert_results_identical(
+        varargs_module,
+        compiled_graph_module,
+        varargs_module_inputs,
+        *varargs,
+        input_kwargs=varkwargs,
+    )
+
+    opaque_graph_module, meta = extract(
+        varargs_module,
+        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=True),
+        varargs_module_inputs,
+        *varargs,
+        **varkwargs,
+    )
+    validate_extraction(opaque_graph_module, varargs_module, meta)
+    assert_results_identical(
+        varargs_module, opaque_graph_module, varargs_module_inputs, *varargs, input_kwargs=varkwargs
+    )
+
+
 def test_extraction_fallbacks(graph_break_module, graph_break_module_inputs):
     # With default settings, we should silently get an opaque graph module back.
     graph_module, meta = extract(

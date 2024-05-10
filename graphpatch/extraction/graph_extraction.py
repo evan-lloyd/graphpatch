@@ -1,12 +1,12 @@
 import inspect
 import warnings
 from collections import OrderedDict, defaultdict
+from contextlib import contextmanager
 from copy import deepcopy
-from enum import Enum
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union, cast
 from warnings import warn
 
-from torch.fx import Node
+from torch.fx import Graph, Node
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 
@@ -23,6 +23,7 @@ from ..meta import (
 )
 from .compiled_graph_module import CompiledGraphModule, compile_module
 from .extraction_context import (
+    ExtractionMethod,
     ExtractionState,
     ExtractionWrapper,
     compilation_context,
@@ -38,12 +39,9 @@ class CompilationWarning(GraphPatchWarning):
     pass
 
 
-ExtractionMethod = Enum("ExtractionMethod", ("custom", "compiled", "opaque"))
-
-
 def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
     """Unflatten the args to an output node to match the original output shape."""
-    if not indexes._value.should_unwrap:
+    if indexes._value is NodeData.Sentinels._NO_VALUE or not indexes._value.should_unwrap:
         return args[0]
 
     return indexes.map(
@@ -52,8 +50,8 @@ def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
 
 
 def _clone_module(
-    module: Union[CompiledGraphModule, OpaqueGraphModule, ModuleList, ModuleDict]
-) -> Union[CompiledGraphModule, OpaqueGraphModule]:
+    module: Union[GraphPatchModule, ModuleList, ModuleDict]
+) -> Union[GraphPatchModule, ModuleList, ModuleDict]:
     if isinstance(module, OpaqueGraphModule):
         return OpaqueGraphModule(module)
     elif isinstance(module, CompiledGraphModule):
@@ -68,8 +66,8 @@ def _clone_module(
 
 
 def _clone_module_with_submodules(
-    module: Union[CompiledGraphModule, OpaqueGraphModule, ModuleList, ModuleDict]
-):
+    module: Union[GraphPatchModule, ModuleList, ModuleDict]
+) -> Union[GraphPatchModule, ModuleList, ModuleDict]:
     clones = {name: _clone_module(submodule) for name, submodule in module.named_modules()}
     for name in reversed(clones.keys()):
         if name == "":
@@ -81,16 +79,17 @@ def _clone_module_with_submodules(
     return clones[""]
 
 
-def _should_skip_compilation(options: ExtractionOptions, module: Module):
+def _should_skip_compilation(options: ExtractionOptions, module: Module) -> bool:
     return options.skip_compilation or module.__class__ in options.classes_to_skip_compiling
 
 
-def _retarget_submodule_calls(state: ExtractionState):
+def _retarget_submodule_calls(state: ExtractionState) -> None:
     """compile() unrolls all containers, modifying the module hierarchy. Our later code is much
     simplified if we instead retain the original hierarchy. This also looks nicer when the user
     inspects the returned GraphModule.
     """
     graph_module = state.extracted_module
+    assert graph_module is not None
     for node in graph_module.graph.nodes:
         if node.op != "call_module":
             continue
@@ -105,12 +104,13 @@ def _retarget_submodule_calls(state: ExtractionState):
                 node.target = target_module._graphpatch_extraction_state.name
 
 
-def _repair_input_signature(state: ExtractionState):
+def _repair_input_signature(state: ExtractionState) -> None:
     """Compilation lifts some module attributes into arguments to forward, and has inconsistent
     handling of keyword arguments. We need to restore the original input signature so that calls
     to subgraphs behave correctly.
     """
     graph_module = state.extracted_module
+    assert graph_module is not None
     insert_after = graph_module.graph._root
     existing_placeholders = {n.target: n for n in graph_module.graph.nodes if n.op == "placeholder"}
     forward_parameters = inspect.signature(
@@ -129,7 +129,7 @@ def _repair_input_signature(state: ExtractionState):
             if parameter.kind is inspect._ParameterKind.VAR_KEYWORD:
                 target = f"**{name}"
             elif parameter.kind is inspect._ParameterKind.VAR_POSITIONAL:
-                target = "f*{name}"
+                target = f"*{name}"
             else:
                 target = name
             new_placeholder = Node(
@@ -142,11 +142,11 @@ def _repair_input_signature(state: ExtractionState):
                 {},
                 type_annotation,
             )
-            if name in existing_placeholders:
+            if target in existing_placeholders:
                 hacks.replace_node_keeping_original_name(
-                    existing_placeholders[name], new_placeholder, name
+                    existing_placeholders[target], new_placeholder, name
                 )
-                del existing_placeholders[name]
+                del existing_placeholders[target]
             else:
                 graph_module.graph._insert(new_placeholder)
             insert_after = new_placeholder
@@ -171,7 +171,7 @@ def _repair_input_signature(state: ExtractionState):
             insert_after = get_attr_node
 
 
-def _repair_output_signature(state: ExtractionState):
+def _repair_output_signature(state: ExtractionState) -> None:
     """Compilation flattens the arguments to the output node into a single tuple, which changes the
     signature of the function. This is problematic when we have nested modules that may assume
     a particular shape! We can hack around this by injecting a function that generates the correct
@@ -180,6 +180,7 @@ def _repair_output_signature(state: ExtractionState):
     because the latter method would not be picklable.
     """
     graph_module = state.extracted_module
+    assert graph_module is not None
     child_output_ids = set()
     for child in state.children.values():
         child_output_ids.update(set(id(invocation.output) for invocation in child.invocations))
@@ -209,13 +210,14 @@ def _repair_output_signature(state: ExtractionState):
         output_node.args = (match_shape_node,)
 
 
-def _clone_repeated_submodules(state: ExtractionState):
+def _clone_repeated_submodules(state: ExtractionState) -> None:
     """Submodules can be used more than once, but this will cause problems later when we manipulate
     the graph, since the user may want to independently patch activations in each instance. To
     simplify things, here we clone the graph modules (but not their parameters!), so we'll have
     independent graphs to work with.
     """
     graph_module = state.extracted_module
+    assert isinstance(graph_module, GraphPatchModule)
     duplicate_graph_modules = defaultdict(list)
     for node in graph_module.graph.nodes:
         if node.op == "call_module":
@@ -289,11 +291,12 @@ def _clone_repeated_submodules(state: ExtractionState):
             )
 
 
-def _standardize_submodule_nodes(state: ExtractionState):
+def _standardize_submodule_nodes(state: ExtractionState) -> None:
     """compile() mangles the names of nodes calling submodules that live in containers. Here we
     standardize to something much more user-friendly.
     """
     graph_module = state.extracted_module
+    assert graph_module is not None
     for node in graph_module.graph.nodes:
         if node.op != "call_module":
             continue
@@ -302,12 +305,13 @@ def _standardize_submodule_nodes(state: ExtractionState):
             node.name = f"sub_{node.name}"
 
 
-def _postprocess_graph(state: ExtractionState):
+def _postprocess_graph(state: ExtractionState) -> None:
     """Clean up the extracted graph to match the original module's signature and standardize node
     names.
     """
     graph_module = state.extracted_module
-    _repair_input_signature(state)
+    assert graph_module is not None
+    # _repair_input_signature(state)
     _repair_output_signature(state)
     _clone_repeated_submodules(state)
     _standardize_submodule_nodes(state)
@@ -321,11 +325,9 @@ def _postprocess_graph(state: ExtractionState):
 
 def _run_extraction(
     state: ExtractionState,
-    extraction_method: ExtractionMethod,
-    custom_extraction_function=None,
-    *args,
-    **kwargs,
-) -> Tuple[GraphPatchModule, Any]:
+    *args: Any,
+    **kwargs: Any,
+) -> GraphPatchModule:
     should_trace = state.name == ""
     for submodule in state.wrapped_module.modules():
         if isinstance(submodule, ExtractionWrapper):
@@ -334,15 +336,18 @@ def _run_extraction(
             if should_trace:
                 submodule._graphpatch_extraction_state.invocations = []
 
-    if extraction_method is ExtractionMethod.custom:
-        graph = custom_extraction_function(state.wrapped_module._graphpatch_wrapped_module)
-        extracted_module = CompiledGraphModule(
+    if (
+        state.extraction_method is ExtractionMethod.custom
+        and state.custom_extraction_function is not None
+    ):
+        graph = state.custom_extraction_function(state.wrapped_module._graphpatch_wrapped_module)
+        extracted_module: GraphPatchModule = CompiledGraphModule(
             state.wrapped_module._graphpatch_wrapped_module,
             graph,
             "CompiledGraphModule",
             state.accelerate_hook,
         )
-    elif extraction_method is ExtractionMethod.compiled:
+    elif state.extraction_method is ExtractionMethod.compiled:
         with compilation_context(state):
             extracted_module = compile_module(state.wrapped_module, *args, **kwargs)
             extracted_module._graphpatch_accelerate_hook = state.accelerate_hook
@@ -360,7 +365,18 @@ def _run_extraction(
 
 
 class ExtractionStateWrapper(NodeDataWrapper[ExtractionState]):
+    def __init__(self, options: ExtractionOptions):
+        super().__init__()
+        self.options = options
+
     def handle_wrap(self, data: Module, path: str) -> NodeData[ExtractionState]:
+        custom_extraction_function = self.options.custom_extraction_functions.get(type(data))
+        if custom_extraction_function is not None:
+            extraction_method = ExtractionMethod.custom
+        elif not _should_skip_compilation(self.options, data):
+            extraction_method = ExtractionMethod.compiled
+        else:
+            extraction_method = ExtractionMethod.opaque
         if path == "":
             prefix = ""
         else:
@@ -378,17 +394,54 @@ class ExtractionStateWrapper(NodeDataWrapper[ExtractionState]):
                 graphpatch_path,
                 path,
                 data,
-                {name: child._value for name, child in children.items()},
+                {name: cast(ExtractionState, child._value) for name, child in children.items()},
+                extraction_method,
+                custom_extraction_function,
             ),
         )
 
 
-def _process_extraction_options(options: ExtractionOptions):
+def _process_extraction_options(options: ExtractionOptions) -> ExtractionOptions:
     new_options = deepcopy(options)
     # TODO: we should be able to make weight patchable for OpaqueGraphModule without making it a
     # special case
     hacks.maybe_add_8_bit_linear_custom_compilation(new_options)
     return new_options
+
+
+@contextmanager
+def _handle_compilation_failure(state: ExtractionState, options: ExtractionOptions):
+    try:
+        yield
+    except Exception as exc:
+        # No fallback for OpaqueGraphModule failure.
+        if (
+            options.error_on_compilation_failure
+            or state.extraction_method is ExtractionMethod.opaque
+        ):
+            raise
+        if options.warn_on_compilation_failure:
+            if state.extraction_method is ExtractionMethod.custom:
+                method_description = "Custom extraction function"
+            else:
+                method_description = "Compilation"
+            warn(
+                (
+                    f"{method_description} for {state.torch_name or '<root>'} failed.\n\n"
+                    "Exception:\n"
+                    "**************************\n"
+                    f"{exc}"
+                    "**************************\n\n"
+                    "User code:\n"
+                ),
+                CompilationWarning,
+                # Shows the user code as the call to PatchableGraph, assuming that the
+                # user isn't trying to call extract directly.
+                stacklevel=3,
+            )
+        # Fall back to OpaqueGraphModule.
+        state.extraction_method = ExtractionMethod.opaque
+        state.extracted_module = None
 
 
 def extract(
@@ -398,7 +451,7 @@ def extract(
     **trace_kwargs: Any,
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     options = _process_extraction_options(options)
-    extraction_state = ExtractionStateWrapper().wrap(root_module)
+    extraction_state = ExtractionStateWrapper(options).wrap(root_module)
     root_state = extraction_state[""]
 
     # Extract GraphModules from each module in the hierarchy.
@@ -407,25 +460,15 @@ def extract(
             state.extracted_module = state.wrapped_module
             continue
 
-        custom_extraction_function = options.custom_extraction_functions.get(
-            type(state.wrapped_module._graphpatch_wrapped_module)
-        )
-        if custom_extraction_function is not None:
-            extraction_method = ExtractionMethod.custom
-        elif not _should_skip_compilation(options, state.original_module):
-            extraction_method = ExtractionMethod.compiled
-        else:
-            extraction_method = ExtractionMethod.opaque
-
         # Attempt graph extraction, with the following priority on extraction methods:
         # 1) CompiledGraphModule from custom extraction function. Fall back to 3.
         # 2) Extract CompiledGraphModule using torch.compile(). Fall back to 3.
         # 3) Wrap with OpaqueGraphModule.
-        def do_extraction():
-            if extraction_method is ExtractionMethod.custom:
-                args = []
-                kwargs = {}
-            elif state is root_state or extraction_method is ExtractionMethod.opaque:
+        def do_extraction() -> None:
+            if state.extraction_method is ExtractionMethod.custom:
+                args: Any = []
+                kwargs: Any = {}
+            elif state is root_state or state.extraction_method is ExtractionMethod.opaque:
                 args = trace_args
                 kwargs = trace_kwargs
             else:
@@ -436,41 +479,18 @@ def extract(
                     )
                 args = state.invocations[-1].args
                 kwargs = state.invocations[-1].kwargs
-            state.extracted_module = _run_extraction(
-                state, extraction_method, custom_extraction_function, *args, **kwargs
-            )
+            state.extracted_module = _run_extraction(state, *args, **kwargs)
 
-        try:
+        with _handle_compilation_failure(state, options):
+            # TODO: we should refactor so that all postprocessing can be done here, so we can
+            # more reliably fall back to opaque.
             do_extraction()
-        except Exception as exc:
-            # No fallback for OpaqueGraphModule failure.
-            if options.error_on_compilation_failure or extraction_method is ExtractionMethod.opaque:
-                raise
-            if options.warn_on_compilation_failure:
-                if extraction_method is ExtractionMethod.custom:
-                    method_description = "Custom extraction function"
-                else:
-                    method_description = "Compilation"
-                warn(
-                    (
-                        f"{method_description} for {state.torch_name or '<root>'} failed.\n\n"
-                        "Exception:\n"
-                        "**************************\n"
-                        f"{exc}"
-                        "**************************\n\n"
-                        "User code:\n"
-                    ),
-                    CompilationWarning,
-                    # Shows the user code as the call to PatchableGraph, assuming that the
-                    # user isn't trying to call extract directly.
-                    stacklevel=3,
-                )
-            # Fall back to OpaqueGraphModule.
-            extraction_method = ExtractionMethod.opaque
+            _repair_input_signature(state)
 
-        # Final fallback.
+        # Fall back to opaque if we failed to compile.
         if state.extracted_module is None:
             do_extraction()
+            _repair_input_signature(state)
 
     # Undo the unrolling of containers performed by compile(), so we'll end up with the same
     # module hierarchy as originally. Reset _modules so we'll additionally restore the original
@@ -497,6 +517,14 @@ def extract(
     for state in reversed(list(extraction_state.values())):
         if isinstance(state.extracted_module, GraphPatchModule):
             _postprocess_graph(state)
+            # successfully_postprocessed = False
+            # with _handle_compilation_failure(state, options):
+            #     successfully_postprocessed = _postprocess_graph(state)
+
+            # # If we can't postprocess, fall back to opaque.
+            # # TODO:
+            # if not successfully_postprocessed:
+            #     state.extracted_module =
 
     # Escape hatch for modules that torch just refuses to compile correctly. Ideally as
     # compatibility improves we won't need this in the future!

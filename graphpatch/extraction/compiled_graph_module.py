@@ -12,7 +12,7 @@ class CompiledGraphModule(GraphPatchModule):
     pass
 
 
-def compile_module(module: Module, *args, **kwargs) -> Tuple[CompiledGraphModule, Any]:
+def compile_module(module: Module, *args, **kwargs) -> CompiledGraphModule:
     try:
         hacks._CURRENTLY_COMPILING = True
         graph_module = GraphModule({}, Graph())

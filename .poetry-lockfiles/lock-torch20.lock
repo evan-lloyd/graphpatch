@@ -2,13 +2,13 @@
 
 [[package]]
 name = "accelerate"
-version = "0.30.0"
+version = "0.30.1"
 description = "Accelerate"
 optional = true
 python-versions = ">=3.8.0"
 files = [
-    {file = "accelerate-0.30.0-py3-none-any.whl", hash = "sha256:cd93902dc37a49952b4b8b324c5d53776c936fcd77b4b0162cf5ce55a4fc2721"},
-    {file = "accelerate-0.30.0.tar.gz", hash = "sha256:0f8e103a6ced54cd40af6bb2331ec922e42269d2778038dc564d53047b1386d2"},
+    {file = "accelerate-0.30.1-py3-none-any.whl", hash = "sha256:8dd4edd532a4dac72558c5fe6fe8cb70d0c8ec9e8733f48db97d51ee41cbe763"},
+    {file = "accelerate-0.30.1.tar.gz", hash = "sha256:96779c618889646b86dc928c9e55e86e50a7ccab59e1692e22096481977ae682"},
 ]
 
 [package.dependencies]
@@ -4976,13 +4976,13 @@ test = ["argcomplete (>=3.0.3)", "mypy (>=1.7.0)", "pre-commit", "pytest (>=7.0,
 
 [[package]]
 name = "transformer-lens"
-version = "1.16.0"
+version = "1.17.0"
 description = "An implementation of transformers tailored for mechanistic interpretability."
 optional = true
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "transformer_lens-1.16.0-py3-none-any.whl", hash = "sha256:f595ff005971254f4a4fd8ad70011ddc428fb0a001c7a8916cac3d2294ae59d5"},
-    {file = "transformer_lens-1.16.0.tar.gz", hash = "sha256:f3a53e58ddaa732f59c1d1fe0ef913792e301a90cdaecef6401c3b808d1b594f"},
+    {file = "transformer_lens-1.17.0-py3-none-any.whl", hash = "sha256:25e3817bc9d2ec6145ce709c2d5839340d187a1c229f0cf8b571568d8ee7851f"},
+    {file = "transformer_lens-1.17.0.tar.gz", hash = "sha256:0513efb359405f56264da6c68881decc083279b8f6131629066d6c1c6647fb5a"},
 ]
 
 [package.dependencies]
@@ -5011,13 +5011,13 @@ wandb = ">=0.13.5"
 
 [[package]]
 name = "transformers"
-version = "4.40.1"
+version = "4.40.2"
 description = "State-of-the-art Machine Learning for JAX, PyTorch and TensorFlow"
 optional = true
 python-versions = ">=3.8.0"
 files = [
-    {file = "transformers-4.40.1-py3-none-any.whl", hash = "sha256:9d5ee0c8142a60501faf9e49a0b42f8e9cb8611823bce4f195a9325a6816337e"},
-    {file = "transformers-4.40.1.tar.gz", hash = "sha256:55e1697e6f18b58273e7117bb469cdffc11be28995462d8d5e422fef38d2de36"},
+    {file = "transformers-4.40.2-py3-none-any.whl", hash = "sha256:71cb94301ec211a2e1d4b8c8d18dcfaa902dfa00a089dceca167a8aa265d6f2d"},
+    {file = "transformers-4.40.2.tar.gz", hash = "sha256:657b6054a2097671398d976ad46e60836e7e15f9ea9551631a96e33cb9240649"},
 ]
 
 [package.dependencies]

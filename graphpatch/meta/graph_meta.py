@@ -217,6 +217,8 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
         """
         # node.target is always a string for placeholders.
         name = cast(str, node.target) if node.op == "placeholder" else node.name
+        # Strip asterisk from varargs, since that would be invalid as an identifier.
+        name = name.replace("*", "")
 
         # Disallow special names to protect our REPL functionality by adding the "sub_" prefix,
         # which mirrors how torch.compile() handles node names that would be invalid identifiers.
@@ -257,7 +259,6 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 code += f"\n    {output_meta._value.code}"
         elif node.op == "output":
             # Use the inputs to our match_shape function to pretty-print the node's output
-            # module._graphpatch_output_indexes
             match_shape_node = list(node._input_nodes.keys())[0]
             output_args = match_shape_node.args[1:]
 
@@ -458,7 +459,7 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
 
 def wrap_output_argument_index(
     data: Any, child_output_ids: Set[int], should_unwrap: bool
-) -> NodeData[int]:
+) -> NodeData[OutputArgumentIndex]:
     wrapper = OutputArgumentIndexWrapper(child_output_ids, should_unwrap).wrap(data)
     if wrapper._value is NodeData._NO_VALUE:
         wrapper._value = OutputArgumentIndex(None, should_unwrap)

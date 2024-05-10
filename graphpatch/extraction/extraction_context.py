@@ -1,8 +1,10 @@
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
-from typing import Any, Dict, Iterator, List, Optional, Type, Union
+from enum import Enum
+from typing import Any, Callable, Dict, Iterator, List, Optional, Type, Union
 
 import torch
+from torch.fx import Graph
 from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
 
 from .. import hacks
@@ -15,6 +17,7 @@ from .wrapped_layer_norm import WrappedLayerNorm
 
 CONTAINER_TYPES = (ModuleList, ModuleDict)
 WrappedModule: TypeAlias = Union["ExtractionWrapper", ModuleDict, ModuleList]
+ExtractionMethod = Enum("ExtractionMethod", ("custom", "compiled", "opaque"))
 
 
 def init_container(container: Union[ModuleList, ModuleDict]):
@@ -51,13 +54,15 @@ class ModuleInvocation:
 class ExtractionState:
     accelerate_hook: Optional[ModelHook]
     children: Dict[str, "ExtractionState"]
-    extracted_module: Optional[GraphPatchModule]
+    extracted_module: Union[GraphPatchModule, ModuleList, ModuleDict, None]
     invocations: List[ModuleInvocation]
     name: str
     original_module: Module
     torch_name: str
-    wrapped_module: WrappedModule
+    wrapped_module: Union[WrappedModule, ModuleList, ModuleDict]
     local_name: str
+    extraction_method: ExtractionMethod
+    custom_extraction_function: Optional[Callable[[Module], Graph]]
 
     def __init__(
         self,
@@ -65,6 +70,8 @@ class ExtractionState:
         torch_name: str,
         original_module: Module,
         children: Dict[str, "ExtractionState"],
+        extraction_method: ExtractionMethod,
+        custom_extraction_function: Optional[Callable[[Module], Graph]],
     ):
         self.original_module = original_module
         self.accelerate_hook = getattr(original_module, "_hf_hook", None)
@@ -73,6 +80,8 @@ class ExtractionState:
         self.children = children
         self.name = name
         self.torch_name = torch_name
+        self.extraction_method = extraction_method
+        self.custom_extraction_function = custom_extraction_function
         if is_container(original_module):
             self.wrapped_module = init_container(original_module)
         else:

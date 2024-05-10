@@ -296,6 +296,34 @@ def test_patch_container_module(pg, container_module_inputs):
     )
 
 
+@opaque_and_compiled("patchable_varargs_module")
+def test_patch_varargs_module(
+    pg, varargs_module_inputs, varargs_module_varargs, varargs_module_varkwargs
+):
+    with pg.patch(
+        {
+            pg.graph.linear_1.input: (sum_probe_1_orig := ProbePatch()),
+        }
+    ):
+        pg(varargs_module_inputs, *varargs_module_varargs, **varargs_module_varkwargs)
+    with pg.patch(
+        {
+            pg.graph.foos.sub_0: AddPatch(value=1),
+            pg.graph.bars.a: AddPatch(value=2),
+            pg.graph.linear_1.input: (sum_probe_1_patched := ProbePatch()),
+        }
+    ):
+        patched_output = pg(
+            varargs_module_inputs, *varargs_module_varargs, **varargs_module_varkwargs
+        )
+    assert sum_probe_1_patched.activation.allclose(sum_probe_1_orig.activation + 1)
+    assert patched_output.allclose(
+        pg._graph_module.linear[1](sum_probe_1_patched.activation)
+        + 2
+        + sum(varargs_module_varkwargs.values())
+    )
+
+
 @opaque_and_compiled("patchable_buffer_module")
 def test_patch_buffer_module(pg, buffer_module_inputs):
     original_output = pg(buffer_module_inputs)

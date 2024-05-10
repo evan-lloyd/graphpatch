@@ -178,6 +178,10 @@ class OpaqueGraphModule(GraphPatchModule):
 
     def _opaque_module_call(self, *args, **kwargs):
         _graphpatch_args = kwargs.pop("_graphpatch_args", None)
+        # GraphModule's call_method has no way to specify unpacking for varargs/kwargs, so we pass
+        # them in and manually append them to the proxy call.
+        args = args + kwargs.pop("_graphpatch_opaque_varargs", ())
+        kwargs.update(kwargs.pop("_graphpatch_opaque_varkwargs", {}))
 
         # Pass the patching arguments down to submodules when in a patching context by
         # monkeypatching their forward() methods. Normally we handle this by manipulating the call
@@ -219,13 +223,32 @@ class OpaqueGraphModule(GraphPatchModule):
         # Set up placeholder nodes from module's forward(), skipping first argument (self).
         module_args = {}
         module_kwargs = {}
+        module_varargs = {}
+        module_varkwargs = {}
         for name, arg in list(
             inspect.signature(self._graphpatch_opaque_module_class.forward).parameters.items()
         )[1:]:
-            if arg.default is inspect._empty:
-                module_args[name] = graph.placeholder(name)
+            if arg.kind is inspect._ParameterKind.VAR_KEYWORD:
+                target = f"**{name}"
+                destination = module_varkwargs
+            elif arg.kind is inspect._ParameterKind.VAR_POSITIONAL:
+                target = f"*{name}"
+                destination = module_varargs
             else:
-                module_kwargs[name] = graph.placeholder(name, default_value=arg.default)
+                target = name
+                destination = module_args if arg.default is inspect._empty else module_kwargs
+            if arg.annotation != inspect._empty:
+                type_annotation = arg.annotation
+            else:
+                type_annotation = None
+            destination[name] = graph.create_node(
+                "placeholder",
+                target,
+                None if arg.default is inspect._empty else (arg.default,),
+                {},
+                name,
+                type_annotation,
+            )
 
         # Add get_attr nodes for buffers, parameters, and any other attributes on the Module class
         # or instance. This allows patching them, and also sets them up to be properly serialized.
@@ -248,6 +271,11 @@ class OpaqueGraphModule(GraphPatchModule):
         self_node = graph.get_attr("_graphpatch_self")
         self_node.meta["_graphpatch_hidden"] = True
 
+        if module_varargs:
+            module_kwargs["_graphpatch_opaque_varargs"] = next(iter(module_varargs.values()))
+        if module_varkwargs:
+            module_kwargs["_graphpatch_opaque_varkwargs"] = next(iter(module_varkwargs.values()))
+
         call_forward = graph.call_method(
             "_opaque_module_call",
             (self_node,) + tuple(attribute_nodes) + tuple(module_args.values()),
@@ -269,7 +297,7 @@ class OpaqueGraphModule(GraphPatchModule):
         graph.output((call_forward,))
         return graph
 
-    def named_children(self) -> Iterator[Tuple[str, Module]]:
+    def named_children(self) -> Iterator[Tuple[str, GraphPatchModule]]:
         # We want OpaqueGraphModule to behave as if its containers don't exist, instead directly
         # owning the contained submodules. This lets us keep the hierarchy that the original module
         # code was expecting, while looking to the rest of our own code as if we had unrolled the

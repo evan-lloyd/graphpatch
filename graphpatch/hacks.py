@@ -495,7 +495,8 @@ def maybe_add_8_bit_linear_custom_compilation(options):
 
     from torch.fx import Graph
 
-    from .extraction.wrapped_8_bit_linear import Wrapped8BitLinear, matmul_8bit
+    from .extraction.wrapped_8_bit_linear import matmul_8bit
+    from .optional.bitsandbytes import Linear8bitLt
 
     def compile_8_bit_linear(module):
         graph = Graph()
@@ -511,5 +512,5 @@ def maybe_add_8_bit_linear_custom_compilation(options):
         graph.output((output,))
         return graph
 
-    if Wrapped8BitLinear not in options.custom_extraction_functions:
-        options.custom_extraction_functions[Wrapped8BitLinear] = compile_8_bit_linear
+    if Linear8bitLt not in options.custom_extraction_functions:
+        options.custom_extraction_functions[Linear8bitLt] = compile_8_bit_linear
