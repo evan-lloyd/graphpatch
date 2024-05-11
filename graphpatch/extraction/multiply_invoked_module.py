@@ -39,11 +39,11 @@ class MultiplyInvokedModule(ModuleList):
 
     _graphpatch_invocation_index: int
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self._graphpatch_invocation_index = 0
 
-    def forward(self, *args, **kwargs) -> Any:
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
         # TODO: surely any sane module will never vary how many times it calls its submodules
         # and the modulo doesn't matter? But we may want to make this configurable between
         # round-robin or throwing an exception, possibly a global "strict" mode?

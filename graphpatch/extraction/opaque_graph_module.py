@@ -1,9 +1,9 @@
 import inspect
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union, cast
 
-from torch.fx.graph import Graph
+from torch.fx import Graph, Node
 from torch.nn import Module
 
 from ..optional.accelerate import ModelHook
@@ -76,7 +76,7 @@ def _patchable_module_attributes(module: Module) -> Iterator[Any]:
     return filter(_filter, inspect.getmembers(module))
 
 
-def _static_module_attributes(module: Module, patchable_attributes) -> Iterator[Any]:
+def _static_module_attributes(module: Module, patchable_attributes: Tuple[str]) -> Iterator[Any]:
     def _static_transformers_attributes(t: Tuple[str, Any]) -> bool:
         return (
             t[0] in _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES
@@ -104,9 +104,11 @@ def _static_module_attributes(module: Module, patchable_attributes) -> Iterator[
 
 
 @contextmanager
-def _patched_forward(module_iterator: Iterator[Tuple[str, Module]], patch):
+def _patched_forward(
+    module_iterator: Iterator[Tuple[str, Module]], patch: Callable[[Callable[[Any], Any]], Any]
+) -> Iterator[None]:
     try:
-        original: Dict[str, Tuple[Callable, bool]] = {}
+        original: Dict[str, Tuple[Callable[[Any], Any], bool]] = {}
         module_list = list(module_iterator)
         for name, submodule in module_list:
             original[name] = (
@@ -136,7 +138,7 @@ class SubmoduleWrapper:
         self.__name__ = module_name
         self.__module__ = "opaque_module_submodule"
 
-    def __call__(self, *args, **kwargs) -> None:
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
         return
 
     def __str__(self) -> str:
@@ -176,7 +178,7 @@ class OpaqueGraphModule(GraphPatchModule):
         for k in _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS:
             setattr(self, k, deepcopy(state[k]))
 
-    def _opaque_module_call(self, *args, **kwargs):
+    def _opaque_module_call(self, *args: Any, **kwargs: Any) -> Any:
         _graphpatch_args = kwargs.pop("_graphpatch_args", None)
         # GraphModule's call_method has no way to specify unpacking for varargs/kwargs, so we pass
         # them in and manually append them to the proxy call.
@@ -188,15 +190,15 @@ class OpaqueGraphModule(GraphPatchModule):
         # site in the parent graph module, but since this is an opaque module we don't have one.
         if _graphpatch_args is not None:
 
-            def pass_patch_args(fn):
-                def _inner(*args, **kwargs):
+            def pass_patch_args(fn: Any) -> Any:
+                def _inner(*args: Any, **kwargs: Any) -> Any:
                     return fn(*args, **kwargs, _graphpatch_args=_graphpatch_args)
 
                 return _inner
 
         else:
 
-            def pass_patch_args(fn):
+            def pass_patch_args(fn: Any) -> Any:
                 return fn
 
         num_attributes = len(self._graphpatch_patchable_attributes)
@@ -218,13 +220,13 @@ class OpaqueGraphModule(GraphPatchModule):
         super().__setattr__(name, value)
 
     def _construct_graph(self, module: Module) -> Graph:
-        graph = Graph()
+        graph: Graph = Graph()
 
         # Set up placeholder nodes from module's forward(), skipping first argument (self).
-        module_args = {}
-        module_kwargs = {}
-        module_varargs = {}
-        module_varkwargs = {}
+        module_args: Dict[str, Node] = {}
+        module_kwargs: Dict[str, Node] = {}
+        module_varargs: Dict[str, Node] = {}
+        module_varkwargs: Dict[str, Node] = {}
         for name, arg in list(
             inspect.signature(self._graphpatch_opaque_module_class.forward).parameters.items()
         )[1:]:
@@ -288,7 +290,7 @@ class OpaqueGraphModule(GraphPatchModule):
         # when executing the graph; they are implicitly called at the call_forward node by the
         # original module. NB: going to low-level _modules because named_children() unconfigurably
         # skips duplicates, which we don't want.
-        for name, _ in self._child_modules(module._modules.items()):
+        for name, _ in self._child_modules(module._modules):
             node = graph.call_function(SubmoduleWrapper(name))
             # Make sure all nodes are addressible by attribute access.
             if not name.split(".")[0].isidentifier():
@@ -302,9 +304,9 @@ class OpaqueGraphModule(GraphPatchModule):
         # owning the contained submodules. This lets us keep the hierarchy that the original module
         # code was expecting, while looking to the rest of our own code as if we had unrolled the
         # containers as we do with CompiledGraphModule.
-        return self._child_modules(self._modules.items())
+        return cast(Iterator[Tuple[str, GraphPatchModule]], self._child_modules(self._modules))
 
-    def _initialize_proxy(self, root: Union[Module, Dict[str, Any]]):
+    def _initialize_proxy(self, root: Union[Module, Dict[str, Any]]) -> None:
         self._graphpatch_opaque_module_proxy = self._graphpatch_opaque_module_class.__new__(
             self._graphpatch_opaque_module_class
         )

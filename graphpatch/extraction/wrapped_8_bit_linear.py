@@ -3,7 +3,6 @@ from typing import Any
 
 import torch
 from torch import Tensor, float16
-from torch._dynamo import allow_in_graph
 from torch.nn import Module, Parameter
 
 from .. import hacks
@@ -16,8 +15,8 @@ from ..optional.bitsandbytes import (
 )
 
 
-@allow_in_graph
-def matmul_8bit(x, weight, bias, threshold):
+@hacks.allow_in_graph  # type: ignore
+def matmul_8bit(x: Tensor, weight: Tensor, bias: Tensor, threshold: float) -> Any:
     # bitsandbytes matmul doesn't work with FakeTensors, so just return a tensor of the right shape.
     if hacks.in_fake_mode():
         return torch.zeros(*x.shape[:-1], weight.shape[0], device=x.device, dtype=float16)
@@ -56,7 +55,7 @@ class Wrapped8BitLinear(Module):
         weight = (self.CB * self.SCB) / 127
         return matmul_8bit(x, weight, self.bias, self.threshold)
 
-    def __deepcopy__(self, memo: Any):
+    def __deepcopy__(self, memo: Any) -> "Wrapped8BitLinear":
         """Prevents an error when torch attempts to fakify our 8-bit parameters, which fails because
         they are a Tensor subclass."""
         if hacks.in_fake_mode():

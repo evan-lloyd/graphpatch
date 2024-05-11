@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any
 
 from torch import compile
 from torch.fx import Graph, GraphModule
@@ -12,12 +12,12 @@ class CompiledGraphModule(GraphPatchModule):
     pass
 
 
-def compile_module(module: Module, *args, **kwargs) -> CompiledGraphModule:
+def compile_module(module: Module, *args: Any, **kwargs: Any) -> CompiledGraphModule:
     try:
         hacks._CURRENTLY_COMPILING = True
         graph_module = GraphModule({}, Graph())
 
-        def callback(gm: GraphModule, *args, **kwargs) -> GraphModule:
+        def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
             nonlocal graph_module
             graph_module = gm
             # There is no hook to choose a subclass of GraphModule to create during compilation, so

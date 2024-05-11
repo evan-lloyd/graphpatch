@@ -10,14 +10,16 @@ from typing import (
     Tuple,
     Type,
     Union,
-    overload,
+    cast,
 )
 
 from torch.fx import Graph, GraphModule
+from torch.fx.graph import PythonCode
 from torch.nn import Module, ModuleDict, ModuleList
 from torch.nn.modules.module import _EXTRA_STATE_KEY_SUFFIX
 
 from ..optional.accelerate import ModelHook
+from ..optional.typing_extensions import TypeGuard
 from .multiply_invoked_module import MultiplyInvokedModule
 
 # TODO: resolve circular import more cleanly
@@ -31,7 +33,7 @@ _GRAPHPATCH_MODULE_SERIALIZATION_KEYS = (
 )
 
 
-def _deepcopy_hook_without_weights_map(hook: ModelHook):
+def _deepcopy_hook_without_weights_map(hook: ModelHook) -> ModelHook:
     NONEXISTENT = object()
     if hook is None:
         return None
@@ -64,7 +66,7 @@ class GraphPatchModule(GraphModule):
     ]
     _graphpatch_output_indexes: "OutputArgumentIndex"
 
-    def set_extra_state(self, state: Any):
+    def set_extra_state(self, state: Any) -> None:
         for k in _GRAPHPATCH_MODULE_SERIALIZATION_KEYS:
             setattr(self, k, deepcopy(state[k]))
         self._graphpatch_accelerate_hook = _deepcopy_hook_without_weights_map(
@@ -86,15 +88,15 @@ class GraphPatchModule(GraphModule):
         )
         if hasattr(self._graphpatch_accelerate_hook, "weights_map"):
             state["_graphpatch_accelerate_hook"].weights_map = copy(
-                self._graphpatch_accelerate_hook.weights_map
+                self._graphpatch_accelerate_hook.weights_map  # type: ignore
             )
         if hasattr(self._graphpatch_accelerate_hook, "tied_params_map"):
             state["_graphpatch_accelerate_hook"].tied_params_map = copy(
-                self._graphpatch_accelerate_hook.tied_params_map
+                self._graphpatch_accelerate_hook.tied_params_map  # type: ignore
             )
         return state
 
-    def __getitem__(self, index: Any) -> Module:
+    def __getitem__(self, index: Any) -> Optional[Module]:
         """Convenience to get access to submodules that would be inaccessible to ordinary attribute
         access due to names not being identifiers. Useful for Sequential, and possibly any
         user-defined container-like Modules.
@@ -104,14 +106,14 @@ class GraphPatchModule(GraphModule):
         return self._modules[index]
 
     @staticmethod
-    def _is_container(module: Module):
+    def _is_container(module: Optional[Module]) -> TypeGuard[Union[ModuleList, ModuleDict]]:
         return isinstance(module, (ModuleList, ModuleDict))
 
     @staticmethod
     def _container_passthrough(
-        children: Iterator[Tuple[str, Module]]
-    ) -> Iterator[Tuple[str, Module]]:
-        child_modules = deque(children)
+        children: Dict[str, Optional[Module]]
+    ) -> Iterator[Tuple[str, Optional[Module]]]:
+        child_modules = deque(children.items())
         while child_modules:
             name, submodule = child_modules.popleft()
             yield name, submodule
@@ -120,19 +122,19 @@ class GraphPatchModule(GraphModule):
                 child_modules.extend([(f"{name}.{n}", m) for n, m in submodule._modules.items()])
 
     @staticmethod
-    def _child_modules(children: Iterator[Tuple[str, Module]]) -> Iterator[Tuple[str, Module]]:
+    def _child_modules(children: Dict[str, Optional[Module]]) -> Iterator[Tuple[str, Module]]:
         for name, submodule in GraphPatchModule._container_passthrough(children):
-            if not GraphPatchModule._is_container(submodule):
+            if not GraphPatchModule._is_container(submodule) and submodule is not None:
                 yield name, submodule
 
-    def _child_containers(self) -> Iterator[Tuple[str, Module]]:
-        for name, submodule in GraphPatchModule._container_passthrough(self._modules.items()):
+    def _child_containers(self) -> Iterator[Tuple[str, Optional[Module]]]:
+        for name, submodule in GraphPatchModule._container_passthrough(self._modules):
             if self._is_container(submodule):
                 yield name, submodule
 
-    def _set_submodules_for_serialization(self):
+    def _set_submodules_for_serialization(self) -> None:
         self._graphpatch_submodules = {
-            name: (
+            name: (  # type: ignore
                 (
                     submodule.__class__
                     if submodule.__class__ in (ModuleList, ModuleDict, MultiplyInvokedModule)
@@ -140,14 +142,15 @@ class GraphPatchModule(GraphModule):
                 ),
                 tuple(submodule._modules.keys()),
             )
-            for name, submodule in self._container_passthrough(self._modules.items())
+            for name, submodule in self._container_passthrough(self._modules)
+            if submodule is not None
         }
 
     def _init(
         self,
         root: Union[Module, Dict[str, Any]],
         accelerate_hook: Optional[ModelHook] = None,
-    ):
+    ) -> None:
         """Separating out actual initialization logic because __init__ will not get called for
         CompiledGraphModule.
         """
@@ -162,8 +165,8 @@ class GraphPatchModule(GraphModule):
                 container_keys,
             ) in reversed(list(self._graphpatch_submodules.items())):
                 if container_class in (ModuleList, MultiplyInvokedModule):
-                    root[name] = container_class(root[f"{name}.{k}"] for k in container_keys)
-                elif container_class == ModuleDict:
+                    root[name] = container_class(root[f"{name}.{k}"] for k in container_keys)  # type: ignore
+                elif container_class is ModuleDict:
                     root[name] = ModuleDict({k: root[f"{name}.{k}"] for k in container_keys})
             for name in self._graphpatch_submodules.keys():
                 [*parent_path, local_name] = name.split(".")
@@ -185,7 +188,7 @@ class GraphPatchModule(GraphModule):
     def __init__(
         self,
         root: Union[Module, Dict[str, Any]],
-        graph: Graph,
+        graph: Optional[Graph],
         class_name: str,
         accelerate_hook: Optional[ModelHook] = None,
     ):
@@ -193,27 +196,30 @@ class GraphPatchModule(GraphModule):
         self._init(root, accelerate_hook)
 
     def get_submodule(self, target: str) -> "GraphPatchModule":
-        return super().get_submodule(target)
+        return cast(GraphPatchModule, super().get_submodule(target))
 
     def named_children(self) -> Iterator[Tuple[str, "GraphPatchModule"]]:
-        return super().named_children()
+        return cast(Iterator[Tuple[str, "GraphPatchModule"]], super().named_children())
 
     def modules(self) -> Iterator["GraphPatchModule"]:
-        return super().modules()
+        return cast(Iterator[GraphPatchModule], super().modules())
 
     def named_modules(
         self, memo: Optional[Set["Module"]] = None, prefix: str = "", remove_duplicate: bool = True
     ) -> Iterator[Tuple[str, "GraphPatchModule"]]:
-        return super().named_modules(memo, prefix, remove_duplicate)
+        return cast(
+            Iterator[Tuple[str, GraphPatchModule]],
+            super().named_modules(memo, prefix, remove_duplicate),
+        )
 
-    def recompile(self):
+    def recompile(self) -> PythonCode:
         """GraphModule recompile overwrites our forward method, so to add calls to accelerate's
         hooks, we wrap the modified function.
         """
-        code = super().recompile()
+        code: PythonCode = super().recompile()
         compiled_forward = type(self).forward
 
-        def wrapped_forward(self, *args, **kwargs):
+        def wrapped_forward(self: GraphPatchModule, *args: Any, **kwargs: Any) -> Any:
             if self._graphpatch_accelerate_hook is not None:
                 args, kwargs = self._graphpatch_accelerate_hook.pre_forward(self, *args, **kwargs)
 

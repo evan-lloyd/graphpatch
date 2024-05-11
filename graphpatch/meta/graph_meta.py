@@ -22,6 +22,7 @@ from torch.fx.graph_module import GraphModule
 from torch.fx.node import Node
 
 from ..extraction.compiled_graph_module import CompiledGraphModule
+from ..extraction.graphpatch_module import GraphPatchModule
 from ..extraction.opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 from ..optional.dataclasses import dataclass, field
 from .node_data import MaybeHandledData, NodeData, NodeDataWrapper
@@ -155,7 +156,7 @@ class GraphMeta(_BaseMeta):
     def __str__(self) -> str:
         return ""
 
-    def _graphpatch_graph_repr(self):
+    def _graphpatch_graph_repr(self) -> str:
         return self.graph_module_class.__name__
 
     def __deepcopy__(self, memo: Dict[Any, Any]) -> "GraphMeta":
@@ -192,7 +193,7 @@ class ModuleName:
     """Utility class to map the divergence between node names and names in the Module hierarchy."""
 
     @staticmethod
-    def _prefix_for(name: str):
+    def _prefix_for(name: str) -> str:
         if name == "":
             return ""
         return f"{name}."
@@ -202,7 +203,7 @@ class ModuleName:
     module: str
     module_prefix: str = field(init=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.meta_prefix = ModuleName._prefix_for(self.meta)
         self.module_prefix = ModuleName._prefix_for(self.module)
 
@@ -277,16 +278,14 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
 
         return WrappedCode(code.strip())
 
-    def _graph_module_class_for(
-        self, module: Union[CompiledGraphModule, OpaqueGraphModule]
-    ) -> Union[Type[CompiledGraphModule], Type[OpaqueGraphModule]]:
+    def _graph_module_class_for(self, module: GraphPatchModule) -> Type[GraphPatchModule]:
         # NB: we can't just return __class__ because torch creates a unique subclass per instance,
         # which isn't picklable.
         if isinstance(module, OpaqueGraphModule):
             return OpaqueGraphModule
         return CompiledGraphModule
 
-    def _graph_module_target(self, node: Node) -> Optional[GraphModule]:
+    def _graph_module_target(self, node: Node) -> Optional[GraphPatchModule]:
         if (
             # Real call to submodule.
             node.op == "call_module"
@@ -296,7 +295,8 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
             target := node.graph.owning_module.get_submodule(str(node.target)),
             GraphModule,
         ):
-            return target
+            return target  # type: ignore
+        return None
 
     def _graph_module_hierarchy(
         self, root_module: GraphModule
@@ -327,7 +327,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
         while result_stack:
             yield result_stack.pop()
 
-    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:
+    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:  # type: ignore[type-arg]
         if not isinstance(data, GraphModule):
             return NodeData._UNHANDLED_VALUE
 
@@ -419,7 +419,7 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
 
     child_output_ids: Set[int]
     cur_index: int
-    id_map: Dict[int, int]
+    id_map: Dict[int, OutputArgumentIndex]
     should_unwrap: bool
 
     def __init__(self, child_output_ids: Set[int], should_unwrap: bool):
@@ -429,7 +429,7 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
         self.id_map = {}
         self.should_unwrap = should_unwrap
 
-    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:
+    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:  # type: ignore[type-arg]
         # Short-circuit in case a child module outputs a container; we don't want to dig into the
         # container elements, since the whole container will be passed as one unit.
         if id(data) in self.child_output_ids:
@@ -442,7 +442,7 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
             )
         return NodeData._UNHANDLED_VALUE
 
-    def handle_leaf(self, data: Any, path: str) -> NodeData[int]:
+    def handle_leaf(self, data: Any, path: str) -> NodeData[OutputArgumentIndex]:
         # TODO: handle other value types; should determine whether the value came from a node in
         # the graph (add it), or not (don't)
         if not isinstance(data, Tensor):

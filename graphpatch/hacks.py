@@ -20,6 +20,8 @@ if TORCH_VERSION < (2, 1):
 else:
     from torch._dynamo.decorators import allow_in_graph, disable, skip  # noqa: F401
 
+__all__ = ["allow_in_graph", "disable", "skip"]
+
 _CURRENTLY_COMPILING = False
 
 

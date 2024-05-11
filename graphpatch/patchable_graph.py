@@ -36,7 +36,7 @@ from .meta import (
     wrap_node_shape,
 )
 from .optional.typing_extensions import TypeAlias
-from .patch import Patch
+from .patch import Patch, PatchableValue
 
 GraphPatchArgs = TypedDict(
     "GraphPatchArgs",
@@ -151,7 +151,7 @@ class PatchableGraph(Module):
                 extraction_args = extraction_options_and_args
         else:
             extraction_options = ExtractionOptions()
-            extraction_args = []
+            extraction_args = ()
 
         graph_module, meta = extract(
             module,
@@ -184,7 +184,7 @@ class PatchableGraph(Module):
         Future versions of graphpatch will likely implement a more secure serialization scheme and
         disable the built-in torch.load().
         """
-        return torch.load(file)
+        return cast(PatchableGraph, torch.load(file))
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Wrapper around :func:`torch.save()` because some PatchableGraph internals may need to be
@@ -368,7 +368,10 @@ class PatchableGraph(Module):
 
     @contextmanager
     def patch(
-        self, patch_map: Dict[Union[str, NodePath], Union[List[Patch[Tensor]], Patch[Tensor]]]
+        self,
+        patch_map: Dict[
+            Union[str, NodePath], Union[List[Patch[PatchableValue]], Patch[PatchableValue]]
+        ],
     ) -> Iterator[None]:
         """Context manager that will cause the given activation patches to be applied when running
         inference on the wrapped module.

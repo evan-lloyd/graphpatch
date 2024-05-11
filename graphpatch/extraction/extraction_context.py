@@ -1,7 +1,7 @@
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from enum import Enum
-from typing import Any, Callable, Dict, Iterator, List, Optional, Type, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type, Union
 
 import torch
 from torch.fx import Graph
@@ -10,7 +10,7 @@ from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
 from .. import hacks
 from ..optional.accelerate import ModelHook
 from ..optional.bitsandbytes import Linear8bitLt
-from ..optional.typing_extensions import TypeAlias
+from ..optional.typing_extensions import TypeAlias, TypeGuard
 from .graphpatch_module import GraphPatchModule
 from .wrapped_8_bit_linear import Wrapped8BitLinear
 from .wrapped_layer_norm import WrappedLayerNorm
@@ -20,13 +20,13 @@ WrappedModule: TypeAlias = Union["ExtractionWrapper", ModuleDict, ModuleList]
 ExtractionMethod = Enum("ExtractionMethod", ("custom", "compiled", "opaque"))
 
 
-def init_container(container: Union[ModuleList, ModuleDict]):
+def init_container(container: Union[ModuleList, ModuleDict]) -> Union[ModuleList, ModuleDict]:
     if isinstance(container, ModuleList):
         return container.__class__([Module() for _ in range(len(container))])
     return container.__class__()
 
 
-def is_container(module: Union[Module, Type[Module]]) -> bool:
+def is_container(module: Union[Module, Type[Module]]) -> TypeGuard[Union[ModuleList, ModuleDict]]:
     """Strictly checking for built-in container types, since user-derived ones could have forward()."""
     if isinstance(module, type):
         model_class = module
@@ -36,15 +36,15 @@ def is_container(module: Union[Module, Type[Module]]) -> bool:
 
 
 class ModuleInvocation:
-    args: List[Any]
+    args: Tuple[Any]
     kwargs: Dict[str, Any]
     output: Any
 
     def __init__(
         self,
-        args: Optional[List[Any]] = None,
-        kwargs: Optional[Dict[str, Any]] = None,
-        output: Any = None,
+        args: Tuple[Any],
+        kwargs: Dict[str, Any],
+        output: Any,
     ):
         self.args = args
         self.kwargs = kwargs
@@ -126,7 +126,7 @@ class ExtractionWrapper(Module):
         # Avoid adding the wrapped module to the module hierarchy.
         object.__setattr__(self, "_graphpatch_wrapped_module", wrapped_module)
 
-    def __deepcopy__(self, memo=None):
+    def __deepcopy__(self, memo: Any = None) -> "ExtractionWrapper":
         """compile() deep copies modules during symbolic tracing in order to fakify their
         parameters. We need to customize this behavior for the following reasons:
         1) Since some modules can't be deepcopied in fake mode (bitsandbytes), we need to avoid
@@ -151,7 +151,7 @@ class ExtractionWrapper(Module):
         return new_instance
 
     @contextmanager
-    def substitute_submodules(self, target: Optional["ExtractionWrapper"] = None) -> Iterator[None]:
+    def substitute_submodules(self, target: Optional["Module"] = None) -> Iterator[None]:
         if target is None:
             target = self._graphpatch_wrapped_module
         orig_modules = target._modules
@@ -161,24 +161,24 @@ class ExtractionWrapper(Module):
         finally:
             target._modules = orig_modules
 
-    @hacks.disable
-    def maybe_accelerate_pre_hook(self, *args, **kwargs):
+    @hacks.disable  # type: ignore
+    def maybe_accelerate_pre_hook(self, *args: Any, **kwargs: Any) -> Any:
         if self._graphpatch_accelerate_hook is not None:
             return self._graphpatch_accelerate_hook.pre_forward(
                 self._graphpatch_wrapped_module, *args, **kwargs
             )
         return args, kwargs
 
-    @hacks.disable
-    def maybe_accelerate_post_hook(self, output: Any):
+    @hacks.disable  # type: ignore
+    def maybe_accelerate_post_hook(self, output: Any) -> Any:
         if self._graphpatch_accelerate_hook is not None:
             return self._graphpatch_accelerate_hook.post_forward(
                 self._graphpatch_wrapped_module, output
             )
         return output
 
-    @hacks.skip
-    def forward(self, *args, **kwargs):
+    @hacks.skip  # type: ignore
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
         try:
             # Unfortunately we have to repeat substitute_submodules() functionality here, since
             # torch.compile() doesn't support contextmanagers even if we're skipping.
@@ -232,7 +232,7 @@ def detach_accelerate_hooks(module: Module) -> Iterator[Optional[ModelHook]]:
 
 
 @contextmanager
-def compilation_context(root_state: ExtractionState):
+def compilation_context(root_state: ExtractionState) -> Iterator[None]:
     with ExitStack() as context_stack:
         context_stack.enter_context(torch.inference_mode())
         context_stack.enter_context(_eval_mode(root_state.wrapped_module))

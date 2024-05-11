@@ -26,8 +26,12 @@ NodeDataType = TypeVar("NodeDataType")
 OtherNodeDataType = TypeVar("OtherNodeDataType")
 MaybeNodeData: TypeAlias = Union["NodeData[NodeDataType]", "Literal[NodeData.Sentinels._NO_VALUE]"]
 MaybeNodeDataType: TypeAlias = Union[NodeDataType, "Literal[NodeData.Sentinels._NO_VALUE]"]
-MaybeOtherNodeDataType: TypeAlias = Union[OtherNodeDataType, "Literal[NodeData.Sentinels._NO_VALUE]"]
-MaybeHandledData: TypeAlias = Union["NodeData", "Literal[NodeData.Sentinels._UNHANDLED_VALUE]"]
+MaybeOtherNodeDataType: TypeAlias = Union[
+    OtherNodeDataType, "Literal[NodeData.Sentinels._NO_VALUE]"
+]
+MaybeHandledData: TypeAlias = Union[
+    "NodeData[NodeDataType]", "Literal[NodeData.Sentinels._UNHANDLED_VALUE]"
+]
 
 
 class _LeafNode(Protocol[NodeDataType]):
@@ -137,7 +141,7 @@ class NodeData(Generic[NodeDataType]):
     def reverse_topological_order(self) -> Iterator[NodeDataType]:
         """Yield children before their parents, but otherwise in forward order."""
         queue = deque([self])
-        result_stack = []
+        result_stack: List[NodeData[NodeDataType]] = []
         while queue:
             cur = queue.popleft()
             result_stack.append(cur)
@@ -147,7 +151,9 @@ class NodeData(Generic[NodeDataType]):
 
             queue.extend(reversed(cur._children.values()))
         while result_stack:
-            yield result_stack.pop()._value
+            node = result_stack.pop()
+            if node._value is not NodeData._NO_VALUE:
+                yield node._value
 
     def get(
         self, path: str, default: Optional[NodeDataType] = None
@@ -247,7 +253,7 @@ class NodeData(Generic[NodeDataType]):
         predicate: Callable[[str, MaybeNodeDataType[NodeDataType]], bool],
         node_constructor: Optional[Callable[..., "NodeData[OtherNodeDataType]"]] = None,
         root_prefix: str = "",
-    ):
+    ) -> "MaybeNodeData[OtherNodeDataType]":
         """Returns a new NodeData tree with the same structure as this one, but with all values
         failing predicate removed."""
 
@@ -263,10 +269,10 @@ class NodeData(Generic[NodeDataType]):
 
     def map(
         self,
-        fn: Callable[[str, NodeDataType], MaybeOtherNodeDataType],
+        fn: Callable[[str, NodeDataType], MaybeNodeDataType[NodeDataType]],
         node_constructor: Optional[Callable[..., "NodeData[OtherNodeDataType]"]] = None,
         root_prefix: str = "",
-    ) -> "NodeData[OtherNodeDataType]":
+    ) -> "MaybeNodeData[OtherNodeDataType]":
         """Returns a new NodeData tree with the same structure as this one, but with all values
         replaced with fn(previous_value), which may return a different type of data. If fn returns
         NodeData._NO_VALUE, omit it from the result unless it has children with values."""
@@ -426,7 +432,7 @@ class PrettyPrintedNodeData(NodeData[NodeDataType]):
                 indent_str += joiner
 
             if hasattr(node._value, "_graphpatch_graph_repr"):
-                container_info = f": {node._value._graphpatch_graph_repr()}"
+                container_info = f": {node._value._graphpatch_graph_repr()}"  # type: ignore
             elif self.show_containers and node._children is not NodeData._NO_VALUE:
                 container_info = f": {node._original_type}({len(node._children)})"
             else:
@@ -466,7 +472,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
     def __init__(self, node_data_type: Type[NodeData[NodeDataType]] = NodeData[NodeDataType]):
         self._node_data_type = node_data_type
 
-    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:
+    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:  # type: ignore[type-arg]
         """Override in subclasses to implement custom behavior depending on data. Return
         NodeData._UNHANDLED_VALUE to run the base class' default behavior.
         """

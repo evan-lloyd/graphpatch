@@ -3,10 +3,10 @@ import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Callable, Optional, Tuple, Union, cast
+from typing import Any, Iterator, Optional, Tuple, Union, cast
 from warnings import warn
 
-from torch.fx import Graph, Node
+from torch.fx import Node
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 
@@ -46,7 +46,7 @@ def match_shape(indexes: NodeData[OutputArgumentIndex], *args: Any) -> Any:
 
     return indexes.map(
         lambda _, index: args[index.index] if isinstance(index.index, int) else NodeData._NO_VALUE
-    ).unwrap()
+    ).unwrap()  # type: ignore
 
 
 def _clone_module(
@@ -311,7 +311,6 @@ def _postprocess_graph(state: ExtractionState) -> None:
     """
     graph_module = state.extracted_module
     assert graph_module is not None
-    # _repair_input_signature(state)
     _repair_output_signature(state)
     _clone_repeated_submodules(state)
     _standardize_submodule_nodes(state)
@@ -410,7 +409,9 @@ def _process_extraction_options(options: ExtractionOptions) -> ExtractionOptions
 
 
 @contextmanager
-def _handle_compilation_failure(state: ExtractionState, options: ExtractionOptions):
+def _handle_compilation_failure(
+    state: ExtractionState, options: ExtractionOptions
+) -> Iterator[None]:
     try:
         yield
     except Exception as exc:
@@ -452,7 +453,7 @@ def extract(
 ) -> Tuple[Optional[GraphModule], Optional[NodeData[Union[GraphMeta, NodeMeta]]]]:
     options = _process_extraction_options(options)
     extraction_state = ExtractionStateWrapper(options).wrap(root_module)
-    root_state = extraction_state[""]
+    root_state = cast(ExtractionState, extraction_state[""])
 
     # Extract GraphModules from each module in the hierarchy.
     for state in extraction_state.values():
@@ -496,6 +497,9 @@ def extract(
     # module hierarchy as originally. Reset _modules so we'll additionally restore the original
     # ordering (compile re-orders them to the order in which they are invoked).
     for torch_qual_name, state in extraction_state.items():
+        assert state.extracted_module is not None
+        assert root_state.extracted_module is not None
+
         if isinstance(state.extracted_module, CompiledGraphModule):
             _retarget_submodule_calls(state)
             state.extracted_module._modules = OrderedDict()
@@ -517,18 +521,10 @@ def extract(
     for state in reversed(list(extraction_state.values())):
         if isinstance(state.extracted_module, GraphPatchModule):
             _postprocess_graph(state)
-            # successfully_postprocessed = False
-            # with _handle_compilation_failure(state, options):
-            #     successfully_postprocessed = _postprocess_graph(state)
-
-            # # If we can't postprocess, fall back to opaque.
-            # # TODO:
-            # if not successfully_postprocessed:
-            #     state.extracted_module =
 
     # Escape hatch for modules that torch just refuses to compile correctly. Ideally as
     # compatibility improves we won't need this in the future!
-    graph_module = root_state.extracted_module
+    graph_module = cast(GraphPatchModule, root_state.extracted_module)
     if options.postprocessing_function is not None:
         options.postprocessing_function(graph_module, root_module)
         graph_module.recompile()

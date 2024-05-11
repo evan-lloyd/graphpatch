@@ -1,6 +1,7 @@
 from typing import Any, List, Optional, Sequence, Tuple
 
 import torch
+from torch import Tensor
 
 from graphpatch import AddPatch, Patch, PatchableGraph, ProbePatch
 from graphpatch.optional.dataclasses import dataclass
@@ -140,18 +141,18 @@ def generate_value_vector(
             prompt_inputs.input_ids[0, :].unsqueeze(0),
             attention_mask=prompt_inputs.attention_mask[0, :].unsqueeze(0),
         )
-        if target_probe.activation is None:
+        if not isinstance(target_probe.activation, Tensor):
             raise ValueError(
                 f"Activations were not recorded for {node_name}; is this name correct?"
             )
         clean_target = target_probe.activation[0, subject_offsets[0], :]
-        if input_probe.activation is None:
+        if not isinstance(input_probe.activation, Tensor):
             raise ValueError(
                 f"Activations were not recorded for {input_node_name}; is this name correct?"
             )
         clean_input = input_probe.activation[0, subject_offsets[0], :]
         if output_node_name:
-            if output_probe.activation is None:
+            if not isinstance(output_probe.activation, Tensor):
                 raise ValueError(
                     f"Activations were not recorded for {output_node_name}; is this name correct?"
                 )
@@ -228,7 +229,7 @@ def generate_key_vector(
         graph(**prompt_inputs)
         activation = probe.activation
 
-    if activation is None:
+    if not isinstance(activation, Tensor):
         raise ValueError(
             f"No activations for {node_name} were recorded; check that the node name is correct."
         )
