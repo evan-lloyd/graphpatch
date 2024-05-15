@@ -465,8 +465,48 @@ def allow_inlining_skipped_functions():
 
 
 @contextmanager
+def backport_unpack_ops():
+    """torch didn't handle certain Python opcodes that were removed in 3.10 until torch 2.1.
+    Backport in case user is using both old Python and old torch.
+    """
+    from torch._dynamo.symbolic_convert import InstructionTranslatorBase
+    from torch._dynamo.variables.base import MutableLocal, VariableTracker
+    from torch._dynamo.variables.builtin import BuiltinVariable
+    from torch._dynamo.variables.dicts import ConstDictVariable
+
+    def BUILD_MAP_UNPACK(self, inst):
+        items = self.popn(inst.argval)
+        # ensure everything is a dict
+        items = [BuiltinVariable(dict).call_function(self, [x], {}) for x in items]
+        result = dict()
+        for x in items:
+            assert isinstance(x, ConstDictVariable)
+            result.update(x.items)
+        self.push(
+            ConstDictVariable(
+                result,
+                dict,
+                mutable_local=MutableLocal(),
+                **VariableTracker.propagate(items),
+            )
+        )
+
+    BUILD_MAP_UNPACK_WITH_CALL = BUILD_MAP_UNPACK
+
+    try:
+        InstructionTranslatorBase.BUILD_MAP_UNPACK = BUILD_MAP_UNPACK
+        InstructionTranslatorBase.BUILD_MAP_UNPACK_WITH_CALL = BUILD_MAP_UNPACK_WITH_CALL
+        yield
+    finally:
+        del InstructionTranslatorBase.BUILD_MAP_UNPACK
+        del InstructionTranslatorBase.BUILD_MAP_UNPACK_WITH_CALL
+
+
+@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
+        if TORCH_VERSION < (2, 1):
+            hack_stack.enter_context(backport_unpack_ops())
         if TORCH_VERSION >= (2, 1):
             hack_stack.enter_context(set_dynamo_config())
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
