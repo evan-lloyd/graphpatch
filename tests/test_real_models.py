@@ -57,7 +57,7 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
     )
     pg = PatchableGraph(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True),
+        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
@@ -71,13 +71,14 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
 
 
 @requires_transformers
-def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config):
+@pytest.mark.parametrize("opacity", ["compiled", "opaque"])
+def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
     standardize_tokenizer(tiny_gpt2_tokenizer)
     original_model = GPT2LMHeadModel(tiny_gpt2_config)
     inputs = tiny_gpt2_tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
     gm, _ = extract(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True),
+        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
@@ -101,7 +102,7 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config):
     )
     pg = PatchableGraph(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True),
+        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
         use_cache=False,
         return_dict=False,
