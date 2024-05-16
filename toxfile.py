@@ -28,15 +28,11 @@ def tox_add_env_config(env_conf, state):
     env_conf.add_config("remove_factor_from_env", str, None, "")
     if env_conf["remove_factor_from_env"] is None:
         return
-    replacements = env_conf["remove_factor_from_env"].split("\n")
-    for target in replacements:
-        new_env_dir = Path(re.sub(f"(.*)-{target}", r"\1", str(env_conf["env_dir"])))
-        env_conf._defined["env_dir"] = ConfigConstantDefinition(("env_dir"), "", new_env_dir)
-
-        new_change_dir = Path(re.sub(f"(.*)-{target}", r"\1", str(env_conf["change_dir"])))
-        env_conf._defined["change_dir"] = ConfigConstantDefinition(
-            ("change_dir"), "", new_change_dir
-        )
+    factors = env_conf["remove_factor_from_env"].split("\n")
+    for factor in factors:
+        for target in ("env_dir", "change_dir", "env_tmp_dir", "env_log_dir"):
+            new_env_dir = Path(re.sub(f"(.*)-{factor}", r"\1", str(env_conf[target])))
+            env_conf._defined[target] = ConfigConstantDefinition((target,), "", new_env_dir)
 
 
 @impl

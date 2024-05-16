@@ -48,10 +48,16 @@ def clean_up_rotary_embedding(module, op):
     # doesn't want to read seq_len from kwargs and instead bakes it in as a constant. Might
     # be specifically related to how slice operations are handled.
     getitem_node = next(
-        n
-        for n in module.graph.nodes
-        if n.target == operator.getitem and n.args[0].name == f"{op}_cached"
+        (
+            n
+            for n in module.graph.nodes
+            if n.target == operator.getitem and n.args[0].name == f"{op}_cached"
+        ),
+        None,
     )
+    # newer transformers implementations don't use sin/cos_cached
+    if getitem_node is None:
+        return
     seq_len_node = next(
         n for n in module.graph.nodes if n.op == "placeholder" and n.name == "seq_len"
     )
