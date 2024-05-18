@@ -7,7 +7,7 @@ from torch.fx import Graph, Node
 from torch.nn import Module
 
 from ..optional.accelerate import ModelHook
-from ..optional.transformers import PreTrainedModel
+from ..optional.transformers import AVAILABLE as TRANSFORMERS_AVAILABLE, PreTrainedModel
 from .graphpatch_module import GraphPatchModule
 
 _UNCOPYABLE_MODULE_ATTRIBUTES = frozenset(
@@ -32,26 +32,29 @@ _UNCOPYABLE_MODULE_ATTRIBUTES = frozenset(
 )
 
 # Clean up some unhelpful attributes from the graph for transformers PreTrainedModel.
-_UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset(
-    {
-        *(k for k in PreTrainedModel.__dict__),
-        *(k for k in PreTrainedModel.__annotations__),
-        # These aren't declared, but are still used.
-        "config",
-        "device",
-        "dtype",
-        "generation_config",
-        "hf_device_map",
-        "is_loaded_in_8bit",
-        "name_or_path",
-        "warnings_issued",
-        "_hf_peft_config_loaded",
-        "hf_quantizer",
-        "is_8bit_serializable",
-        "is_quantized",
-        "quantization_method",
-    }
-)
+if TRANSFORMERS_AVAILABLE:
+    _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset(
+        {
+            *(k for k in PreTrainedModel.__dict__),
+            *(k for k in PreTrainedModel.__annotations__),
+            # These aren't declared, but are still used.
+            "config",
+            "device",
+            "dtype",
+            "generation_config",
+            "hf_device_map",
+            "is_loaded_in_8bit",
+            "name_or_path",
+            "warnings_issued",
+            "_hf_peft_config_loaded",
+            "hf_quantizer",
+            "is_8bit_serializable",
+            "is_quantized",
+            "quantization_method",
+        }
+    )
+else:
+    _UNPATCHABLE_TRANSFORMERS_ATTRIBUTES = frozenset()
 
 
 def _is_routine(obj: Any) -> bool:

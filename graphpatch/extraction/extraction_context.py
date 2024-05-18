@@ -214,9 +214,9 @@ def _eval_mode(module: Module) -> Iterator[None]:
 
 
 @contextmanager
-def detach_accelerate_hooks(module: Module) -> Iterator[Optional[ModelHook]]:
+def detach_accelerate_hooks(module: Module) -> Iterator[None]:
     """Temporarily detach accelerate's hooks from the module, since they don't play nice with
-    torch.compile(). Return the hook object so we can apply it to the compiled graph.
+    torch.compile().
     """
 
     hook = getattr(module, "_hf_hook", None)
@@ -225,7 +225,7 @@ def detach_accelerate_hooks(module: Module) -> Iterator[Optional[ModelHook]]:
         hooked_forward = module.forward
         del module.forward
     try:
-        yield hook
+        yield
     finally:
         if hook is not None:
             module.forward = hooked_forward

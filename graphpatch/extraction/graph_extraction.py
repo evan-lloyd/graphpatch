@@ -1,4 +1,5 @@
 import inspect
+import re
 import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
@@ -117,6 +118,9 @@ def _repair_input_signature(state: ExtractionState) -> None:
         state.wrapped_module._graphpatch_wrapped_module.forward
     ).parameters
 
+    varargs_node = None
+    varkwargs_node = None
+
     # Construct (possibly new) graph inputs in the correct order.
     for name, parameter in forward_parameters.items():
         if name in existing_placeholders:
@@ -142,6 +146,10 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 {},
                 type_annotation,
             )
+            if target.startswith("**"):
+                varkwargs_node = new_placeholder
+            elif target.startswith("*"):
+                varargs_node = new_placeholder
             if target in existing_placeholders:
                 hacks.replace_node_keeping_original_name(
                     existing_placeholders[target], new_placeholder, name
@@ -151,8 +159,44 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 graph_module.graph._insert(new_placeholder)
             insert_after = new_placeholder
 
+    # Demangle varargs/kwargs for torch 2.0.*. It'd be nice to do this by tracking the source of
+    # each argument to the FX graph, but unfortunately the GraphArgs are entirely decoupled from
+    # the corresponding placeholders in the compile implementation, so we have to do this by name.
+    if hacks.TORCH_VERSION < (2, 1):
+        for name, placeholder in dict(existing_placeholders.items()).items():
+            getitem_args: Optional[Tuple[Node, Union[str, int]]] = None
+            if varargs_node is not None and (
+                match := re.match(f"{varargs_node.target[1:]}_(\\d)_", name)
+            ):
+                getitem_args = (
+                    varargs_node,
+                    int(match.group(1)),
+                )
+            if varkwargs_node is not None and (
+                match := re.match(f"{varkwargs_node.target[2:]}_(.+?)_", name)
+            ):
+                getitem_args = (
+                    varkwargs_node,
+                    match.group(1),
+                )
+            if not getitem_args:
+                continue
+            with graph_module.graph.inserting_after(insert_after):
+                get_item_node = Node(
+                    graph_module.graph,
+                    name,
+                    "call_method",
+                    "__getitem__",
+                    getitem_args,
+                    {},
+                )
+                hacks.replace_node_keeping_original_name(placeholder, get_item_node, name)
+                insert_after = get_item_node
+                del existing_placeholders[name]
+
     # Any remaining existing placeholders do not appear in the function signature. Assume they are
     # lifted module attributes.
+    # TODO: we should track whether or not given placeholders are indeed lifted attributes.
     for name, placeholder in existing_placeholders.items():
         # Strip initial "self_" from the attribute name. For torch >= 2.1 we have already done this
         # via some monkeypatching during compilation.

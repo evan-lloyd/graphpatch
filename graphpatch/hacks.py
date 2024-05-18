@@ -111,6 +111,7 @@ def monkeypatch_dynamic_shapes():
         return _original(self, value)
 
     def wrap_fx_proxy_cls(_original, target_cls, tx, *args, **kwargs):
+        # TODO: investigate whether the mystery is explained by VariableBuilder#_common_constants
         # Tensor sizes of 1 keep getting specialized via some mysterious codepath. We can prevent
         # this by overriding the outputs of any nodes retrieving tensor sizes with only symbolic
         # sizes.
@@ -273,7 +274,19 @@ def monkeypatch_graph_names():
     """
     from torch._dynamo.output_graph import OutputGraph
 
+    # from torch._dynamo.source import LocalInputSource
+
     orig_register_attr = OutputGraph.register_attr_or_module
+    # orig_add_grapharg = OutputGraph.add_grapharg
+    # orig_remove_unused_graphargs
+
+    # def add_grapharg(self, arg):
+    #     # torch <2.1 mangles varargs in an untrackable way, so track them
+    #     if isinstance(base := getattr(arg.source, "base", None), LocalInputSource):
+    #         self.graph._graphpatch_varargs_inputs = getattr(self.graph, "_graphpatch_varargs_inputs", [])
+    #         self.graph._graphpatch_varargs_inputs.append(arg)
+    #         breakpoint()
+    #     return orig_add_grapharg(self, arg)
 
     def demangle_names(*args, **kwargs):
         [self, target, *names] = args
@@ -292,9 +305,11 @@ def monkeypatch_graph_names():
 
     try:
         OutputGraph.register_attr_or_module = demangle_names
+        # OutputGraph.add_grapharg = add_grapharg
         yield
     finally:
         OutputGraph.register_attr_or_module = orig_register_attr
+        # OutputGraph.add_grapharg = orig_add_grapharg
 
 
 def get_size(target, index):
@@ -428,7 +443,7 @@ def monkeypatch_accelerate():
             result = orig_offload_getitem(self, key)
         if in_fake_mode() and not isinstance(result, FakeTensor):
             with maybe_disable_fake_tensor_mode():
-                result = result.to("meta")
+                result = torch.empty_like(result, device="meta")
             result = FakeTensor(_get_current_dispatch_mode(), result, "meta")
         return result
 
