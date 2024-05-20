@@ -13,14 +13,14 @@ class ExtractionOptions:
 
     Attributes:
         classes_to_skip_compiling: Set of Module classes to leave uncompiled. These modules will
-            only be patchable at their inputs and outputs. May be useful for working around
-            compilation issues. Default: set().
+            only be patchable at their inputs, outputs, parameters, and buffers. May be useful for
+            working around compilation issues. Default: set().
         custom_extraction_functions: Optional map from Module classes to callables generating
             torch.fx.Graph to be used in place of graphpatch's normal extraction mechanism
             when encountering that class. Advanced feature; should not be necessary for ordinary
             use. Default: dict().
         error_on_compilation_failure: Treat failure to compile a submodule as an error, rather than
-            falling back to module-level patching. Default: True.
+            falling back to module-level patching. Default: False.
         postprocessing_function: Optional function to call which will modify the generated
             :class:`torch.fx.GraphModule`. This function can modify the underlying
             :class:`torch.fx.Graph` in-place. The original module is passed for reference in case,

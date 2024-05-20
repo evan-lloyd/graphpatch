@@ -1,3 +1,4 @@
+import gc
 import os
 
 import pytest
@@ -6,7 +7,6 @@ import torch
 from demos.ROME.rome import standardize_tokenizer
 from graphpatch import PatchableGraph, ZeroPatch
 from graphpatch.extraction import ExtractionOptions, extract
-from graphpatch.hacks import fix_gpt2_bool_buffers, patch_llama
 from graphpatch.optional.transformers import (
     AutoTokenizer,
     BitsAndBytesConfig,
@@ -138,7 +138,6 @@ def test_llama(tmp_path_factory, opacity):
         llama,
         ExtractionOptions(
             error_on_compilation_failure=True,
-            postprocessing_function=patch_llama,
             skip_compilation=opacity == "opaque",
         ),
         inputs.input_ids,
@@ -152,7 +151,7 @@ def test_llama(tmp_path_factory, opacity):
                 [
                     (
                         "This is an input with a much longer input token length,"
-                        " to make sure patch_llama worked"
+                        " to make sure shapes didn't specialize"
                     ),
                     "Also, added a batch dimension",
                 ],
@@ -188,11 +187,18 @@ def test_llama(tmp_path_factory, opacity):
     patchable_llama.save(save_path)
     del patchable_llama
     del llama
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
     patchable_llama = torch.load(save_path)
     with torch.no_grad():
         assert original_output.equal(
             patchable_llama(inputs.input_ids, use_cache=False, return_dict=False)[0]
         )
+    del patchable_llama
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
 
 
 @long_running
@@ -210,7 +216,6 @@ def test_gpt2(tmp_path_factory, opacity):
         quantization_config=BitsAndBytesConfig(load_in_8bit=True),
         torch_dtype=torch.float16,
     )
-    fix_gpt2_bool_buffers(gpt2)
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(
         torch.device("cuda:0")
     )
@@ -251,8 +256,15 @@ def test_gpt2(tmp_path_factory, opacity):
     patchable_gpt2.save(save_path)
     del patchable_gpt2
     del gpt2
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
     patchable_gpt2 = torch.load(save_path)
     with torch.no_grad():
         assert original_output.equal(
             patchable_gpt2(inputs.input_ids, use_cache=False, return_dict=False)[0]
         )
+    del patchable_gpt2
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()

@@ -33,57 +33,6 @@ def in_fake_mode():
     return isinstance(torch.empty(0), FakeTensor)
 
 
-def fix_gpt2_bool_buffers(model):
-    # Accelerate seems to convert bool buffers to float16 where it really shouldn't
-    for name, buffer in model.named_buffers():
-        if "attn.bias" not in name:
-            continue
-        split_name = name.split(".")
-        module = model.get_submodule(".".join(split_name[:-1]))
-        setattr(module, split_name[-1], buffer.to(torch.bool))
-
-
-def clean_up_rotary_embedding(module, op):
-    # TODO: figure out a more principled way to do this; particularly, why compile()
-    # doesn't want to read seq_len from kwargs and instead bakes it in as a constant. Might
-    # be specifically related to how slice operations are handled.
-    getitem_node = next(
-        (
-            n
-            for n in module.graph.nodes
-            if n.target == operator.getitem and n.args[0].name == f"{op}_cached"
-        ),
-        None,
-    )
-    # newer transformers implementations don't use sin/cos_cached
-    if getitem_node is None:
-        return
-    seq_len_node = next(
-        n for n in module.graph.nodes if n.op == "placeholder" and n.name == "seq_len"
-    )
-    with module.graph.inserting_after(seq_len_node):
-        slice_node = module.graph.call_function(slice, (None, seq_len_node, None))
-    getitem_node.args = getitem_node.args[0:1] + (
-        getitem_node.args[1][:2] + (slice_node,) + getitem_node.args[1][3:],
-    )
-
-
-def patch_llama(graph_module, _original_module):
-    """At the moment, LlamaRotaryEmbedding doesn't quite compile properly. It is supposed to read
-    in the length of the current token sequence, but for some reason compile() converts the argument
-    into a constant. This leads to run-time errors when trying to run the compiled model with
-    different-length inputs.
-    """
-    # Improved dynamic shapes in 2.1 on means we don't have to do this.
-    if TORCH_VERSION >= (2, 1):
-        return
-    for name, module in graph_module.named_modules():
-        if "rotary_emb" in name:
-            clean_up_rotary_embedding(module, "cos")
-            clean_up_rotary_embedding(module, "sin")
-            module.recompile()
-
-
 @contextmanager
 def monkeypatch_dynamic_shapes():
     """For torch >= 2.1.0. This version improves dynamic shapes in a way that's problematic for our
@@ -274,19 +223,7 @@ def monkeypatch_graph_names():
     """
     from torch._dynamo.output_graph import OutputGraph
 
-    # from torch._dynamo.source import LocalInputSource
-
     orig_register_attr = OutputGraph.register_attr_or_module
-    # orig_add_grapharg = OutputGraph.add_grapharg
-    # orig_remove_unused_graphargs
-
-    # def add_grapharg(self, arg):
-    #     # torch <2.1 mangles varargs in an untrackable way, so track them
-    #     if isinstance(base := getattr(arg.source, "base", None), LocalInputSource):
-    #         self.graph._graphpatch_varargs_inputs = getattr(self.graph, "_graphpatch_varargs_inputs", [])
-    #         self.graph._graphpatch_varargs_inputs.append(arg)
-    #         breakpoint()
-    #     return orig_add_grapharg(self, arg)
 
     def demangle_names(*args, **kwargs):
         [self, target, *names] = args
@@ -305,11 +242,9 @@ def monkeypatch_graph_names():
 
     try:
         OutputGraph.register_attr_or_module = demangle_names
-        # OutputGraph.add_grapharg = add_grapharg
         yield
     finally:
         OutputGraph.register_attr_or_module = orig_register_attr
-        # OutputGraph.add_grapharg = orig_add_grapharg
 
 
 def get_size(target, index):
