@@ -4,17 +4,12 @@ from bs4 import BeautifulSoup
 
 # h/t workaround in https://github.com/sphinx-doc/sphinx/issues/10785
 def resolve_type_aliases(app, env, node, contnode):
+    if "inventory" in node:
+        print("yooo", node["inventory"])
     aliases = app.config.autodoc_type_aliases
     if node["refdomain"] == "py" and node["reftype"] == "class" and node["reftarget"] in aliases:
         return app.env.get_domain("py").resolve_xref(
             env, node["refdoc"], app.builder, "data", node["reftarget"], node, contnode
-        )
-    elif "NodePath" in node["reftarget"]:
-        node["reftype"] = "ref"
-        node["refdomain"] = "std"
-        node["refexplicit"] = True
-        return app.env.get_domain("std").resolve_xref(
-            env, node["refdoc"], app.builder, "ref", "node_path", node, contnode
         )
 
 

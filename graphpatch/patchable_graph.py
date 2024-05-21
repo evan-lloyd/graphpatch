@@ -136,15 +136,15 @@ class PatchableGraph(Module):
     def __init__(
         self,
         module: Module,
-        *extraction_options_and_args: Any,
-        **extraction_kwargs: Any,
+        *extraction_options_and_args: Tuple[Union[Any, ExtractionOptions], ...],
+        **extraction_kwargs: Dict[str, Any],
     ):
         super().__init__()
 
         # Pull extraction args from positional arguments, if present; otherwise, use defaults.
         if len(extraction_options_and_args) > 0:
             if isinstance(extraction_options_and_args[0], ExtractionOptions):
-                extraction_options = extraction_options_and_args[0]
+                extraction_options: ExtractionOptions = extraction_options_and_args[0]
                 extraction_args = extraction_options_and_args[1:]
             else:
                 extraction_options = ExtractionOptions()
@@ -315,20 +315,16 @@ class PatchableGraph(Module):
             ),
         )
 
-    # Unknown why, but using the more idiomatic decorator version breaks tab-completion in IPython.
-    graph = property(lambda self: self._node_path)
-    graph.__doc__ = """Convenience property for working in REPL and notebook environments. Exposes
-    the full :ref:`NodePath <node_path>` hierarchy of this PatchableGraph via recursive attribute
+    # Using the more idiomatic decorator version breaks tab-completion in IPython. This seems to be
+    # because it uses the annotated types to determine completable values, but we want it to use
+    # our custom __dir__ instead. This is a hacky way to prevent IPython from seeing the true type.
+    graph = property(
+        lambda self: self._node_path,
+        doc="""graph(NodePath)
+    Convenience property for working in REPL and notebook environments. Exposes
+    the full :class:`NodePath <meta.NodePath>` hierarchy of this PatchableGraph via recursive attribute
     access. Children of the current node can be tab-completed at each step. Has a custom
-    ``__repr__()`` to display the subgraph rooted at the current path. Dynamically generated
-    attributes:
-
-    Attributes:
-        <node_name>: One attribute per child node, having the name of that child.
-        _code: For submodules, the compiled GraphModule code. The partial stacktrace of the
-            original model for other nodes.
-        _shape: The shape of the Tensor observed at this node during compilation, if the value was
-            a Tensor.
+    ``__repr__()`` to display the subgraph rooted at the current path.
 
     Example:
 
@@ -363,8 +359,9 @@ class PatchableGraph(Module):
         In [3]: pg.graph.output._shape
         Out[3]: torch.Size([3, 3])
 
-    See :ref:`working_with_graphpatch` for more discussion and examples.
-    """
+    Also see :ref:`node_path` for more discussion and examples.
+    """,
+    )
 
     @contextmanager
     def patch(

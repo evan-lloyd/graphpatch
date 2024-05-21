@@ -197,7 +197,7 @@ def generate_value_vector(
         nll_loss_each = -(log_probs * mask).sum((1, 2)) / target_len
         nll_loss = nll_loss_each.mean()
         weight_decay = 0.5 * torch.norm(delta) / torch.norm(clean_target) ** 2
-        loss = nll_loss + weight_decay
+        loss = nll_loss + weight_decay.to(nll_loss.device)
         if log_progress:
             print(f"loss: {loss.item()}, prob of target: {torch.exp(-nll_loss_each).mean().item()}")
         loss.backward()

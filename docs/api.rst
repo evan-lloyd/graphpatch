@@ -11,5 +11,7 @@ Reference
 
 .. toctree::
 
-   patchable_graph
+   extraction_options
+   node_path
    patch
+   patchable_graph

@@ -8,7 +8,16 @@ from .node_data import MaybeNodeDataType
 
 @dataclass(kw_only=True, repr=False)
 class NodePath(PrettyPrintedNodeData[Union[GraphMeta, NodeMeta]]):
-    """Helper class to set up autocomplete for finding nodes in notebooks and REPL."""
+    """Helper class to set up autocomplete for finding nodes in notebooks and REPL. See
+    :ref:`node_path` for more discussion and examples. Dynamically generated attributes:
+
+    Attributes:
+        <node_name>: One attribute per child node, having the name of that child.
+        _code: For submodules, the compiled GraphModule code. The partial stacktrace of the
+            original model for other nodes.
+        _shape: The shape of the Tensor observed at this node during compilation, if the value was
+            a Tensor.
+    """
 
     MAX_COMPLETIONS: ClassVar[int] = 20
     _node_meta: Optional[NodeMeta] = None

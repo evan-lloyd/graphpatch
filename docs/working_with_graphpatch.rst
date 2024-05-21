@@ -5,8 +5,6 @@
 Working with ``graphpatch``
 ===========================
 
-.. _node_path:
-
 ``graphpatch`` is based on compiling PyTorch models into :class:`Graphs <torch.fx.Graph>`, exposing
 all intermediate Tensor operations. This process is recursive; every submodel is compiled into a subgraph
 within the final structure. Each intermediate operation is given a canonical name based on its
@@ -21,6 +19,8 @@ in the `ROME demo <https://github.com/evan-lloyd/graphpatch/tree/main/demos/ROME
 
 selects the node named ``"linear"`` within the compiled graph of the ``"down_proj"`` submodule of
 the ``"mlp"`` submodule of the 9th layer of :std:doc:`Llama <transformers:model_doc/llama>`.
+
+.. _node_path:
 
 Inspecting the graph structure
 ******************************

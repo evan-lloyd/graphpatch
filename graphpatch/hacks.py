@@ -1,7 +1,6 @@
 # mypy: ignore-errors
 
 import inspect
-import operator
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from functools import partial, partialmethod
