@@ -8,16 +8,16 @@ Working with ``graphpatch``
 ``graphpatch`` is based on compiling PyTorch models into :class:`Graphs <torch.fx.Graph>`, exposing
 all intermediate Tensor operations. This process is recursive; every submodel is compiled into a subgraph
 within the final structure. Each intermediate operation is given a canonical name based on its
-position within the overall graph. We call such a name a **NodePath** because it identifies a path
+position within the overall graph. We call such a name a :class:`NodePath <meta.NodePath>` because it identifies a path
 from the root of the graph through intermediate subgraphs. For example, a Tensor addition performed
 within a submodule named ``"foo"`` might be named ``"foo.add"``. Or for a real-world example used
 in the `ROME demo <https://github.com/evan-lloyd/graphpatch/tree/main/demos/ROME>`_,
 
 .. code::
 
-    "model.layers_8.mlp.down_proj.linear"
+    "model.layers_8.mlp.down_proj.output"
 
-selects the node named ``"linear"`` within the compiled graph of the ``"down_proj"`` submodule of
+selects the node named ``"output"`` within the compiled graph of the ``"down_proj"`` submodule of
 the ``"mlp"`` submodule of the 9th layer of :std:doc:`Llama <transformers:model_doc/llama>`.
 
 .. _node_path:

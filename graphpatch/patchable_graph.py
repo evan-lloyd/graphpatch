@@ -101,7 +101,7 @@ class PatchableGraph(Module):
     Internally, PatchableGraph builds a :class:`torch.fx.GraphModule` for the module and each of its
     submodules using :func:`torch.compile`. This exposes the computational structure of the module
     while still being equivalent to the original--you can perform any operation you would with the
-    original module using the PatchableGraph. In case compilation fails--compile() is not yet
+    original module using the PatchableGraph. In case compilation fails--``compile()`` is not yet
     compatible with all model code--PatchableGraph will fall back to patching submodule input and
     output. See :class:`ExtractionOptions` for options controlling this behavior.
 

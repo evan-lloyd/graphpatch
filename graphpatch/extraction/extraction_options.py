@@ -9,7 +9,7 @@ from ..optional.dataclasses import dataclass, field
 
 @dataclass(kw_only=True)
 class ExtractionOptions:
-    """Options to control the behavior of `graphpatch` during graph extraction. This is a
+    """Options to control the behavior of ``graphpatch`` during graph extraction. This is a
     keyword-only dataclass; to construct one, pass any number of options from the below.
 
     Attributes:
