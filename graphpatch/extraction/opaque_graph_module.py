@@ -157,10 +157,11 @@ _OPAQUE_GRAPH_MODULE_SERIALIZATION_KEYS = (
 
 
 class OpaqueGraphModule(GraphPatchModule):
-    """OpaqueGraphModule constructs a GraphModule from a :class:`torch.nn.Module` without using
-    :func:`torch.compile`. This results in a graph that can only be patched at submodule inputs,
-    outputs, buffers, parameters, and attributes. An OpaqueGraphModule may have CompiledGraphModules
-    as submodules, which can be patched normally.
+    """OpaqueGraphModule is a subclass of :class:`torch.fx.GraphModule` constructed from a
+    :class:`torch.nn.Module` without using :func:`torch.compile`. This results in a graph that
+    can only be patched at submodule inputs, outputs, buffers, parameters, and attributes. An
+    OpaqueGraphModule may have instances of :class:`CompiledGraphModule` as submodules, which can
+    be patched normally.
     """
 
     _graphpatch_patchable_attributes: Tuple[str]

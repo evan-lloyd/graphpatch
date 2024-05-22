@@ -34,9 +34,8 @@ operations in a context created by :meth:`PatchableGraph.patch`:
    print(probe.activation)
 
 In contrast to :ref:`other approaches <related_work>`, ``graphpatch`` can patch (or record) any
-intermediate Tensor value without manual modification of the underlying model's code. This flexibility
-and automaticity come with a tradeoff: in some cases, it may be difficult to find the precise location
-of a desired intervention. See :ref:`working_with_graphpatch` for some tips on navigating the generated graphs.
+intermediate tensor value without manual modification of the underlying model's code. See :ref:`working_with_graphpatch` for
+some tips on how to use the generated graphs.
 
 Note that ``graphpatch`` activation patches are compatible with :std:doc:`AutoGrad <torch:autograd>`!
 This means that, for example, you can perform optimizations over the ``value`` parameter to
@@ -57,9 +56,9 @@ For a practical usage example, see the `demo <https://github.com/evan-lloyd/grap
 
 Prerequisites
 #############
-The only mandatory requirement is ``torch>=2``. Version 2+ is required because ``graphpatch`` leverages
-:func:`torch.compile`, which was introduced in ``2.0.0``, to extract computational graphs from models.
-CUDA support is not required.
+The only mandatory requirements are ``torch>=2`` and ``numpy>=1.17``. Version 2+ of ``torch`` is required
+because ``graphpatch`` leverages :func:`torch.compile`, which was introduced in ``2.0.0``, to extract computational graphs from models.
+CUDA support is not required. ``numpy`` is required for full ``compile()`` support.
 
 Python 3.8--3.11 are supported. Note that ``torch`` versions prior to ``2.1.0`` do not support compilation
 on Python 3.11; you will get an exception when trying to use ``graphpatch`` with such a configuration.
@@ -130,8 +129,11 @@ Documentation index
 
 .. toctree::
    :maxdepth: 3
+   :titlesonly:
 
    api
+   data_structures
    working_with_graphpatch
+   notes_on_compilation
 
 * :ref:`Full index <genindex>`

@@ -1,4 +1,8 @@
-from .extraction import ExtractionOptions
+from .extraction import (
+    CompiledGraphModule,
+    ExtractionOptions,
+    OpaqueGraphModule,
+)
 
 # Load bitsandbytes early so we can suppress its rather chatty startup process.
 from .optional import bitsandbytes  # noqa: F401
@@ -15,7 +19,9 @@ from .patchable_graph import PatchableGraph
 
 __all__ = [
     "AddPatch",
+    "CompiledGraphModule",
     "CustomPatch",
+    "OpaqueGraphModule",
     "Patch",
     "ProbePatch",
     "RecordPatch",

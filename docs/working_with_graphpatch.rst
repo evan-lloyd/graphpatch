@@ -5,11 +5,11 @@
 Working with ``graphpatch``
 ===========================
 
-``graphpatch`` is based on compiling PyTorch models into :class:`Graphs <torch.fx.Graph>`, exposing
-all intermediate Tensor operations. This process is recursive; every submodel is compiled into a subgraph
+``graphpatch`` works by compiling PyTorch models into :class:`Graphs <torch.fx.Graph>`, exposing
+all intermediate tensor operations. This process is recursive; every submodel is compiled into a subgraph
 within the final structure. Each intermediate operation is given a canonical name based on its
 position within the overall graph. We call such a name a :class:`NodePath <meta.NodePath>` because it identifies a path
-from the root of the graph through intermediate subgraphs. For example, a Tensor addition performed
+from the root of the graph through intermediate subgraphs. For example, a tensor addition performed
 within a submodule named ``"foo"`` might be named ``"foo.add"``. Or for a real-world example used
 in the `ROME demo <https://github.com/evan-lloyd/graphpatch/tree/main/demos/ROME>`_,
 
@@ -132,7 +132,7 @@ the original model:
 
 Inspecting node shapes
 **********************
-When constructing activation patches, it can be useful to know what shape is expected for a Tensor
+When constructing activation patches, it can be useful to know what shape is expected for a tensor
 at the target node. You may have noticed in the examples above that ``graph``'s REPL representation
 lists shape information next to each node. To get programmatic access to this information as a
 ``torch.Size`` value, you can use the ``_shape`` attribute on any node:

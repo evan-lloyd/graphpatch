@@ -9,6 +9,10 @@ from .graphpatch_module import GraphPatchModule
 
 
 class CompiledGraphModule(GraphPatchModule):
+    """CompiledGraphModule is a subclass of :class:`torch.fx.GraphModule`. It is essentially the
+    output of a successful run of :func:`torch.compile` with some minor modifications made by
+    ``graphpatch``.
+    """
     pass
 
 

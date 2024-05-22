@@ -96,18 +96,15 @@ def _make_patch_wrapper(
 
 class PatchableGraph(Module):
     """PatchableGraph is a wrapper around :class:`torch.nn.Module` allowing activation patching at
-    any tensor operation.
+    any tensor operation. It is the main entrypoint for ``graphpatch``'s functionality.
 
     Internally, PatchableGraph builds a :class:`torch.fx.GraphModule` for the module and each of its
     submodules using :func:`torch.compile`. This exposes the computational structure of the module
     while still being equivalent to the original--you can perform any operation you would with the
     original module using the PatchableGraph. In case compilation fails--``compile()`` is not yet
     compatible with all model code--PatchableGraph will fall back to patching submodule input and
-    output. See :class:`ExtractionOptions` for options controlling this behavior.
-
-    Note that the original module hierarchy is retained. For example, if you had a module ``foo``
-    containing a submodule ``bar``, you would get back a GraphModule equivalent to ``foo`` which has
-    a sub-GraphModule ``bar``, equivalent to the original ``bar``.
+    output. See :class:`ExtractionOptions` for options controlling this behavior and
+    :ref:`notes_on_compilation` for more discussion.
 
     To perform activation patching, use the :meth:`patch <graphpatch.PatchableGraph.patch>` context
     manager. This method takes a mapping from :ref:`NodePaths <node_path>` to lists of

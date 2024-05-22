@@ -21,7 +21,7 @@ class ExtractionOptions:
             when encountering that class. Advanced feature; should not be necessary for ordinary
             use. Default: ``dict()``.
         error_on_compilation_failure: Treat failure to compile a submodule as an error, rather than
-            falling back to module-level patching. Default: ``False``.
+            falling back to module-level patching via :class:`OpaqueGraphModule`. Default: ``False``.
         postprocessing_function: Optional function to call which will modify the generated
             :class:`torch.fx.GraphModule`. This function can modify the underlying
             :class:`torch.fx.Graph` in-place. The original module is passed for reference in case,
