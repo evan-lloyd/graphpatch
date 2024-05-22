@@ -23,6 +23,7 @@ extensions = [
     "docs.tweaks",
 ]
 intersphinx_mapping = {
+    "bitsandbytes": ("https://huggingface.co/docs/bitsandbytes/main/en/", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
     "torchcpp": ("https://pytorch.org/cppdocs/", None),
     "transformers": ("https://huggingface.co/docs/transformers/main/en/", None),

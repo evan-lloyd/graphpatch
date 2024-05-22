@@ -1,6 +1,7 @@
 from .extraction import (
     CompiledGraphModule,
     ExtractionOptions,
+    MultiplyInvokedModule,
     OpaqueGraphModule,
 )
 
@@ -21,6 +22,7 @@ __all__ = [
     "AddPatch",
     "CompiledGraphModule",
     "CustomPatch",
+    "MultiplyInvokedModule",
     "OpaqueGraphModule",
     "Patch",
     "ProbePatch",

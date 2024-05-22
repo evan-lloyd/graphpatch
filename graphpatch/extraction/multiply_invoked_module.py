@@ -4,7 +4,7 @@ from torch.nn import ModuleList
 
 
 class MultiplyInvokedModule(ModuleList):
-    """Wrapper around a module that was invoked multiple times by its parent when graphpatch
+    """Wrapper around a module that was invoked multiple times by its parent when ``graphpatch``
     converted it into a GraphModule. This allows you to patch distinct invocations independently.
 
     Example:
@@ -12,7 +12,8 @@ class MultiplyInvokedModule(ModuleList):
 
             class Foo(Module):
                 def __init__(self):
-                    self.bar = Linear((3, 3))
+                    super().__init__()
+                    self.bar = Linear(3, 3)
 
                 def forward(self, x, y):
                     return self.bar(x) + self.bar(y)
@@ -20,7 +21,7 @@ class MultiplyInvokedModule(ModuleList):
         .. ipython::
             :verbatim:
 
-            In [1]: pg = PatchableGraph(Foo(), inputs)
+            In [1]: pg = PatchableGraph(Foo(), **inputs)
             In [2]: print(pg._graph_module)
             Out [2]:
                 CompiledGraphModule(
@@ -29,11 +30,33 @@ class MultiplyInvokedModule(ModuleList):
                     )
                 )
             In [3]: pg.graph
-            Out [3]:
+            Out[3]:
+            <root>: CompiledGraphModule
+            ├─x: Tensor(3, 3)
+            ├─y: Tensor(3, 3)
+            ├─bar_0: CompiledGraphModule
+            │ ├─input: Tensor(3, 3)
+            │ ├─weight: Tensor(3, 3)
+            │ ├─bias: Tensor(3)
+            │ ├─linear: Tensor(3, 3)
+            │ └─output: Tensor(3, 3)
+            ├─bar_1: CompiledGraphModule
+            │ ├─input: Tensor(3, 3)
+            │ ├─weight: Tensor(3, 3)
+            │ ├─bias: Tensor(3)
+            │ ├─linear: Tensor(3, 3)
+            │ └─output: Tensor(3, 3)
+            ├─add: Tensor(3, 3)
+            └─output: Tensor(3, 3)
 
-        You can patch the two calls to the submodule "bar" independently via :
+        You can patch the two calls to the submodule "bar" independently:
+
+        .. code::
+
         >>> with pg.patch({"bar_0": ZeroPatch(), "bar_1": AddPatch(value=1)}):
-            ...
+                ...
+
+        See also :ref:`multiple_invocations`.
 
     """
 

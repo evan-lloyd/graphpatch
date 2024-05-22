@@ -133,7 +133,7 @@ Documentation index
 
    api
    data_structures
-   working_with_graphpatch
    notes_on_compilation
+   working_with_graphpatch
 
 * :ref:`Full index <genindex>`

@@ -19,7 +19,7 @@ class ExtractionOptions:
         custom_extraction_functions: Optional map from Module classes to callables generating
             :class:`torch.fx.Graph` to be used in place of graphpatch's normal extraction mechanism
             when encountering that class. Advanced feature; should not be necessary for ordinary
-            use. Default: ``dict()``.
+            use. See :ref:`custom_extraction_functions`. Default: ``dict()``.
         error_on_compilation_failure: Treat failure to compile a submodule as an error, rather than
             falling back to module-level patching via :class:`OpaqueGraphModule`. Default: ``False``.
         postprocessing_function: Optional function to call which will modify the generated

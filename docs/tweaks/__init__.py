@@ -11,6 +11,9 @@ def resolve_type_aliases(app, env, node, contnode):
         )
 
 
+PREFIXES_TO_STRIP = ("torch.nn", "torch.fx", "bitsandbytes.nn")
+
+
 def dequalify_intersphinx(app, doctree, docname):
     from docutils.nodes import NodeVisitor, Text
 
@@ -20,7 +23,7 @@ def dequalify_intersphinx(app, doctree, docname):
             # qualify cross-references on a case-by-case basis. We have no easy hook to modify
             # the text it generates because resolve_type_aliases is all-or-nothing--our own hook
             # would always be either too late or too early.
-            if str(node).startswith("torch.nn") or str(node).startswith("torch.fx"):
+            if any(str(node).startswith(p) for p in PREFIXES_TO_STRIP):
                 node.parent.children = [Text(node.split(".")[-1])]
 
     doctree.walk(Visitor(doctree.document))
