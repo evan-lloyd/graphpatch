@@ -21,6 +21,7 @@ extensions = [
     "IPython.sphinxext.ipython_console_highlighting",
     "IPython.sphinxext.ipython_directive",
     "docs.tweaks",
+    "sphinx_markdown_builder",
 ]
 intersphinx_mapping = {
     "bitsandbytes": ("https://huggingface.co/docs/bitsandbytes/main/en/", None),
@@ -54,3 +55,6 @@ autodoc_type_aliases = {
     "PatchTarget": "PatchTarget",
 }
 autodoc_typehints_format = "short"
+
+markdown_http_base = "https://graphpatch.readthedocs.io/en/stable"
+markdown_uri_doc_suffix = ".html"

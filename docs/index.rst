@@ -1,5 +1,8 @@
 graphpatch 0.2.0
 ================
+
+Documentation is hosted on `Read the Docs <https://graphpatch.readthedocs.io/en/stable>`_.
+
 .. py:currentmodule:: graphpatch
 
 Overview
@@ -9,7 +12,7 @@ also referred to as "ablation") on :std:doc:`PyTorch <torch:index>` neural netwo
 it by first wrapping your model in a :class:`PatchableGraph` and then running operations in a context
 created by :meth:`PatchableGraph.patch`:
 
-.. code::
+.. code:: python
 
    model = GPT2LMHeadModel.from_pretrained(
       "gpt2-xl",
@@ -42,7 +45,7 @@ Note that ``graphpatch`` activation patches are compatible with :std:doc:`AutoGr
 This means that, for example, you can perform optimizations over the ``value`` parameter to
 :class:`AddPatch <patch.AddPatch>`:
 
-.. code::
+.. code:: python
 
    delta = torch.zeros(size, requires_grad=True, device="cuda")
    optimizer = torch.optim.Adam([delta], lr=0.5)
@@ -89,7 +92,7 @@ Compatibility
 library, but note that there may be edge cases in specific model code that it can't yet handle.
 ``graphpatch`` is tested against and known to work with the ``transformers`` implementations of
 :std:doc:`Llama <transformers:model_doc/llama>` and :std:doc:`GPT2 <transformers:model_doc/gpt2>`.
-In cases where compilation fails, ``graphpatch`` has a graceful fallback that should be no worse of
+When compilation fails, ``graphpatch`` has a graceful fallback that should be no worse of
 a user experience than using native PyTorch module hooks. In that case, you will only be able to patch an
 uncompilable submodule's inputs, outputs, parameters, and buffers.
 
@@ -97,7 +100,7 @@ uncompilable submodule's inputs, outputs, parameters, and buffers.
 quantized by `bitsandbytes <https://pypi.org/project/bitsandbytes/>`_. This means that you can run ``graphpatch`` on
 multiple GPU's and/or with quantized inference very easily on models provided by ``transformers``:
 
-.. code::
+.. code:: python
 
    model = LlamaForCausalLM.from_pretrained(
       model_path,

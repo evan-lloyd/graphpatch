@@ -53,7 +53,7 @@ class MultiplyInvokedModule(ModuleList):
 
         .. code::
 
-        >>> with pg.patch({"bar_0": ZeroPatch(), "bar_1": AddPatch(value=1)}):
+            >>> with pg.patch({"bar_0": ZeroPatch(), "bar_1": AddPatch(value=1)}):
                 ...
 
         See also :ref:`multiple_invocations`.
