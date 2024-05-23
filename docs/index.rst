@@ -1,12 +1,13 @@
-graphpatch 0.1.0
+graphpatch 0.2.0
 ================
 .. py:currentmodule:: graphpatch
 
 Overview
 ########
-``graphpatch`` is a library for activation patching on :std:doc:`PyTorch <torch:index>` neural
-network models. You use it by first wrapping your model in a :class:`PatchableGraph` and then running
-operations in a context created by :meth:`PatchableGraph.patch`:
+``graphpatch`` is a library for :ref:`activation patching <what_is_activation_patching>` (often
+also referred to as "ablation") on :std:doc:`PyTorch <torch:index>` neural network models. You use
+it by first wrapping your model in a :class:`PatchableGraph` and then running operations in a context
+created by :meth:`PatchableGraph.patch`:
 
 .. code::
 
@@ -64,26 +65,6 @@ Python 3.8--3.11 are supported. Note that ``torch`` versions prior to ``2.1.0`` 
 on Python 3.11; you will get an exception when trying to use ``graphpatch`` with such a configuration.
 No version of ``torch`` yet supports compilation on Python 3.12.
 
-``graphpatch`` is theoretically compatible with any model in Huggingface's :std:doc:`transformers <transformers:index>`
-library, but note that there may be edge cases in specific model code that it can't yet handle.
-``graphpatch`` is tested against and known to work with the ``transformers`` implementations of
-:std:doc:`Llama <transformers:model_doc/llama>` and :std:doc:`GPT2 <transformers:model_doc/gpt2>`.
-
-``graphpatch`` is compatible with models loaded via :std:doc:`accelerate <accelerate:index>` and with 8-bit parameters
-quantized by `bitsandbytes <https://pypi.org/project/bitsandbytes/>`_. This means that you can run ``graphpatch`` on
-multiple GPU's and/or with quantized inference very easily on models provided by ``transformers``:
-
-.. code::
-
-   model = LlamaForCausalLM.from_pretrained(
-      model_path,
-      device_map="auto",
-      quantization_config=BitsAndBytesConfig(load_in_8bit=True),
-      torch_dtype=torch.float16,
-   )
-   pg = PatchableGraph(model, **example_inputs)
-
-
 Installation
 ############
 ``graphpatch`` is available on PyPI, and can be installed via ``pip``:
@@ -101,6 +82,31 @@ with some of their optional dependencies that are otherwise mildly inconvenient 
 .. code::
 
    pip install graphpatch[transformers]
+
+Compatibility
+#############
+``graphpatch`` is theoretically compatible with any model in Huggingface's :std:doc:`transformers <transformers:index>`
+library, but note that there may be edge cases in specific model code that it can't yet handle.
+``graphpatch`` is tested against and known to work with the ``transformers`` implementations of
+:std:doc:`Llama <transformers:model_doc/llama>` and :std:doc:`GPT2 <transformers:model_doc/gpt2>`.
+In cases where compilation fails, ``graphpatch`` has a graceful fallback that should be no worse of
+a user experience than using native PyTorch module hooks. In that case, you will only be able to patch an
+uncompilable submodule's inputs, outputs, parameters, and buffers.
+
+``graphpatch`` is compatible with models loaded via :std:doc:`accelerate <accelerate:index>` and with 8-bit parameters
+quantized by `bitsandbytes <https://pypi.org/project/bitsandbytes/>`_. This means that you can run ``graphpatch`` on
+multiple GPU's and/or with quantized inference very easily on models provided by ``transformers``:
+
+.. code::
+
+   model = LlamaForCausalLM.from_pretrained(
+      model_path,
+      device_map="auto",
+      quantization_config=BitsAndBytesConfig(load_in_8bit=True),
+      torch_dtype=torch.float16,
+   )
+   pg = PatchableGraph(model, **example_inputs)
+
 
 .. _related_work:
 
@@ -134,6 +140,7 @@ Documentation index
    api
    data_structures
    notes_on_compilation
+   what_is_activation_patching
    working_with_graphpatch
 
 * :ref:`Full index <genindex>`

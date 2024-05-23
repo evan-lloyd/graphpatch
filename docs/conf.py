@@ -9,7 +9,7 @@
 project = "graphpatch"
 copyright = "2023, Evan Lloyd"
 author = "Evan Lloyd"
-release = "0.1.0"
+release = "0.2.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

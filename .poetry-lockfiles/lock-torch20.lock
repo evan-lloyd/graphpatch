@@ -1957,13 +1957,13 @@ files = [
 
 [[package]]
 name = "lit"
-version = "18.1.4"
+version = "18.1.6"
 description = "A Software Testing Tool"
 optional = false
 python-versions = "*"
 files = [
-    {file = "lit-18.1.4-py3-none-any.whl", hash = "sha256:167a8beec8cc3628a38b31727b647953541df043168c84c4e99397515d489054"},
-    {file = "lit-18.1.4.tar.gz", hash = "sha256:e6ca26eb0a86aef88cb674616100e32d1250d05cfec4ca57a74acabb0a26de78"},
+    {file = "lit-18.1.6-py3-none-any.whl", hash = "sha256:58fc0bb1912f7e2a692d598e34c3b1675826e25bdc8078098025fb0fa28784a9"},
+    {file = "lit-18.1.6.tar.gz", hash = "sha256:70878fb0a2eee81c95898ed59605b0ee5e41565f8fd382322bca769a2bc3d4e5"},
 ]
 
 [[package]]
