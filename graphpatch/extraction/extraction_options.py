@@ -16,6 +16,9 @@ class ExtractionOptions:
         classes_to_skip_compiling: Set of Module classes to leave uncompiled. These modules will
             only be patchable at their inputs, outputs, parameters, and buffers. May be useful for
             working around compilation issues. Default: ``set()``.
+        copy_transformers_generation_config: If the wrapped Module is a huggingface transformers
+            implementation, should graphpatch attempt to copy its generation config so generation
+            convenience functions like ``generate()`` can be used? Default: ``True``.
         custom_extraction_functions: Optional map from Module classes to callables generating
             :class:`torch.fx.Graph` to be used in place of graphpatch's normal extraction mechanism
             when encountering that class. Advanced feature; should not be necessary for ordinary
@@ -44,6 +47,7 @@ class ExtractionOptions:
     """
 
     classes_to_skip_compiling: Set[Type[Module]] = field(default_factory=set)
+    copy_transformers_generation_config: bool = True
     custom_extraction_functions: Dict[Type[Module], Callable[[Module], Graph]] = field(
         default_factory=dict
     )

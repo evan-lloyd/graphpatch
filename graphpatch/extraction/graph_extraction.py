@@ -430,7 +430,7 @@ class ExtractionStateWrapper(NodeDataWrapper[ExtractionState]):
             for name, submodule in data._modules.items()
         }
         return self.make_wrapper(
-            _original_type=data.__class__.__name__,
+            _original_type=type(data),
             _children=children or NodeData._NO_VALUE,
             _path=graphpatch_path,
             _value=ExtractionState(

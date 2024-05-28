@@ -4,6 +4,7 @@ try:
         AutoModel,
         AutoTokenizer,
         BitsAndBytesConfig,
+        GenerationMixin,
         GPT2LMHeadModel,
         LlamaForCausalLM,
         LlamaModel,
@@ -13,6 +14,7 @@ try:
         PreTrainedTokenizer,
     )
     from transformers.models.gpt2.modeling_gpt2 import GPT2Attention
+    from transformers.utils.generic import ModelOutput
 
     AVAILABLE = True
 except ImportError:
@@ -53,17 +55,26 @@ except ImportError:
     class BitsAndBytesConfig:
         pass
 
+    class GenerationMixin:
+        pass
+
+    class ModelOutput:
+        pass
+
     AVAILABLE = False
 
 __all__ = [
     "AutoConfig",
     "AutoModel",
     "AutoTokenizer",
+    "BitsAndBytesConfig",
+    "GenerationMixin",
     "GPT2Attention",
     "GPT2LMHeadModel",
     "LlamaForCausalLM",
     "LlamaModel",
     "LlamaTokenizer",
+    "ModelOutput",
     "PretrainedConfig",
     "PreTrainedModel",
     "PreTrainedTokenizer",

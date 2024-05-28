@@ -51,13 +51,13 @@ class NodeShapeWrapper(NodeDataWrapper[NodeShape]):
     def handle_leaf(self, data: Any, path: str) -> NodeData[NodeShape]:
         if isinstance(data, Tensor):
             return self.make_wrapper(
-                _original_type=data.__class__.__name__,
+                _original_type=type(data),
                 _value=NodeShape(_shape=data.shape, _data_type="Tensor"),
                 _path=path,
             )
 
         return self.make_wrapper(
-            _original_type=data.__class__.__name__,
+            _original_type=type(data),
             _value=NodeShape(_shape=None, _data_type=data.__class__.__name__),
             _path=path,
         )
@@ -340,7 +340,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 if target := self._graph_module_target(node):
                     sub_nodes = node_meta[f"{name.meta_prefix}{node.name}"]
                     node_meta[name.meta][node.name] = NodeData(
-                        _original_type=target.__class__.__name__,
+                        _original_type=self._graph_module_class_for(target),
                         _children=sub_nodes,
                         _value=GraphMeta(
                             name=f"{name.meta_prefix}{node.name}",
@@ -379,7 +379,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                     )
 
         return NodeData(
-            _original_type=data.__class__.__name__,
+            _original_type=self._graph_module_class_for(data),
             _children=node_meta[""],
             _path="",
             _value=GraphMeta(
@@ -438,7 +438,7 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
                 self.id_map[id(data)] = OutputArgumentIndex(self.cur_index, self.should_unwrap)
                 self.cur_index += 1
             return self.make_wrapper(
-                _value=self.id_map[id(data)], _original_type=data.__class__.__name__, _path=path
+                _value=self.id_map[id(data)], _original_type=type(data), _path=path
             )
         return NodeData._UNHANDLED_VALUE
 
@@ -447,13 +447,13 @@ class OutputArgumentIndexWrapper(NodeDataWrapper[OutputArgumentIndex]):
         # the graph (add it), or not (don't)
         if not isinstance(data, Tensor):
             return self.make_wrapper(
-                _original_type=data.__class__.__name__, _value=NodeData._NO_VALUE, _path=path
+                _original_type=type(data), _value=NodeData._NO_VALUE, _path=path
             )
         if id(data) not in self.id_map:
             self.id_map[id(data)] = OutputArgumentIndex(self.cur_index, self.should_unwrap)
             self.cur_index += 1
         return self.make_wrapper(
-            _original_type=data.__class__.__name__, _value=self.id_map[id(data)], _path=path
+            _original_type=type(data), _value=self.id_map[id(data)], _path=path
         )
 
 

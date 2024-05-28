@@ -93,12 +93,12 @@ def test_node_shape_mapping_interface(nested_shape):
         _children={
             "sub_0": NodeData(
                 _value=NodeShape(_shape=torch.Size((1, 2, 3)), _data_type="Tensor"),
-                _original_type="Tensor",
+                _original_type=torch.Tensor,
                 _path="foo.sub_0",
             ),
             "sub_1": NodeData(
                 _value=NodeShape(_shape=torch.Size((1, 2, 3)), _data_type="Tensor"),
-                _original_type="Tensor",
+                _original_type=torch.Tensor,
                 _path="foo.sub_1",
             ),
             "sub_2": NodeData(
@@ -107,19 +107,19 @@ def test_node_shape_mapping_interface(nested_shape):
                         _children={
                             "sub_0": NodeData(
                                 _value=NodeShape(_shape=torch.Size((4, 5, 6)), _data_type="Tensor"),
-                                _original_type="Tensor",
+                                _original_type=torch.Tensor,
                                 _path="foo.sub_2.bar.sub_0",
                             )
                         },
-                        _original_type="tuple",
+                        _original_type=tuple,
                         _path="foo.sub_2.bar",
                     ),
                 },
-                _original_type="dict",
+                _original_type=dict,
                 _path="foo.sub_2",
             ),
         },
-        _original_type="tuple",
+        _original_type=tuple,
         _path="",
     )
     assert nested_shape["foo"] != nested_shape["baz"]
@@ -139,13 +139,13 @@ def data_to_wrap():
 
 def test_wrap(data_to_wrap):
     wrapped = wrap_node_data(data_to_wrap)
-    assert wrapped._original_type == "tuple"
-    assert wrapped["sub_0"]._original_type == "dict"
-    assert wrapped["sub_0"]["foo"]._original_type == "list"
-    assert wrapped["sub_1"]._original_type == "tuple"
-    assert wrapped["sub_1"]["sub_2"]._original_type == "tuple"
-    assert wrapped["sub_1"]["sub_2"]["sub_1"]._original_type == "dict"
-    assert wrapped["sub_1"]["sub_2"]["sub_1"]["bar"]._original_type == "tuple"
+    assert wrapped._original_type == tuple
+    assert wrapped["sub_0"]._original_type == dict
+    assert wrapped["sub_0"]["foo"]._original_type == list
+    assert wrapped["sub_1"]._original_type == tuple
+    assert wrapped["sub_1"]["sub_2"]._original_type == tuple
+    assert wrapped["sub_1"]["sub_2"]["sub_1"]._original_type == dict
+    assert wrapped["sub_1"]["sub_2"]["sub_1"]["bar"]._original_type == tuple
 
 
 def test_unwrap(data_to_wrap):

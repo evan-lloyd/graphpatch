@@ -11,9 +11,11 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Type,
     Union,
     cast,
 )
+from warnings import warn
 
 import torch
 from torch import Tensor, no_grad
@@ -25,6 +27,7 @@ from torch.serialization import FILE_LIKE
 from typing_extensions import TypedDict
 
 from . import hacks
+from .exceptions import GraphPatchWarning
 from .extraction import ExtractionOptions, extract
 from .meta import (
     GraphMeta,
@@ -35,6 +38,7 @@ from .meta import (
     wrap_node_path,
     wrap_node_shape,
 )
+from .optional.transformers import GenerationMixin
 from .optional.typing_extensions import TypeAlias
 from .patch import Patch, PatchableValue
 
@@ -130,6 +134,18 @@ class PatchableGraph(Module):
             :func:`torch.compile()`.
     """
 
+    _graphpatch_class_name = "PatchableGraph"
+
+    def __new__(cls: Type["PatchableGraph"], *args, **kwargs):
+        """Create a bespoke class on instantiation ala GraphModule, so we can freely modify it
+        later to support transformers generation methods if needed.
+        """
+
+        class PatchableGraphInstance(cls):
+            pass
+
+        return super().__new__(PatchableGraphInstance)
+
     def __init__(
         self,
         module: Module,
@@ -137,6 +153,7 @@ class PatchableGraph(Module):
         **extraction_kwargs: Dict[str, Any],
     ):
         super().__init__()
+        self.__class__.__name__ = self._graphpatch_class_name
 
         # Pull extraction args from positional arguments, if present; otherwise, use defaults.
         if len(extraction_options_and_args) > 0:
@@ -172,16 +189,40 @@ class PatchableGraph(Module):
         self._trace_output_shapes(*extraction_args, **extraction_kwargs)
         self._node_path = wrap_node_path(self._meta)
         self._is_saving = False
+        try:
+            if extraction_options.copy_transformers_generation_config and isinstance(
+                module, GenerationMixin
+            ):
+                self._copy_transformers_generation_config(module)
+        except Exception as exc:
+            warn(
+                (
+                    "Failed to set up transformers generation on the PatchableGraph. You will be"
+                    " unable to use convenience methods like generate(). You can disable setup of"
+                    " generation by setting copy_transformers_generation_config=False in your"
+                    " extraction options.\n\n"
+                    "Exception:\n"
+                    "**************************\n"
+                    f"{exc}\n"
+                    "**************************\n\n"
+                    "User code:\n"
+                ),
+                GraphPatchWarning,
+                stacklevel=2,
+            )
 
     @staticmethod
-    def load(file: FileLike) -> "PatchableGraph":
+    def load(file: FileLike, *args: Any, **kwargs: Any) -> "PatchableGraph":
         """Wrapper around :func:`torch.load()`. All the normal caveats around pickling apply; you
         should not load() anything you downloaded from the Internet.
 
         Future versions of graphpatch will likely implement a more secure serialization scheme and
         disable the built-in torch.load().
         """
-        return cast(PatchableGraph, torch.load(file))
+        return cast(
+            PatchableGraph,
+            torch.load(file, *args, **kwargs),
+        )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Wrapper around :func:`torch.save()` because some PatchableGraph internals may need to be
@@ -304,7 +345,7 @@ class PatchableGraph(Module):
                 graph_module = self._graph_module.get_submodule(parent.graph_module_name)
                 state_dict[key] = getattr(graph_module, target)
         return (
-            self._unpickle,
+            PatchableGraph._unpickle,
             (
                 state_dict,
                 {name for name, _ in self.named_parameters()},
@@ -666,3 +707,11 @@ class PatchableGraph(Module):
         self._meta.map_in_place(wrap_graph_nodes)
         self._meta.map_in_place(wrap_nodes)
         self._meta.map_in_place(recompile)
+
+    def _copy_transformers_generation_config(self, module: GenerationMixin):
+        self.__class__.__bases__ = (
+            PatchableGraph,
+            module.__class__,
+        )
+        self.generation_config = deepcopy(module.generation_config)
+        self.config = deepcopy(module.config)

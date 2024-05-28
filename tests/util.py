@@ -44,8 +44,8 @@ def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: Patchabl
     submodules_2 = dict(graph_2.named_modules(remove_duplicate=False))
     assert set(submodules_1.keys()) == set(submodules_2.keys()), "Module hierarchies differ"
     # Comparing classes by name because each GraphModule is assigned a bespoke class.
-    assert {k: v.__class__.__name__ for k, v in submodules_1.items()} == {
-        k: v.__class__.__name__ for k, v in submodules_2.items()
+    assert {k: v.__class__.__name__ for k, v in submodules_1.items() if k != ""} == {
+        k: v.__class__.__name__ for k, v in submodules_2.items() if k != ""
     }, "Module classes differ"
     for k in submodules_1:
         if not isinstance(submodules_1[k], GraphModule):

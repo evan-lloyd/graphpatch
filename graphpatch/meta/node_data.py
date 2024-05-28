@@ -37,14 +37,14 @@ MaybeHandledData: TypeAlias = Union[
 class _LeafNode(Protocol[NodeDataType]):
     _children: "Literal[NodeData.Sentinels._NO_VALUE]"
     _value: NodeDataType
-    _original_type: str
+    _original_type: Type
     _path: str
 
 
 class _InternalNode(Protocol[NodeDataType]):
     _value: MaybeNodeDataType[NodeDataType]
     _children: Dict[str, "NodeData[NodeDataType]"]
-    _original_type: str
+    _original_type: Type
     _path: str
 
 
@@ -76,11 +76,11 @@ class NodeData(Generic[NodeDataType]):
     _NO_VALUE: ClassVar[Literal[Sentinels._NO_VALUE]] = Sentinels._NO_VALUE
     _UNHANDLED_VALUE: ClassVar[Literal[Sentinels._UNHANDLED_VALUE]] = Sentinels._UNHANDLED_VALUE
 
-    _children: Union[
-        Dict[str, "NodeData[NodeDataType]"], Literal[Sentinels._NO_VALUE]
-    ] = Sentinels._NO_VALUE
+    _children: Union[Dict[str, "NodeData[NodeDataType]"], Literal[Sentinels._NO_VALUE]] = (
+        Sentinels._NO_VALUE
+    )
     _value: Union[NodeDataType, Literal[Sentinels._NO_VALUE]] = Sentinels._NO_VALUE
-    _original_type: str
+    _original_type: Type
     _path: str
 
     @property
@@ -345,12 +345,12 @@ class NodeData(Generic[NodeDataType]):
         # NB: with default container types, we assume internal nodes have no _value
         if self._children is NodeData._NO_VALUE:
             return self._value
-        elif self._original_type == "tuple":
-            return tuple(t.unwrap(handle_unwrap) for t in self._children.values())
-        elif self._original_type == "list":
-            return list(t.unwrap(handle_unwrap) for t in self._children.values())
-        elif self._original_type == "dict":
-            return {k: v.unwrap(handle_unwrap) for k, v in self._children.items()}
+        elif issubclass(self._original_type, (tuple, list)):
+            return self._original_type(t.unwrap(handle_unwrap) for t in self._children.values())
+        elif issubclass(self._original_type, (dict,)):
+            return self._original_type(
+                **{k: v.unwrap(handle_unwrap) for k, v in self._children.items()}
+            )
 
         raise ValueError(
             f"Unhandled container type {self._original_type}."
@@ -434,7 +434,7 @@ class PrettyPrintedNodeData(NodeData[NodeDataType]):
             if hasattr(node._value, "_graphpatch_graph_repr"):
                 container_info = f": {node._value._graphpatch_graph_repr()}"  # type: ignore
             elif self.show_containers and node._children is not NodeData._NO_VALUE:
-                container_info = f": {node._original_type}({len(node._children)})"
+                container_info = f": {node._original_type.__name__}({len(node._children)})"
             else:
                 container_info = ""
 
@@ -482,7 +482,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
         return self._node_data_type(**kwargs)
 
     def handle_leaf(self, data: Any, path: str) -> NodeData[NodeDataType]:
-        return self.make_wrapper(_original_type=data.__class__.__name__, _value=data, _path=path)
+        return self.make_wrapper(_original_type=type(data), _value=data, _path=path)
 
     def wrap(
         self,
@@ -500,7 +500,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
 
         if isinstance(data, (tuple, list)):
             return self.make_wrapper(
-                _original_type=data.__class__.__name__,
+                _original_type=type(data),
                 _children={
                     f"sub_{i}": self.wrap(c, f"{prefix}sub_{i}") for i, c in enumerate(data)
                 },
@@ -508,7 +508,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
             )
         elif isinstance(data, dict):
             return self.make_wrapper(
-                _original_type=data.__class__.__name__,
+                _original_type=type(data),
                 _children={k: self.wrap(data[k], f"{prefix}{k}") for k in data},
                 _path=path,
             )

@@ -35,14 +35,11 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
-        use_cache=False,
-        return_dict=False,
     )
     assert_results_identical(
         original_model,
         gm,
         inputs.input_ids,
-        input_kwargs={"use_cache": False, "return_dict": False},
     )
     batched_inputs = tiny_llama_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
@@ -53,20 +50,16 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
         original_model,
         gm,
         batched_inputs.input_ids,
-        input_kwargs={"use_cache": False, "return_dict": False},
     )
     pg = PatchableGraph(
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
-        use_cache=False,
-        return_dict=False,
     )
     assert_results_identical(
         original_model,
         pg._graph_module,
         batched_inputs.input_ids,
-        input_kwargs={"use_cache": False, "return_dict": False},
     )
 
 
@@ -80,14 +73,11 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
-        use_cache=False,
-        return_dict=False,
     )
     assert_results_identical(
         original_model,
         gm,
         inputs.input_ids,
-        input_kwargs={"use_cache": False, "return_dict": False},
     )
     batched_inputs = tiny_gpt2_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
@@ -98,21 +88,19 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
         original_model,
         gm,
         batched_inputs.input_ids,
-        input_kwargs={"use_cache": False, "return_dict": False},
     )
     pg = PatchableGraph(
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
-        use_cache=False,
-        return_dict=False,
     )
     assert_results_identical(
         original_model,
         pg._graph_module,
         batched_inputs.input_ids,
-        input_kwargs={"use_cache": False, "return_dict": False},
     )
+    gen_output = pg.generate(inputs.input_ids, do_sample=True, temperature=0.5, max_length=100)
+    # breakpoint()
 
 
 @long_running

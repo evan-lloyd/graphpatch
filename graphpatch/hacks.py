@@ -11,6 +11,7 @@ from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
 from torch.utils._python_dispatch import _get_current_dispatch_mode
 
 from .optional.accelerate import AVAILABLE as ACCELERATE_AVAILABLE
+from .optional.transformers import AVAILABLE as TRANSFORMERS_AVAILABLE
 
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
@@ -271,6 +272,7 @@ def set_dynamo_config():
         "automatic_dynamic_shapes": False,
         "capture_scalar_outputs": True,
         "capture_dynamic_output_shape_ops": True,
+        "raise_on_ctx_manager_usage": False,
     }
     orig_values = {key: getattr(torch._dynamo.config, key) for key in config_values}
     for key, value in config_values.items():
@@ -458,15 +460,49 @@ def backport_unpack_ops():
 
 
 @contextmanager
+def handle_transformers_output():
+    """compile() can't handle transformers ModelOutput results from modules. However, we can trick
+    it into working by transforming them into namedtuples, which have similar enough of an API to
+    (probably) deal with any reasonable code using them.
+    """
+    from collections import namedtuple
+
+    from torch._dynamo.variables import builder
+    from transformers.utils.generic import ModelOutput
+
+    orig_get_fake_value = builder.get_fake_value
+
+    def get_fake_value(node, tx, allow_non_graph_fake=False):
+        result = orig_get_fake_value(node, tx, allow_non_graph_fake=allow_non_graph_fake)
+        if isinstance(result, ModelOutput):
+            fields = type(result).__dataclass_fields__
+            tuple_result = namedtuple("DummyModelOutput", fields.keys())(
+                *(getattr(result, f) for f in fields.keys())
+            )
+            return tuple_result
+        else:
+            return result
+
+    try:
+        builder.get_fake_value = get_fake_value
+        yield
+    finally:
+        builder.get_fake_value = orig_get_fake_value
+
+
+@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
         if TORCH_VERSION < (2, 1):
             hack_stack.enter_context(backport_unpack_ops())
         if TORCH_VERSION >= (2, 1):
             hack_stack.enter_context(set_dynamo_config())
+            # NB: needs to come before handle_transformers_output since both patch wrap_fx_proxy_cls
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
         if TORCH_VERSION >= (2, 3):
             hack_stack.enter_context(allow_inlining_skipped_functions())
+        if TRANSFORMERS_AVAILABLE:
+            hack_stack.enter_context(handle_transformers_output())
         hack_stack.enter_context(monkeypatch_accelerate())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield
