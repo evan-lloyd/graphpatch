@@ -472,8 +472,8 @@ def handle_transformers_output():
 
     orig_get_fake_value = builder.get_fake_value
 
-    def get_fake_value(node, tx, allow_non_graph_fake=False):
-        result = orig_get_fake_value(node, tx, allow_non_graph_fake=allow_non_graph_fake)
+    def get_fake_value(*args, **kwargs):
+        result = orig_get_fake_value(*args, **kwargs)
         if isinstance(result, ModelOutput):
             fields = type(result).__dataclass_fields__
             tuple_result = namedtuple("DummyModelOutput", fields.keys())(

@@ -153,7 +153,9 @@ def test_container_module_serialization(patchable_container_module, container_mo
 @opaque_and_compiled("patchable_pretrained_module")
 def test_pretrained_module_serialization(patchable_pretrained_module, pretrained_module_inputs):
     deserialized = _roundtrip(patchable_pretrained_module)
-    _serialization_asserts(patchable_pretrained_module, deserialized, pretrained_module_inputs)
+    _serialization_asserts(
+        patchable_pretrained_module, deserialized, pretrained_module_inputs, "output|logits"
+    )
 
 
 @requires_multi_gpu
@@ -170,6 +172,7 @@ def test_multiple_device_serialization(
         patchable_accelerate_pretrained_module,
         deserialized,
         accelerate_pretrained_module_inputs,
+        "output|logits",
     )
 
 
@@ -185,6 +188,7 @@ def test_mixed_cpu_module_serialization(
         patchable_mixed_cpu_pretrained_module,
         deserialized,
         mixed_cpu_pretrained_module_inputs,
+        "output|logits",
     )
 
 
@@ -199,6 +203,7 @@ def test_disk_offload_module_serialization(
         patchable_disk_offload_pretrained_module,
         deserialized,
         disk_offload_pretrained_module_inputs,
+        "output|logits",
     )
 
 
@@ -215,4 +220,5 @@ def test_quantized_pretrained_module_serialization(
         patchable_quantized_pretrained_module,
         deserialized,
         quantized_pretrained_module_inputs.to(torch.float16),
+        "output|logits",
     )

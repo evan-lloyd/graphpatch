@@ -5,7 +5,7 @@ from torch import Tensor
 
 from graphpatch import AddPatch, Patch, PatchableGraph, ProbePatch
 from graphpatch.optional.dataclasses import dataclass
-from graphpatch.optional.transformers import AutoTokenizer
+from graphpatch.optional.transformers import AutoTokenizer, ModelOutput
 
 """
 Minimal (not fully complete) reproduction of ROME (https://rome.baulab.info/), heavily based off the
@@ -183,7 +183,7 @@ def generate_value_vector(
             }
         ):
             logits = graph(**prompt_inputs)
-            if isinstance(logits, tuple):
+            if isinstance(logits, tuple) or isinstance(logits, ModelOutput):
                 logits = logits[0]
 
         # Project onto the predictions for the positions of the "target" tokens

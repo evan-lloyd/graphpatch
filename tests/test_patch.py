@@ -334,16 +334,32 @@ def test_patch_buffer_module(pg, buffer_module_inputs):
 
 
 def _pretrained_module_patch_asserts(pg, inputs):
+    # Basic run
     with pg.patch(
         {
             "model.root_linear.weight": ZeroPatch(),
             "model.root_linear.bias": ZeroPatch(),
-            "output": [output_probe := ProbePatch()],
+            "output|logits": [output_probe := ProbePatch()],
         }
     ):
         output = pg(inputs)
-    assert output.count_nonzero() == 0
+    assert output.logits.count_nonzero() == 0
     assert output_probe.activation.count_nonzero() == 0
+
+    # Generate
+    generate_outputs = pg.generate(inputs)
+    assert generate_outputs.shape[-1] == pg.generation_config.max_length
+
+    logits_for_target_token = torch.zeros((1, 100))
+    logits_for_target_token[0, 42] = 1
+    with pg.patch(
+        {
+            "output|logits": ReplacePatch(value=logits_for_target_token)
+        }
+    ):
+        patched_generate_outputs = pg.generate(inputs)
+    # Should only have generated the target token since we patched the output logits
+    assert (patched_generate_outputs[100:] - 42).count_nonzero() == 0
 
 
 @requires_transformers

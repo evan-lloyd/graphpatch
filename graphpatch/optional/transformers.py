@@ -4,6 +4,7 @@ try:
         AutoModel,
         AutoTokenizer,
         BitsAndBytesConfig,
+        GenerationConfig,
         GenerationMixin,
         GPT2LMHeadModel,
         LlamaForCausalLM,
@@ -13,6 +14,7 @@ try:
         PreTrainedModel,
         PreTrainedTokenizer,
     )
+    from transformers.modeling_outputs import CausalLMOutput
     from transformers.models.gpt2.modeling_gpt2 import GPT2Attention
     from transformers.utils.generic import ModelOutput
 
@@ -61,6 +63,12 @@ except ImportError:
     class ModelOutput:
         pass
 
+    class GenerationConfig:
+        pass
+
+    class CausalLMOutput:
+        pass
+
     AVAILABLE = False
 
 __all__ = [
@@ -68,6 +76,8 @@ __all__ = [
     "AutoModel",
     "AutoTokenizer",
     "BitsAndBytesConfig",
+    "CausalLMOutput",
+    "GenerationConfig",
     "GenerationMixin",
     "GPT2Attention",
     "GPT2LMHeadModel",
