@@ -22,8 +22,8 @@ ExtractionMethod = Enum("ExtractionMethod", ("custom", "compiled", "opaque"))
 
 def init_container(container: Union[ModuleList, ModuleDict]) -> Union[ModuleList, ModuleDict]:
     if isinstance(container, ModuleList):
-        return container.__class__([Module() for _ in range(len(container))])
-    return container.__class__()
+        return type(container)([Module() for _ in range(len(container))])
+    return type(container)()
 
 
 def is_container(module: Union[Module, Type[Module]]) -> TypeGuard[Union[ModuleList, ModuleDict]]:
@@ -31,7 +31,7 @@ def is_container(module: Union[Module, Type[Module]]) -> TypeGuard[Union[ModuleL
     if isinstance(module, type):
         model_class = module
     else:
-        model_class = module.__class__
+        model_class = type(module)
     return model_class in CONTAINER_TYPES
 
 
@@ -136,7 +136,7 @@ class ExtractionWrapper(Module):
         This class should never be seen by users, so this breaking expected deepcopy semantics won't
         cause any weirdness.
         """
-        new_instance = self.__class__.__new__(self.__class__)
+        new_instance = type(self).__new__(type(self))
         Module.__init__(new_instance)
         new_instance._graphpatch_extraction_state = self._graphpatch_extraction_state
         new_instance._graphpatch_record_invocations = self._graphpatch_record_invocations

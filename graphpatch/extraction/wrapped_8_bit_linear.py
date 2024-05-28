@@ -60,7 +60,7 @@ class Wrapped8BitLinear(Module):
         they are a Tensor subclass."""
         if hacks.in_fake_mode():
             return self
-        new_instance = self.__class__.__new__(self.__class__)
+        new_instance = type(self).__new__(type(self))
         Module.__init__(new_instance)
         new_instance.CB = deepcopy(self.CB, memo)
         new_instance.SCB = deepcopy(self.SCB, memo)

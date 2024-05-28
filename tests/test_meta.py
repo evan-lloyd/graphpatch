@@ -205,7 +205,7 @@ def test_custom_wrapping_class():
         def handle_wrap(self, data, path):
             if isinstance(data, Foo):
                 return self.make_wrapper(
-                    _original_type=data.__class__.__name__,
+                    _original_type=type(data).__name__,
                     _children={
                         "x": self.wrap(data.x),
                         "y": self.wrap(data.y),

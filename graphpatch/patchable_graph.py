@@ -153,7 +153,7 @@ class PatchableGraph(Module):
         **extraction_kwargs: Dict[str, Any],
     ):
         super().__init__()
-        self.__class__.__name__ = self._graphpatch_class_name
+        type(self).__name__ = self._graphpatch_class_name
 
         # Pull extraction args from positional arguments, if present; otherwise, use defaults.
         if len(extraction_options_and_args) > 0:
@@ -709,9 +709,9 @@ class PatchableGraph(Module):
         self._meta.map_in_place(recompile)
 
     def _copy_transformers_generation_config(self, module: GenerationMixin):
-        self.__class__.__bases__ = (
+        type(self).__bases__ = (
             PatchableGraph,
-            module.__class__,
+            type(module),
         )
         self.generation_config = deepcopy(module.generation_config)
         self.config = deepcopy(module.config)

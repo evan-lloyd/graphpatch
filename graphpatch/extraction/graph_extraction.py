@@ -58,9 +58,9 @@ def _clone_module(
     elif isinstance(module, CompiledGraphModule):
         return CompiledGraphModule(module, deepcopy(module.graph), "CompiledGraphModule")
     elif isinstance(module, ModuleList):
-        return module.__class__([Module() for _ in range(len(module))])
+        return type(module)([Module() for _ in range(len(module))])
     elif isinstance(module, ModuleDict):
-        return module.__class__()
+        return type(module)()
 
     # Should not happen, but things will be broken if it does.
     raise ValueError("Internal GraphPatch error: unexpected module class in _clone_module.")
@@ -81,7 +81,7 @@ def _clone_module_with_submodules(
 
 
 def _should_skip_compilation(options: ExtractionOptions, module: Module) -> bool:
-    return options.skip_compilation or module.__class__ in options.classes_to_skip_compiling
+    return options.skip_compilation or type(module) in options.classes_to_skip_compiling
 
 
 def _retarget_submodule_calls(state: ExtractionState) -> None:

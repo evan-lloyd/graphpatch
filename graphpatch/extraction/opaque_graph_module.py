@@ -59,7 +59,7 @@ else:
 
 def _is_routine(obj: Any) -> bool:
     # For torch < 2.1, some methods don't show up as routines to inspect.
-    return inspect.isroutine(obj) or obj.__class__.__name__ == "method-wrapper"
+    return inspect.isroutine(obj) or type(obj).__name__ == "method-wrapper"
 
 
 def _is_property(cls: Type[Module], name: str) -> bool:
@@ -368,7 +368,7 @@ class OpaqueGraphModule(GraphPatchModule):
             self.graph = deepcopy(root.graph)
         # Constructing from scratch.
         else:
-            self._graphpatch_opaque_module_class = root.__class__
+            self._graphpatch_opaque_module_class = type(root)
             self.graph = self._construct_graph(root)
 
         self._initialize_proxy(root)

@@ -44,8 +44,8 @@ def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: Patchabl
     submodules_2 = dict(graph_2.named_modules(remove_duplicate=False))
     assert set(submodules_1.keys()) == set(submodules_2.keys()), "Module hierarchies differ"
     # Comparing classes by name because each GraphModule is assigned a bespoke class.
-    assert {k: v.__class__.__name__ for k, v in submodules_1.items() if k != ""} == {
-        k: v.__class__.__name__ for k, v in submodules_2.items() if k != ""
+    assert {k: type(v).__name__ for k, v in submodules_1.items() if k != ""} == {
+        k: type(v).__name__ for k, v in submodules_2.items() if k != ""
     }, "Module classes differ"
     for k in submodules_1:
         if not isinstance(submodules_1[k], GraphModule):
@@ -106,9 +106,7 @@ def assert_on_nested_tensors(output_1, output_2):
         assert (
             prefix_1 == prefix_2
         ), f"Model output key differs: {prefix_1 or '<root>'} != {prefix_2 or '<root>'}"
-        assert (
-            cur_1.__class__ is cur_2.__class__
-        ), f"Model output type differs at {prefix_1 or '<root>'}"
+        assert type(cur_1) is type(cur_2), f"Model output type differs at {prefix_1 or '<root>'}"
         if isinstance(cur_1, (tuple, list)):
             assert len(cur_1) == len(
                 cur_2

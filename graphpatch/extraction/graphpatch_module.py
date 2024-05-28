@@ -136,8 +136,8 @@ class GraphPatchModule(GraphModule):
         self._graphpatch_submodules = {
             name: (  # type: ignore
                 (
-                    submodule.__class__
-                    if submodule.__class__ in (ModuleList, ModuleDict, MultiplyInvokedModule)
+                    type(submodule)
+                    if type(submodule) in (ModuleList, ModuleDict, MultiplyInvokedModule)
                     else None
                 ),
                 tuple(submodule._modules.keys()),

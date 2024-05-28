@@ -58,7 +58,7 @@ class NodeShapeWrapper(NodeDataWrapper[NodeShape]):
 
         return self.make_wrapper(
             _original_type=type(data),
-            _value=NodeShape(_shape=None, _data_type=data.__class__.__name__),
+            _value=NodeShape(_shape=None, _data_type=type(data).__name__),
             _path=path,
         )
 

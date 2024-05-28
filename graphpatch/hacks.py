@@ -289,15 +289,15 @@ def allow_builtin_in_graph(module):
     # Same functionality, different names.
     if TORCH_VERSION >= (2, 3):
         allowlist_name = "LEGACY_MOD_INLINELIST"
-        allowlist_value = inspect.getmodule(module.__class__).__name__
+        allowlist_value = inspect.getmodule(type(module)).__name__
         skip_module = torch._dynamo.trace_rules
     elif TORCH_VERSION >= (2, 2):
         allowlist_name = "LEGACY_MOD_INLINELIST"
-        allowlist_value = inspect.getmodule(module.__class__).__name__
+        allowlist_value = inspect.getmodule(type(module)).__name__
         skip_module = torch._dynamo.skipfiles
     else:
         allowlist_name = "FILENAME_ALLOWLIST"
-        allowlist_value = getattr(inspect.getmodule(module.__class__), "__file__", None)
+        allowlist_value = getattr(inspect.getmodule(type(module)), "__file__", None)
         skip_module = torch._dynamo.skipfiles
 
     if TORCH_VERSION >= (2, 2):
