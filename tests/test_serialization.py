@@ -3,7 +3,7 @@ import io
 import pytest
 import torch
 
-from graphpatch import PatchableGraph, ProbePatch
+from graphpatch import PatchableGraph, ProbePatch, ZeroPatch
 from graphpatch.extraction import ExtractionOptions
 from graphpatch.optional.accelerate import ModelHook, add_hook_to_module
 
@@ -56,6 +56,20 @@ def _serialization_asserts(
         original_module(test_inputs)
         deserialized_module(test_inputs)
         assert original_probe.activation.equal(deserialized_probe.activation)
+
+    if not hasattr(original_module, "generate"):
+        return
+
+    # ...generate should still work
+    assert original_module.generate(test_inputs).equal(deserialized_module.generate(test_inputs))
+
+    # ...and be patchable
+    with original_module.patch({output_probe_node_path: ZeroPatch()}), deserialized_module.patch(
+        {output_probe_node_path: ZeroPatch()}
+    ):
+        assert original_module.generate(test_inputs).equal(
+            deserialized_module.generate(test_inputs)
+        )
 
 
 def test_torch_save_raises(patchable_minimal_module):

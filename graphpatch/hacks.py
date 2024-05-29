@@ -469,6 +469,11 @@ def handle_transformers_output():
 
     from torch._dynamo.variables import builder
     from transformers.utils.generic import ModelOutput
+    from torch._dynamo.variables.dicts import DataClassVariable
+
+    if TORCH_VERSION < (2, 2):
+        orig_include_none = DataClassVariable.include_none
+        DataClassVariable.include_none = True
 
     orig_get_fake_value = builder.get_fake_value
 
@@ -488,6 +493,8 @@ def handle_transformers_output():
         yield
     finally:
         builder.get_fake_value = orig_get_fake_value
+        if TORCH_VERSION <= (2, 2):
+            DataClassVariable.include_none = orig_include_none
 
 
 @contextmanager

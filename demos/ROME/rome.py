@@ -183,7 +183,7 @@ def generate_value_vector(
             }
         ):
             logits = graph(**prompt_inputs)
-            if isinstance(logits, tuple) or isinstance(logits, ModelOutput):
+            if isinstance(logits, (tuple, ModelOutput)):
                 logits = logits[0]
 
         # Project onto the predictions for the positions of the "target" tokens

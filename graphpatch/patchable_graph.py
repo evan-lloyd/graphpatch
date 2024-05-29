@@ -38,7 +38,7 @@ from .meta import (
     wrap_node_path,
     wrap_node_shape,
 )
-from .optional.transformers import GenerationMixin
+from .optional.transformers import GenerationConfig, GenerationMixin, PretrainedConfig
 from .optional.typing_extensions import TypeAlias
 from .patch import Patch, PatchableValue
 
@@ -189,6 +189,9 @@ class PatchableGraph(Module):
         self._trace_output_shapes(*extraction_args, **extraction_kwargs)
         self._node_path = wrap_node_path(self._meta)
         self._is_saving = False
+
+        self.config = None
+        self.generation_config = None
         try:
             if extraction_options.copy_transformers_generation_config and isinstance(
                 module, GenerationMixin
@@ -243,12 +246,18 @@ class PatchableGraph(Module):
         state_dict: Dict[str, Any],
         parameter_names: Set[str],
         _original_graph: NodeData[Union[NodeMeta, GraphMeta]],
+        _bases: Tuple[Type, ...],
+        config: Optional[PretrainedConfig],
+        generation_config: Optional[GenerationConfig],
     ) -> "PatchableGraph":
         deserialized_instance = cls.__new__(cls)
         super().__init__(deserialized_instance)
         deserialized_instance._patch_context = None
         deserialized_instance._original_graph = deepcopy(_original_graph)
         deserialized_instance._meta = _original_graph
+        type(deserialized_instance).__bases__ = _bases
+        deserialized_instance.config = config
+        deserialized_instance.generation_config = generation_config
 
         state_by_submodule: Dict[str, Dict[str, Any]] = defaultdict(dict)
         # For cloned graphs (and probably tied weights?) we will have multiple instances of the same
@@ -350,6 +359,9 @@ class PatchableGraph(Module):
                 state_dict,
                 {name for name, _ in self.named_parameters()},
                 self._original_graph,
+                type(self).__bases__,
+                self.config,
+                self.generation_config,
             ),
         )
 
@@ -715,3 +727,14 @@ class PatchableGraph(Module):
         )
         self.generation_config = deepcopy(module.generation_config)
         self.config = deepcopy(module.config)
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            # Workaround for Llama prepare_inputs_for_generation inspecting its own module hierarchy.
+            # TODO: might want to flatten hierarchy by one level, i.e. not have a root _graph_module
+            if "_modules" in self.__dict__ and name not in self._modules:
+                if name in self._graph_module._modules:
+                    return self._graph_module._modules[name]
+            raise

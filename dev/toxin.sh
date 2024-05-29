@@ -11,7 +11,7 @@ if [[ "$1" == '-e' ]]; then
     toxenv="$2"
     shift 2
 elif [[ "$1" == '-m' ]]; then
-    toxenv=$(poetry run tox -a -m $2 | head -n 1)
+    toxenv=$(poetry run tox -a -m $2 | head -n 1 | sed -e 's/-testno//' -e 's/-testyes//' -e 's/-short//' -e 's/-long//')
     shift 2
 else
     toxenv="$(cd .tox && echo py* | awk '{print $NF}')"

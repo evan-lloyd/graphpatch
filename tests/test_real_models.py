@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from demos.ROME.rome import standardize_tokenizer
-from graphpatch import PatchableGraph, ZeroPatch
+from graphpatch import PatchableGraph, ZeroPatch, ReplacePatch
 from graphpatch.extraction import ExtractionOptions, extract
 from graphpatch.optional.transformers import (
     AutoTokenizer,
@@ -61,6 +61,24 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
         pg._graph_module,
         batched_inputs.input_ids,
     )
+    assert pg.generate(batched_inputs.input_ids, max_new_tokens=5).equal(
+        original_model.generate(batched_inputs.input_ids, max_new_tokens=5)
+    )
+
+    # only Paris Paris Paris Paris
+    with pg.patch(
+        {
+            "output|logits": [
+                ZeroPatch(),
+                ReplacePatch(value=1, slice=(slice(None), slice(None), 3681)),
+            ]
+        }
+    ):
+        patched_generate = pg.generate(batched_inputs.input_ids, max_new_tokens=5)
+    assert tiny_llama_tokenizer.batch_decode(patched_generate) == [
+        "<s> This should still work<s><s><s><s>Paris Paris Paris Paris Paris",
+        "<s>Even though the inputs are a different shape Paris Paris Paris Paris Paris",
+    ]
 
 
 @requires_transformers
@@ -99,8 +117,22 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
         pg._graph_module,
         batched_inputs.input_ids,
     )
-    gen_output = pg.generate(inputs.input_ids, do_sample=True, temperature=0.5, max_length=100)
-    # breakpoint()
+    assert pg.generate(inputs.input_ids, max_length=20).equal(
+        original_model.generate(inputs.input_ids, max_length=20)
+    )
+    # generate only "foo"
+    with pg.patch(
+        {
+            "output|logits": [
+                ZeroPatch(),
+                ReplacePatch(value=1, slice=(slice(None), slice(None), 22944)),
+            ]
+        }
+    ):
+        patched_generation = pg.generate(inputs.input_ids, max_length=20)
+    result = patched_generation[0, inputs.input_ids.shape[1] :] - 22944
+    assert result.numel() == 20 - inputs.input_ids.numel()
+    assert result.count_nonzero() == 0
 
 
 @long_running
@@ -130,7 +162,6 @@ def test_llama(tmp_path_factory, opacity):
         ),
         inputs.input_ids,
         use_cache=False,
-        return_dict=False,
     )
 
     with torch.no_grad():
@@ -149,7 +180,6 @@ def test_llama(tmp_path_factory, opacity):
             .to("cuda")
             .input_ids,
             use_cache=False,
-            return_dict=False,
         )
 
     # Getting the same top 3 tokens seems "good enough" to assert that the models are more-or-less
@@ -161,7 +191,7 @@ def test_llama(tmp_path_factory, opacity):
             patchable_llama,
             inputs.input_ids,
             k=3,
-            input_kwargs=dict(use_cache=False, return_dict=False),
+            input_kwargs=dict(use_cache=False),
         )
     # Test patching. Forces the output logits on the token for "Paris" to 0.
     with patchable_llama.patch(
@@ -180,9 +210,20 @@ def test_llama(tmp_path_factory, opacity):
     torch.cuda.synchronize()
     patchable_llama = torch.load(save_path)
     with torch.no_grad():
-        assert original_output.equal(
-            patchable_llama(inputs.input_ids, use_cache=False, return_dict=False)[0]
+        assert original_output.equal(patchable_llama(inputs.input_ids, use_cache=False)[0])
+
+    # taboo on "Paris"
+    with patchable_llama.patch(
+        {"lm_head.output": [ZeroPatch(slice=(slice(None), slice(None), 3681))]}
+    ):
+        generation_output = patchable_llama.generate(
+            inputs.input_ids, max_length=20, use_cache=False
         )
+
+    assert tokenizer.batch_decode(generation_output) == [
+        "<s> The Eiffel Tower, located in the heart of the French capital, is the most visited"
+    ]
+
     del patchable_llama
     gc.collect()
     torch.cuda.empty_cache()
@@ -212,7 +253,6 @@ def test_gpt2(tmp_path_factory, opacity):
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
         use_cache=False,
-        return_dict=False,
     )
     with torch.no_grad():
         _, original_output = assert_topk_tokens_identical(
@@ -220,7 +260,7 @@ def test_gpt2(tmp_path_factory, opacity):
             patchable_gpt2,
             inputs.input_ids,
             k=3,
-            input_kwargs=dict(use_cache=False, return_dict=False),
+            input_kwargs=dict(use_cache=False),
         )
     with torch.no_grad():
         patchable_gpt2(
@@ -238,7 +278,6 @@ def test_gpt2(tmp_path_factory, opacity):
             .to("cuda")
             .input_ids,
             use_cache=False,
-            return_dict=False,
         )
     save_path = tmp_path_factory.mktemp("models") / "gpt2_graph.pt"
     patchable_gpt2.save(save_path)
@@ -249,9 +288,23 @@ def test_gpt2(tmp_path_factory, opacity):
     torch.cuda.synchronize()
     patchable_gpt2 = torch.load(save_path)
     with torch.no_grad():
-        assert original_output.equal(
-            patchable_gpt2(inputs.input_ids, use_cache=False, return_dict=False)[0]
-        )
+        assert original_output.equal(patchable_gpt2(inputs.input_ids, use_cache=False)[0])
+
+    # generate only "foo"
+    with patchable_gpt2.patch(
+        {
+            "output|logits": [
+                ZeroPatch(),
+                ReplacePatch(value=1, slice=(slice(None), slice(None), 22944)),
+            ]
+        }
+    ):
+        patched_generation = patchable_gpt2.generate(inputs.input_ids, max_length=20)
+
+    result = patched_generation[:, inputs.input_ids.shape[1] :] - 22944
+    assert result.numel() == 20 - inputs.input_ids.numel()
+    assert result.count_nonzero() == 0
+
     del patchable_gpt2
     gc.collect()
     torch.cuda.empty_cache()

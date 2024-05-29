@@ -8,6 +8,7 @@ from torch.fx.graph_module import GraphModule
 from graphpatch import PatchableGraph
 from graphpatch.extraction.multiply_invoked_module import MultiplyInvokedModule
 from graphpatch.meta import GraphMeta
+from graphpatch.optional.transformers import ModelOutput
 
 
 def opaque_and_compiled(pg_fixture):
@@ -87,7 +88,7 @@ def assert_patchable_graphs_identical(graph_1: PatchableGraph, graph_2: Patchabl
 def assert_topk_tokens_identical(module1, module2, test_inputs, k, input_kwargs=None):
     output1 = module1(test_inputs, **(input_kwargs or {}))
     output2 = module2(test_inputs, **(input_kwargs or {}))
-    if isinstance(output1, tuple):
+    if isinstance(output1, (tuple, ModelOutput)):
         output1 = output1[0]
         output2 = output2[0]
     assert output1.shape == output2.shape, "Model output shape differs"
