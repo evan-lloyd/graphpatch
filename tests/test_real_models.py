@@ -35,11 +35,13 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
+        use_cache=False,
     )
     assert_results_identical(
         original_model,
         gm,
         inputs.input_ids,
+        input_kwargs={"use_cache": False},
     )
     batched_inputs = tiny_llama_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
@@ -50,19 +52,22 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
         original_model,
         gm,
         batched_inputs.input_ids,
+        input_kwargs={"use_cache": False},
     )
     pg = PatchableGraph(
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
+        use_cache=False,
     )
     assert_results_identical(
         original_model,
         pg._graph_module,
         batched_inputs.input_ids,
+        input_kwargs={"use_cache": False},
     )
-    assert pg.generate(batched_inputs.input_ids, max_new_tokens=5).equal(
-        original_model.generate(batched_inputs.input_ids, max_new_tokens=5)
+    assert pg.generate(batched_inputs.input_ids, max_new_tokens=5, use_cache=False).equal(
+        original_model.generate(batched_inputs.input_ids, max_new_tokens=5, use_cache=False)
     )
 
     # only Paris Paris Paris Paris
@@ -74,7 +79,9 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
             ]
         }
     ):
-        patched_generate = pg.generate(batched_inputs.input_ids, max_new_tokens=5)
+        patched_generate = pg.generate(
+            batched_inputs.input_ids, max_new_tokens=5, use_cache=False, cache_position=None
+        )
     assert tiny_llama_tokenizer.batch_decode(patched_generate) == [
         "<s> This should still work<s><s><s><s>Paris Paris Paris Paris Paris",
         "<s>Even though the inputs are a different shape Paris Paris Paris Paris Paris",
@@ -91,11 +98,10 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
+        use_cache=False,
     )
     assert_results_identical(
-        original_model,
-        gm,
-        inputs.input_ids,
+        original_model, gm, inputs.input_ids, input_kwargs={"use_cache": False}
     )
     batched_inputs = tiny_gpt2_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
@@ -103,22 +109,22 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
         padding=True,
     )
     assert_results_identical(
-        original_model,
-        gm,
-        batched_inputs.input_ids,
+        original_model, gm, batched_inputs.input_ids, input_kwargs={"use_cache": False}
     )
     pg = PatchableGraph(
         original_model,
         ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
         inputs.input_ids,
+        use_cache=False,
     )
     assert_results_identical(
         original_model,
         pg._graph_module,
         batched_inputs.input_ids,
+        input_kwargs={"use_cache": False},
     )
     assert pg.generate(inputs.input_ids, max_length=20).equal(
-        original_model.generate(inputs.input_ids, max_length=20)
+        original_model.generate(inputs.input_ids, max_length=20, use_cache=False)
     )
     # generate only "foo"
     with pg.patch(
@@ -129,7 +135,7 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
             ]
         }
     ):
-        patched_generation = pg.generate(inputs.input_ids, max_length=20)
+        patched_generation = pg.generate(inputs.input_ids, max_length=20, use_cache=False)
     result = patched_generation[0, inputs.input_ids.shape[1] :] - 22944
     assert result.numel() == 20 - inputs.input_ids.numel()
     assert result.count_nonzero() == 0
@@ -197,7 +203,7 @@ def test_llama(tmp_path_factory, opacity):
     with patchable_llama.patch(
         {"lm_head.output": [ZeroPatch(slice=(slice(None), slice(None), 3681))]}
     ):
-        patched_output = patchable_llama(inputs.input_ids)
+        patched_output = patchable_llama(inputs.input_ids, use_cache=False)
     assert patched_output[0][:, :, 3681].count_nonzero() == 0
 
     # Test serialization. Output should be the same after round-trip.
@@ -290,20 +296,16 @@ def test_gpt2(tmp_path_factory, opacity):
     with torch.no_grad():
         assert original_output.equal(patchable_gpt2(inputs.input_ids, use_cache=False)[0])
 
-    # generate only "foo"
+    # taboo on "Paris"
     with patchable_gpt2.patch(
-        {
-            "output|logits": [
-                ZeroPatch(),
-                ReplacePatch(value=1, slice=(slice(None), slice(None), 22944)),
-            ]
-        }
+        {"lm_head.output": [ZeroPatch(slice=(slice(None), slice(None), 6342))]}
     ):
-        patched_generation = patchable_gpt2.generate(inputs.input_ids, max_length=20)
-
-    result = patched_generation[:, inputs.input_ids.shape[1] :] - 22944
-    assert result.numel() == 20 - inputs.input_ids.numel()
-    assert result.count_nonzero() == 0
+        generation_output = patchable_gpt2.generate(
+            inputs.input_ids, max_length=20, use_cache=False
+        )
+    assert tokenizer.batch_decode(generation_output) == [
+        "The Eiffel Tower, located in the heart of the city, is the most recognizable symbol of"
+    ]
 
     del patchable_gpt2
     gc.collect()

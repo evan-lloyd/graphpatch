@@ -40,6 +40,7 @@ class ModuleInvocation:
     kwargs: Dict[str, Any]
     output: Any
 
+    @hacks.skip
     def __init__(
         self,
         args: Tuple[Any],

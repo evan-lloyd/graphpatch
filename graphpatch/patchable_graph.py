@@ -1,6 +1,7 @@
 from collections import defaultdict
 from contextlib import contextmanager
 from copy import copy, deepcopy
+from functools import wraps
 from typing import (
     Any,
     Callable,
@@ -176,6 +177,7 @@ class PatchableGraph(Module):
         if graph_module is None or meta is None:
             raise ValueError("Unable to extract graph.")
 
+        self._graphpatch_override_generation_kwargs = {"use_cache": False, "cache_position": None}
         self._patch_context: Optional[Dict[str, List[Patch[Tensor]]]] = None
         self._graph_module = graph_module
         self._meta = meta
@@ -196,7 +198,9 @@ class PatchableGraph(Module):
             if extraction_options.copy_transformers_generation_config and isinstance(
                 module, GenerationMixin
             ):
-                self._copy_transformers_generation_config(module)
+                self._copy_transformers_generation_config(
+                    type(module), module.config, module.generation_config
+                )
         except Exception as exc:
             warn(
                 (
@@ -246,18 +250,24 @@ class PatchableGraph(Module):
         state_dict: Dict[str, Any],
         parameter_names: Set[str],
         _original_graph: NodeData[Union[NodeMeta, GraphMeta]],
-        _bases: Tuple[Type, ...],
+        _generation_mixin_masquerade_class: Optional[Type[GenerationMixin]],
         config: Optional[PretrainedConfig],
         generation_config: Optional[GenerationConfig],
+        _graphpatch_override_generation_kwargs: Dict[str, Any],
     ) -> "PatchableGraph":
         deserialized_instance = cls.__new__(cls)
         super().__init__(deserialized_instance)
         deserialized_instance._patch_context = None
         deserialized_instance._original_graph = deepcopy(_original_graph)
         deserialized_instance._meta = _original_graph
-        type(deserialized_instance).__bases__ = _bases
-        deserialized_instance.config = config
-        deserialized_instance.generation_config = generation_config
+
+        if _generation_mixin_masquerade_class is not None:
+            deserialized_instance._copy_transformers_generation_config(
+                _generation_mixin_masquerade_class, config, generation_config
+            )
+        deserialized_instance._graphpatch_override_generation_kwargs = (
+            _graphpatch_override_generation_kwargs
+        )
 
         state_by_submodule: Dict[str, Dict[str, Any]] = defaultdict(dict)
         # For cloned graphs (and probably tied weights?) we will have multiple instances of the same
@@ -359,9 +369,10 @@ class PatchableGraph(Module):
                 state_dict,
                 {name for name, _ in self.named_parameters()},
                 self._original_graph,
-                type(self).__bases__,
+                type(self).__bases__[-1] if isinstance(self, GenerationMixin) else None,
                 self.config,
                 self.generation_config,
+                self._graphpatch_override_generation_kwargs,
             ),
         )
 
@@ -720,13 +731,26 @@ class PatchableGraph(Module):
         self._meta.map_in_place(wrap_nodes)
         self._meta.map_in_place(recompile)
 
-    def _copy_transformers_generation_config(self, module: GenerationMixin):
+    def _copy_transformers_generation_config(
+        self,
+        cls: Type[GenerationMixin],
+        config: PretrainedConfig,
+        generation_config: GenerationConfig,
+    ):
         type(self).__bases__ = (
             PatchableGraph,
-            type(module),
+            cls,
         )
-        self.generation_config = deepcopy(module.generation_config)
-        self.config = deepcopy(module.config)
+        self.config = deepcopy(config)
+        self.generation_config = deepcopy(generation_config)
+
+        # transformers uses inspect on this method, so we need to pretend to have the same signature
+        @wraps(cls.prepare_inputs_for_generation)
+        def override_generation_kwargs(*args, **kwargs):
+            kwargs.update(self._graphpatch_override_generation_kwargs)
+            return cls.prepare_inputs_for_generation(self, *args, **kwargs)
+
+        self.prepare_inputs_for_generation = override_generation_kwargs
 
     def __getattr__(self, name: str) -> Any:
         try:

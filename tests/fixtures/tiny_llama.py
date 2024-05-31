@@ -25,7 +25,7 @@ def tiny_llama_path(tmp_path_factory):
         "rms_norm_eps": 1e-6,
         "torch_dtype": "float16",
         "transformers_version": "4.27.0.dev0",
-        "use_cache": False,
+        "use_cache": True,
         "vocab_size": 32000,
         "num_key_value_heads": 2,
         "_attn_implementation": "eager",
