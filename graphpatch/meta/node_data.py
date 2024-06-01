@@ -37,14 +37,14 @@ MaybeHandledData: TypeAlias = Union[
 class _LeafNode(Protocol[NodeDataType]):
     _children: "Literal[NodeData.Sentinels._NO_VALUE]"
     _value: NodeDataType
-    _original_type: Type
+    _original_type: type
     _path: str
 
 
 class _InternalNode(Protocol[NodeDataType]):
     _value: MaybeNodeDataType[NodeDataType]
     _children: Dict[str, "NodeData[NodeDataType]"]
-    _original_type: Type
+    _original_type: type
     _path: str
 
 
@@ -76,11 +76,11 @@ class NodeData(Generic[NodeDataType]):
     _NO_VALUE: ClassVar[Literal[Sentinels._NO_VALUE]] = Sentinels._NO_VALUE
     _UNHANDLED_VALUE: ClassVar[Literal[Sentinels._UNHANDLED_VALUE]] = Sentinels._UNHANDLED_VALUE
 
-    _children: Union[Dict[str, "NodeData[NodeDataType]"], Literal[Sentinels._NO_VALUE]] = (
-        Sentinels._NO_VALUE
-    )
+    _children: Union[
+        Dict[str, "NodeData[NodeDataType]"], Literal[Sentinels._NO_VALUE]
+    ] = Sentinels._NO_VALUE
     _value: Union[NodeDataType, Literal[Sentinels._NO_VALUE]] = Sentinels._NO_VALUE
-    _original_type: Type
+    _original_type: type
     _path: str
 
     @property

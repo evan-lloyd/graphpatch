@@ -5,8 +5,8 @@ from graphpatch.optional.transformers import (
     AutoConfig,
     AutoModel,
     AutoTokenizer,
-    PreTrainedModel,
     CausalLMOutput,
+    PreTrainedModel,
 )
 
 from ..nested_module import NestedModule

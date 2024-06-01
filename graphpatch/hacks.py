@@ -468,8 +468,8 @@ def handle_transformers_output():
     from collections import namedtuple
 
     from torch._dynamo.variables import builder
-    from transformers.utils.generic import ModelOutput
     from torch._dynamo.variables.dicts import DataClassVariable
+    from transformers.utils.generic import ModelOutput
 
     if TORCH_VERSION < (2, 2):
         orig_include_none = DataClassVariable.include_none

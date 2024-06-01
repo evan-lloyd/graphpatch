@@ -137,12 +137,12 @@ class PatchableGraph(Module):
 
     _graphpatch_class_name = "PatchableGraph"
 
-    def __new__(cls: Type["PatchableGraph"], *args, **kwargs):
+    def __new__(cls: Type["PatchableGraph"], *args: Any, **kwargs: Any) -> "PatchableGraph":
         """Create a bespoke class on instantiation ala GraphModule, so we can freely modify it
         later to support transformers generation methods if needed.
         """
 
-        class PatchableGraphInstance(cls):
+        class PatchableGraphInstance(PatchableGraph):
             pass
 
         return super().__new__(PatchableGraphInstance)
@@ -736,7 +736,7 @@ class PatchableGraph(Module):
         cls: Type[GenerationMixin],
         config: PretrainedConfig,
         generation_config: GenerationConfig,
-    ):
+    ) -> None:
         type(self).__bases__ = (
             PatchableGraph,
             cls,
@@ -746,7 +746,7 @@ class PatchableGraph(Module):
 
         # transformers uses inspect on this method, so we need to pretend to have the same signature
         @wraps(cls.prepare_inputs_for_generation)
-        def override_generation_kwargs(*args, **kwargs):
+        def override_generation_kwargs(*args: Any, **kwargs: Any) -> Any:
             kwargs.update(self._graphpatch_override_generation_kwargs)
             return cls.prepare_inputs_for_generation(self, *args, **kwargs)
 

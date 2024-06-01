@@ -365,7 +365,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
                 else:
                     namespace = module.graph._graph_namespace
                     node_meta[name.meta][self._name_for(node, namespace)] = NodeData(
-                        _original_type="Node",
+                        _original_type=Node,
                         _value=NodeMeta(
                             name=f"{name.meta_prefix}{self._name_for(node, namespace)}",
                             local_name=self._name_for(node, namespace),

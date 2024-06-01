@@ -30,7 +30,7 @@ FROM nvidia/cuda:11.8.0-runtime-ubuntu20.04 as runtime
 RUN apt update -y && apt upgrade -y && \
     DEBIAN_FRONTEND=noninteractive apt install -y wget build-essential checkinstall \
     libreadline-gplv2-dev libncursesw5-dev libssl-dev libsqlite3-dev tk-dev libgdbm-dev \
-    libc6-dev libbz2-dev libffi-dev zlib1g-dev openssh-server curl git liblzma-dev lzma && \
+    libc6-dev libbz2-dev libffi-dev zlib1g-dev openssh-server curl git liblzma-dev lzma tmux && \
     cd /usr/src && \
     wget https://www.python.org/ftp/python/3.10.11/Python-3.10.11.tgz && \
     tar xzf Python-3.10.11.tgz && \

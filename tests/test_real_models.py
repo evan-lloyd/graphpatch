@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from demos.ROME.rome import standardize_tokenizer
-from graphpatch import PatchableGraph, ZeroPatch, ReplacePatch
+from graphpatch import PatchableGraph, ReplacePatch, ZeroPatch
 from graphpatch.extraction import ExtractionOptions, extract
 from graphpatch.optional.transformers import (
     AutoTokenizer,
