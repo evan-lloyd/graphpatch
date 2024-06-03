@@ -20,13 +20,12 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2-xl")
 inputs = tokenizer(
    "The Eiffel Tower, located in", return_tensors="pt", padding=False
 ).to(torch.device("cuda"))
-# Note that all arguments after the first are forwarded as example inputs
-# to the model during compilation; use_cache and return_dict are arguments
-# to GPT2LMHeadModel, not graphpatch-specific.
-pg = PatchableGraph(model, **inputs, use_cache=False, return_dict=False)
-# Applies two patches to the multiplication result within the activation function
-# of the MLP in the 18th transformer layer. ProbePatch records the last observed value
-# at the given node, while ZeroPatch zeroes out the value seen by downstream computations.
+# Note that arguments after the first are forwarded as example inputs
+# to the model during compilation.
+pg = PatchableGraph(model, **inputs, use_cache=False)
+# Applies patches to the multiplication result within the activation function of the
+# MLP in the 18th transformer layer. ProbePatch records the last observed value at the
+# given node, while ZeroPatch zeroes out the value seen by downstream computations.
 with pg.patch("transformer.h_17.mlp.act.mul_3": [probe := ProbePatch(), ZeroPatch()]):
    output = pg(**inputs)
 # Patches are applied in order. probe.activation holds the value prior
@@ -83,15 +82,22 @@ with some of their optional dependencies that are otherwise mildly inconvenient 
 pip install graphpatch[transformers]
 ```
 
-## Compatibility
+## Model compatibility
+
+For full functionality, `graphpatch` depends on being able to call [`torch.compile()`](https://pytorch.org/docs/stable/generated/torch.compile.html#torch.compile) on your
+model. This currently supports a subset of possible Python operations–for example, it doesn’t support
+context managers. `graphpatch` implements some workarounds for situations that a native
+`compile()` can’t handle, but this coverage isn’t complete. To deal with this, `graphpatch`
+has a graceful fallback that should be no worse of a user experience than using module hooks.
+In that case, you will only be able to patch an uncompilable submodule’s inputs, outputs,
+parameters, and buffers. See [Notes on compilation](https://graphpatch.readthedocs.io/en/stable/notes_on_compilation.html#notes-on-compilation) for more discussion.
+
+## `transformers` integration
 
 `graphpatch` is theoretically compatible with any model in Huggingface’s [transformers](https://huggingface.co/docs/transformers/main/en/index)
-library, but note that there may be edge cases in specific model code that it can’t yet handle.
-`graphpatch` is tested against and known to work with the `transformers` implementations of
-[Llama](https://huggingface.co/docs/transformers/main/en/model_doc/llama) and [GPT2](https://huggingface.co/docs/transformers/main/en/model_doc/gpt2).
-When compilation fails, `graphpatch` has a graceful fallback that should be no worse of
-a user experience than using native PyTorch module hooks. In that case, you will only be able to patch an
-uncompilable submodule’s inputs, outputs, parameters, and buffers.
+library, but note that there may be edge cases in specific model code that it can’t yet handle. For
+example, it is not (yet!) compatible with the key-value caching implementation, so if you want full
+compilation of such models you should pass `use_cache=False` as part of the example inputs.
 
 `graphpatch` is compatible with models loaded via [accelerate](https://huggingface.co/docs/accelerate/main/en/index) and with 8-bit parameters
 quantized by [bitsandbytes](https://pypi.org/project/bitsandbytes/). This means that you can run `graphpatch` on
@@ -104,7 +110,17 @@ model = LlamaForCausalLM.from_pretrained(
    quantization_config=BitsAndBytesConfig(load_in_8bit=True),
    torch_dtype=torch.float16,
 )
-pg = PatchableGraph(model, **example_inputs)
+pg = PatchableGraph(model, **example_inputs, use_cache=False)
+```
+
+For `transformers` models supporting the [`GenerationMixin`](https://huggingface.co/docs/transformers/main/en/main_classes/text_generation#transformers.GenerationMixin) protocol, you will
+also be able to use convenience functions like [`generate()`](https://huggingface.co/docs/transformers/main/en/main_classes/text_generation#transformers.GenerationMixin.generate) in
+combination with activation patching:
+
+```python
+# Prevent Llama from outputting "Paris"
+with pg.patch({"lm_head.output": ZeroPatch(slice=(slice(None), slice(None), 3681))}):
+   output_tokens = pg.generate(**inputs, max_length=20, use_cache=False)
 ```
 
 <a id="related-work"></a>
