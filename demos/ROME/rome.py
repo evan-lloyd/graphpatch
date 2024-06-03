@@ -1,10 +1,11 @@
 from typing import Any, List, Optional, Sequence, Tuple
 
 import torch
+from torch import Tensor
 
 from graphpatch import AddPatch, Patch, PatchableGraph, ProbePatch
 from graphpatch.optional.dataclasses import dataclass
-from graphpatch.optional.transformers import AutoTokenizer
+from graphpatch.optional.transformers import AutoTokenizer, ModelOutput
 
 """
 Minimal (not fully complete) reproduction of ROME (https://rome.baulab.info/), heavily based off the
@@ -140,18 +141,18 @@ def generate_value_vector(
             prompt_inputs.input_ids[0, :].unsqueeze(0),
             attention_mask=prompt_inputs.attention_mask[0, :].unsqueeze(0),
         )
-        if target_probe.activation is None:
+        if not isinstance(target_probe.activation, Tensor):
             raise ValueError(
                 f"Activations were not recorded for {node_name}; is this name correct?"
             )
         clean_target = target_probe.activation[0, subject_offsets[0], :]
-        if input_probe.activation is None:
+        if not isinstance(input_probe.activation, Tensor):
             raise ValueError(
                 f"Activations were not recorded for {input_node_name}; is this name correct?"
             )
         clean_input = input_probe.activation[0, subject_offsets[0], :]
         if output_node_name:
-            if output_probe.activation is None:
+            if not isinstance(output_probe.activation, Tensor):
                 raise ValueError(
                     f"Activations were not recorded for {output_node_name}; is this name correct?"
                 )
@@ -182,7 +183,7 @@ def generate_value_vector(
             }
         ):
             logits = graph(**prompt_inputs)
-            if isinstance(logits, tuple):
+            if isinstance(logits, (tuple, ModelOutput)):
                 logits = logits[0]
 
         # Project onto the predictions for the positions of the "target" tokens
@@ -196,7 +197,7 @@ def generate_value_vector(
         nll_loss_each = -(log_probs * mask).sum((1, 2)) / target_len
         nll_loss = nll_loss_each.mean()
         weight_decay = 0.5 * torch.norm(delta) / torch.norm(clean_target) ** 2
-        loss = nll_loss + weight_decay
+        loss = nll_loss + weight_decay.to(nll_loss.device)
         if log_progress:
             print(f"loss: {loss.item()}, prob of target: {torch.exp(-nll_loss_each).mean().item()}")
         loss.backward()
@@ -228,7 +229,7 @@ def generate_key_vector(
         graph(**prompt_inputs)
         activation = probe.activation
 
-    if activation is None:
+    if not isinstance(activation, Tensor):
         raise ValueError(
             f"No activations for {node_name} were recorded; check that the node name is correct."
         )

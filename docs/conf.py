@@ -9,7 +9,7 @@
 project = "graphpatch"
 copyright = "2023, Evan Lloyd"
 author = "Evan Lloyd"
-release = "0.1.0"
+release = "0.2.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -21,13 +21,15 @@ extensions = [
     "IPython.sphinxext.ipython_console_highlighting",
     "IPython.sphinxext.ipython_directive",
     "docs.tweaks",
+    "sphinx_markdown_builder",
 ]
 intersphinx_mapping = {
+    "bitsandbytes": ("https://huggingface.co/docs/bitsandbytes/main/en/", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
     "torchcpp": ("https://pytorch.org/cppdocs/", None),
     "transformers": ("https://huggingface.co/docs/transformers/main/en/", None),
     "accelerate": ("https://huggingface.co/docs/accelerate/main/en/", None),
-    "transformer_lens": ("https://neelnanda-io.github.io/TransformerLens/", None),
+    "transformer_lens": ("https://transformerlensorg.github.io/TransformerLens/", None),
     "python": ("https://docs.python.org/3.11", None),
 }
 napoleon_google_docstring = True
@@ -52,3 +54,7 @@ autodoc_type_aliases = {
     "TensorSliceElement": "TensorSliceElement",
     "PatchTarget": "PatchTarget",
 }
+autodoc_typehints_format = "short"
+
+markdown_http_base = "https://graphpatch.readthedocs.io/en/stable"
+markdown_uri_doc_suffix = ".html"

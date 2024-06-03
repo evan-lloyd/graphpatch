@@ -26,7 +26,12 @@ NodeDataType = TypeVar("NodeDataType")
 OtherNodeDataType = TypeVar("OtherNodeDataType")
 MaybeNodeData: TypeAlias = Union["NodeData[NodeDataType]", "Literal[NodeData.Sentinels._NO_VALUE]"]
 MaybeNodeDataType: TypeAlias = Union[NodeDataType, "Literal[NodeData.Sentinels._NO_VALUE]"]
-MaybeHandledData: TypeAlias = Union["NodeData", "Literal[NodeData.Sentinels._UNHANDLED_VALUE]"]
+MaybeOtherNodeDataType: TypeAlias = Union[
+    OtherNodeDataType, "Literal[NodeData.Sentinels._NO_VALUE]"
+]
+MaybeHandledData: TypeAlias = Union[
+    "NodeData[NodeDataType]", "Literal[NodeData.Sentinels._UNHANDLED_VALUE]"
+]
 
 
 class _LeafNode(Protocol[NodeDataType]):
@@ -133,6 +138,23 @@ class NodeData(Generic[NodeDataType]):
 
         return _generator()
 
+    def reverse_topological_order(self) -> Iterator[NodeDataType]:
+        """Yield children before their parents, but otherwise in forward order."""
+        queue = deque([self])
+        result_stack: List[NodeData[NodeDataType]] = []
+        while queue:
+            cur = queue.popleft()
+            result_stack.append(cur)
+
+            if cur._children is NodeData._NO_VALUE:
+                continue
+
+            queue.extend(reversed(cur._children.values()))
+        while result_stack:
+            node = result_stack.pop()
+            if node._value is not NodeData._NO_VALUE:
+                yield node._value
+
     def get(
         self, path: str, default: Optional[NodeDataType] = None
     ) -> Union[Optional[NodeDataType], "NodeData[NodeDataType]"]:
@@ -226,14 +248,34 @@ class NodeData(Generic[NodeDataType]):
             if node._value is not NodeData._NO_VALUE:
                 node._value = fn(node._value)
 
-    def map(
+    def filter(
         self,
-        fn: Callable[[str, MaybeNodeDataType[NodeDataType]], MaybeNodeDataType[OtherNodeDataType]],
+        predicate: Callable[[str, MaybeNodeDataType[NodeDataType]], bool],
         node_constructor: Optional[Callable[..., "NodeData[OtherNodeDataType]"]] = None,
         root_prefix: str = "",
-    ) -> "NodeData[OtherNodeDataType]":
+    ) -> "MaybeNodeData[OtherNodeDataType]":
         """Returns a new NodeData tree with the same structure as this one, but with all values
-        replaced with fn(previous_value), which may return a different type of data."""
+        failing predicate removed."""
+
+        return self.map(
+            lambda path, value: (
+                value
+                if (value is not NodeData._NO_VALUE and predicate(path, value))
+                else NodeData._NO_VALUE
+            ),
+            node_constructor,
+            root_prefix,
+        )
+
+    def map(
+        self,
+        fn: Callable[[str, NodeDataType], MaybeNodeDataType[NodeDataType]],
+        node_constructor: Optional[Callable[..., "NodeData[OtherNodeDataType]"]] = None,
+        root_prefix: str = "",
+    ) -> "MaybeNodeData[OtherNodeDataType]":
+        """Returns a new NodeData tree with the same structure as this one, but with all values
+        replaced with fn(previous_value), which may return a different type of data. If fn returns
+        NodeData._NO_VALUE, omit it from the result unless it has children with values."""
 
         def default_node_constructor(**kwargs: Any) -> NodeData[OtherNodeDataType]:
             return NodeData[OtherNodeDataType](**kwargs)
@@ -255,14 +297,21 @@ class NodeData(Generic[NodeDataType]):
             )
         # Process bottom-up, so children will be constructed by the time we reach their parents.
         for path, node in reversed(node_stack):
-            value = fn(path, node._value)
+            if node._value is not NodeData._NO_VALUE:
+                value = fn(path, node._value)
+            else:
+                value = NodeData._NO_VALUE
             children: Union[
                 Dict[str, MaybeNodeData[OtherNodeDataType]], Literal[NodeData.Sentinels._NO_VALUE]
             ] = NodeData._NO_VALUE
             if node._children is not NodeData._NO_VALUE:
                 children = {
-                    k: new_nodes[f"{path + '.' if path else ''}{k}"] for k in node._children
+                    k: new_nodes[child_path]
+                    for k in node._children
+                    if (child_path := f"{path + '.' if path else ''}{k}") in new_nodes
                 }
+                if len(children) == 0:
+                    children = NodeData._NO_VALUE
             if value is not NodeData._NO_VALUE or children is not NodeData._NO_VALUE:
                 new_nodes[path] = node_constructor(
                     _value=value,
@@ -270,9 +319,7 @@ class NodeData(Generic[NodeDataType]):
                     _original_type=node._original_type,
                     _path=path,
                 )
-        # Placate mypy; we'll always have data at the root.
-        root = new_nodes[root_prefix]
-        assert isinstance(root, NodeData)
+        root = new_nodes.get(root_prefix, NodeData._NO_VALUE)
         return root
 
     def replace(self, path: Optional[str], fn: Callable[[NodeDataType], NodeDataType]) -> None:
@@ -298,12 +345,12 @@ class NodeData(Generic[NodeDataType]):
         # NB: with default container types, we assume internal nodes have no _value
         if self._children is NodeData._NO_VALUE:
             return self._value
-        elif self._original_type is tuple:
-            return tuple(t.unwrap(handle_unwrap) for t in self._children.values())
-        elif self._original_type is list:
-            return list(t.unwrap(handle_unwrap) for t in self._children.values())
-        elif self._original_type is dict:
-            return {k: v.unwrap(handle_unwrap) for k, v in self._children.items()}
+        elif issubclass(self._original_type, (tuple, list)):
+            return self._original_type(t.unwrap(handle_unwrap) for t in self._children.values())
+        elif issubclass(self._original_type, (dict,)):
+            return self._original_type(
+                **{k: v.unwrap(handle_unwrap) for k, v in self._children.items()}
+            )
 
         raise ValueError(
             f"Unhandled container type {self._original_type}."
@@ -321,7 +368,7 @@ class NodeData(Generic[NodeDataType]):
         return NodeData[NodeDataType](
             _value=deepcopy(self._value, memo),
             _children=deepcopy(self._children, memo),
-            _original_type=deepcopy(self._original_type, memo),
+            _original_type=self._original_type,
             _path=self._path,
         )
 
@@ -384,7 +431,9 @@ class PrettyPrintedNodeData(NodeData[NodeDataType]):
                         indent_str += "  "
                 indent_str += joiner
 
-            if self.show_containers and node._children is not NodeData._NO_VALUE:
+            if hasattr(node._value, "_graphpatch_graph_repr"):
+                container_info = f": {node._value._graphpatch_graph_repr()}"  # type: ignore
+            elif self.show_containers and node._children is not NodeData._NO_VALUE:
                 container_info = f": {node._original_type.__name__}({len(node._children)})"
             else:
                 container_info = ""
@@ -423,7 +472,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
     def __init__(self, node_data_type: Type[NodeData[NodeDataType]] = NodeData[NodeDataType]):
         self._node_data_type = node_data_type
 
-    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:
+    def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:  # type: ignore[type-arg]
         """Override in subclasses to implement custom behavior depending on data. Return
         NodeData._UNHANDLED_VALUE to run the base class' default behavior.
         """
@@ -433,7 +482,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
         return self._node_data_type(**kwargs)
 
     def handle_leaf(self, data: Any, path: str) -> NodeData[NodeDataType]:
-        return self.make_wrapper(_original_type=data.__class__, _value=data, _path=path)
+        return self.make_wrapper(_original_type=type(data), _value=data, _path=path)
 
     def wrap(
         self,
@@ -451,7 +500,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
 
         if isinstance(data, (tuple, list)):
             return self.make_wrapper(
-                _original_type=data.__class__,
+                _original_type=type(data),
                 _children={
                     f"sub_{i}": self.wrap(c, f"{prefix}sub_{i}") for i, c in enumerate(data)
                 },
@@ -459,7 +508,7 @@ class NodeDataWrapper(Generic[NodeDataType]):
             )
         elif isinstance(data, dict):
             return self.make_wrapper(
-                _original_type=data.__class__,
+                _original_type=type(data),
                 _children={k: self.wrap(data[k], f"{prefix}{k}") for k in data},
                 _path=path,
             )

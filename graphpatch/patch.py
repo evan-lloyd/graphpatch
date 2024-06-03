@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Callable, Generic, List, Optional, Tuple, TypeVar, Union
 
 from torch import Tensor
 
 from .optional.dataclasses import dataclass, field
+from .optional.typing_extensions import TypeAlias
 
 PatchTarget = TypeVar("PatchTarget")
 TensorSliceElement = Union[int, slice, Tensor]
 TensorSlice = Union[TensorSliceElement, List[TensorSliceElement], Tuple[TensorSliceElement, ...]]
+PatchableValue: TypeAlias = Union[Tensor, float, int, bool]
 
 
 @dataclass(kw_only=True)
@@ -40,7 +43,7 @@ class Patch(Generic[PatchTarget]):
 
 
 @dataclass(kw_only=True)
-class AddPatch(Patch[Tensor]):
+class AddPatch(Patch[PatchableValue]):
     """Patch that adds a value to (optionally, a slice of) its target.
 
     Example:
@@ -56,11 +59,14 @@ class AddPatch(Patch[Tensor]):
         value: Value to add to target.
     """
 
-    def op(self, original_output: Tensor) -> Tensor:
-        original_output[self.slice] += self.value
-        return original_output
+    def op(self, original_output: PatchableValue) -> PatchableValue:
+        if isinstance(original_output, Tensor):
+            original_output[self.slice] += self.value
+            return original_output
+        else:
+            return original_output + self.value
 
-    value: Tensor | int | float | bool
+    value: PatchableValue
     slice: Optional[TensorSlice] = None
 
 
@@ -99,7 +105,7 @@ class CustomPatch(Patch[PatchTarget]):
 
 
 @dataclass(kw_only=True)
-class ProbePatch(Patch[Tensor]):
+class ProbePatch(Patch[PatchableValue]):
     """Patch that records the last activation of its target.
 
     Example:
@@ -117,15 +123,18 @@ class ProbePatch(Patch[Tensor]):
 
     requires_clone: bool = field(default=False, init=False)
 
-    def op(self, original_output: Tensor) -> Tensor:
-        self.activation = original_output.detach().clone()
+    def op(self, original_output: PatchableValue) -> PatchableValue:
+        if isinstance(original_output, Tensor):
+            self.activation = original_output.detach().clone()
+        else:
+            self.activation = deepcopy(original_output)
         return original_output
 
-    activation: Optional[Tensor] = field(default=None, init=False)
+    activation: Optional[PatchableValue] = field(default=None, init=False)
 
 
 @dataclass(kw_only=True)
-class RecordPatch(Patch[Tensor]):
+class RecordPatch(Patch[PatchableValue]):
     """Patch that records all activations of its target.
 
     Example:
@@ -154,15 +163,18 @@ class RecordPatch(Patch[Tensor]):
 
     requires_clone: bool = field(default=False, init=False)
 
-    def op(self, original_output: Tensor) -> Tensor:
-        self.activations.append(original_output.detach().clone())
+    def op(self, original_output: PatchableValue) -> PatchableValue:
+        if isinstance(original_output, Tensor):
+            self.activations.append(original_output.detach().clone())
+        else:
+            self.activations.append(deepcopy(original_output))
         return original_output
 
-    activations: List[Tensor] = field(default_factory=list)
+    activations: List[PatchableValue] = field(default_factory=list)
 
 
 @dataclass(kw_only=True)
-class ReplacePatch(Patch[Tensor]):
+class ReplacePatch(Patch[PatchableValue]):
     """Patch that replaces (optionally, a slice of) its target with the given value.
 
     Example:
@@ -177,16 +189,19 @@ class ReplacePatch(Patch[Tensor]):
         value: Value with which to replace the target or slice of the target.
     """
 
-    def op(self, original_output: Tensor) -> Tensor:
-        original_output[self.slice] = self.value
-        return original_output
+    def op(self, original_output: PatchableValue) -> PatchableValue:
+        if isinstance(original_output, Tensor):
+            original_output[self.slice] = self.value
+            return original_output
+        else:
+            return self.value
 
     slice: Optional[TensorSlice] = None
-    value: Tensor | int | float | bool
+    value: PatchableValue
 
 
 @dataclass(kw_only=True)
-class ZeroPatch(Patch[Tensor]):
+class ZeroPatch(Patch[PatchableValue]):
     """Patch that zeroes out a slice of its target, or the whole tensor if no slice is provided.
 
     Example:
@@ -200,8 +215,11 @@ class ZeroPatch(Patch[Tensor]):
         slice: Slice of the target to apply zeros to; applies to the whole tensor if None.
     """
 
-    def op(self, original_output: Tensor) -> Tensor:
-        original_output[self.slice] = 0
-        return original_output
+    def op(self, original_output: PatchableValue) -> PatchableValue:
+        if isinstance(original_output, Tensor):
+            original_output[self.slice] = 0
+            return original_output
+        else:
+            return 0
 
     slice: Optional[TensorSlice] = None

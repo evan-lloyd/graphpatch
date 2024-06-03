@@ -1,0 +1,2 @@
+class GraphPatchWarning(Warning):
+    pass

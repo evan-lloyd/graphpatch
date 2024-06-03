@@ -2,7 +2,7 @@ import pytest
 from torch import ones
 from torch.nn import Linear, Module
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 
 
 class TupleOutputModule(Module):
@@ -27,5 +27,12 @@ def tuple_output_module_inputs():
 
 
 @pytest.fixture
-def patchable_tuple_output_module(tuple_output_module, tuple_output_module_inputs):
-    return PatchableGraph(tuple_output_module, tuple_output_module_inputs)
+def patchable_tuple_output_module(request, tuple_output_module, tuple_output_module_inputs):
+    return PatchableGraph(
+        tuple_output_module,
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
+        tuple_output_module_inputs,
+    )

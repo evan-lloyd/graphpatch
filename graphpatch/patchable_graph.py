@@ -1,6 +1,7 @@
 from collections import defaultdict
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from copy import copy, deepcopy
+from functools import wraps
 from typing import (
     Any,
     Callable,
@@ -11,19 +12,24 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Type,
     Union,
     cast,
 )
+from warnings import warn
 
 import torch
 from torch import Tensor, no_grad
 from torch.fx.graph import CodeGen, _Namespace
 from torch.fx.graph_module import GraphModule, _forward_from_src
 from torch.fx.node import Node, Node as FXNode
-from torch.nn import Module, ModuleList, Parameter
+from torch.nn import Module, Parameter
+from torch.serialization import FILE_LIKE
 from typing_extensions import TypedDict
 
-from .graph_extraction import detach_accelerate_hooks, extract, is_container
+from . import hacks
+from .exceptions import GraphPatchWarning
+from .extraction import ExtractionOptions, extract
 from .meta import (
     GraphMeta,
     NodeData,
@@ -33,14 +39,17 @@ from .meta import (
     wrap_node_path,
     wrap_node_shape,
 )
-from .optional.accelerate import add_hook_to_module
-from .patch import Patch
+from .optional.transformers import GenerationConfig, GenerationMixin, PretrainedConfig
+from .optional.typing_extensions import TypeAlias
+from .patch import Patch, PatchableValue
 
 GraphPatchArgs = TypedDict(
     "GraphPatchArgs",
     {"_trace_output_shape": bool, "patch": Mapping[str, List[Patch[Tensor]]]},
     total=False,
 )
+
+FileLike: TypeAlias = FILE_LIKE
 
 
 def _make_patch_wrapper(
@@ -66,6 +75,7 @@ def _make_patch_wrapper(
         # TODO: it should be possible to extract shapes during the initial graph extraction
         if patch_args.get("_trace_output_shape", False):
             node.shape = wrap_node_shape(output)
+            node.parameter_expected = isinstance(output, Parameter)
 
         if not patches:
             return output
@@ -78,23 +88,28 @@ def _make_patch_wrapper(
         for patch in patches:
             wrapped_output.replace(patch.path, patch)
 
-        return wrapped_output.unwrap()
+        unwrapped_output = wrapped_output.unwrap()
+
+        # User convenience for patches that replace Parameters, allowing bare Tensors to be passed
+        # without torch raising an exception.
+        if node.parameter_expected and not isinstance(unwrapped_output, Parameter):
+            return Parameter(unwrapped_output)
+        return unwrapped_output
 
     return patch_wrapper
 
 
 class PatchableGraph(Module):
     """PatchableGraph is a wrapper around :class:`torch.nn.Module` allowing activation patching at
-    any computational node.
+    any tensor operation. It is the main entrypoint for ``graphpatch``'s functionality.
 
     Internally, PatchableGraph builds a :class:`torch.fx.GraphModule` for the module and each of its
     submodules using :func:`torch.compile`. This exposes the computational structure of the module
     while still being equivalent to the original--you can perform any operation you would with the
-    original module using the PatchableGraph.
-
-    Note that the original module hierarchy is retained. For example, if you had a module ``foo``
-    containing a submodule ``bar``, you would get back a GraphModule equivalent to ``foo`` which has
-    a sub-GraphModule ``bar``, equivalent to the original ``bar``.
+    original module using the PatchableGraph. In case compilation fails--``compile()`` is not yet
+    compatible with all model code--PatchableGraph will fall back to patching submodule input,
+    output, parameters, and buffers. See :class:`ExtractionOptions` for options controlling this
+    behavior and :ref:`notes_on_compilation` for more discussion.
 
     To perform activation patching, use the :meth:`patch <graphpatch.PatchableGraph.patch>` context
     manager. This method takes a mapping from :ref:`NodePaths <node_path>` to lists of
@@ -113,33 +128,56 @@ class PatchableGraph(Module):
 
     Parameters:
         module: The :class:`Module <torch.nn.Module>` to wrap.
-        extraction_args: Arguments (example inputs) to be passed to the module during
-            :func:`torch.compile`.
-        _graphpatch_postprocessing_function: Optional function to call which will modify the
-            generated :class:`torch.fx.GraphModule`. This function can modify the underlying
-            :class:`torch.fx.Graph` in-place. The original module is passed for reference in case,
-            for example, the needed modifications depend on its configuration.
+        extraction_options_and_args: Arguments (example inputs) to be passed to the module during
+            :func:`torch.compile`. If the first argument is an :class:`ExtractionOptions` instance,
+            apply them during graph extraction.
         extraction_kwargs: Keyword arguments to be passed to the module during
             :func:`torch.compile()`.
     """
 
+    _graphpatch_class_name = "PatchableGraph"
+
+    def __new__(cls: Type["PatchableGraph"], *args: Any, **kwargs: Any) -> "PatchableGraph":
+        """Create a bespoke class on instantiation ala GraphModule, so we can freely modify it
+        later to support transformers generation methods if needed.
+        """
+
+        class PatchableGraphInstance(PatchableGraph):
+            pass
+
+        return super().__new__(PatchableGraphInstance)
+
     def __init__(
         self,
         module: Module,
-        *extraction_args: Any,
-        _graphpatch_postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None,
-        **extraction_kwargs: Any,
+        *extraction_options_and_args: Tuple[Union[Any, ExtractionOptions], ...],
+        **extraction_kwargs: Dict[str, Any],
     ):
         super().__init__()
+        type(self).__name__ = self._graphpatch_class_name
+
+        # Pull extraction args from positional arguments, if present; otherwise, use defaults.
+        if len(extraction_options_and_args) > 0:
+            if isinstance(extraction_options_and_args[0], ExtractionOptions):
+                extraction_options: ExtractionOptions = extraction_options_and_args[0]
+                extraction_args = extraction_options_and_args[1:]
+            else:
+                extraction_options = ExtractionOptions()
+                extraction_args = extraction_options_and_args
+        else:
+            extraction_options = ExtractionOptions()
+            extraction_args = ()
+
         graph_module, meta = extract(
             module,
+            extraction_options,
             *extraction_args,
-            _graphpatch_postprocessing_function=_graphpatch_postprocessing_function,
             **extraction_kwargs,
         )
         if graph_module is None or meta is None:
             raise ValueError("Unable to extract graph.")
 
+        self._graphpatch_override_generation_kwargs = {"use_cache": False, "cache_position": None}
         self._patch_context: Optional[Dict[str, List[Patch[Tensor]]]] = None
         self._graph_module = graph_module
         self._meta = meta
@@ -154,25 +192,57 @@ class PatchableGraph(Module):
         self._node_path = wrap_node_path(self._meta)
         self._is_saving = False
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        """Wrapper around :func:`torch.save()` because some PatchableGraph internals need to be
-        handled specially before pickling. You will get an exception asking you to use this method
-        if you call :func:`torch.save()` directly on a PatchableGraph instance.
-        All the normal caveats around pickling apply; you should not :func:`torch.load()` anything
-        you downloaded from the Internet.
+        self.config = None
+        self.generation_config = None
+        try:
+            if extraction_options.copy_transformers_generation_config and isinstance(
+                module, GenerationMixin
+            ):
+                self._copy_transformers_generation_config(
+                    type(module), module.config, module.generation_config
+                )
+        except Exception as exc:
+            warn(
+                (
+                    "Failed to set up transformers generation on the PatchableGraph. You will be"
+                    " unable to use convenience methods like generate(). You can disable setup of"
+                    " generation by setting copy_transformers_generation_config=False in your"
+                    " extraction options.\n\n"
+                    "Exception:\n"
+                    "**************************\n"
+                    f"{exc}\n"
+                    "**************************\n\n"
+                    "User code:\n"
+                ),
+                GraphPatchWarning,
+                stacklevel=2,
+            )
 
-        Future versions of graphpatch will likely remove this method in favor of a more secure
-        serialization scheme.
+    @staticmethod
+    def load(file: FileLike, *args: Any, **kwargs: Any) -> "PatchableGraph":
+        """Wrapper around :func:`torch.load()`. All the normal caveats around pickling apply; you
+        should not load() anything you downloaded from the Internet.
+
+        Future versions of graphpatch will likely implement a more secure serialization scheme and
+        disable the built-in torch.load().
         """
-        uncompiled_submodules = self._uncompiled_submodules()
-        with ExitStack() as hook_stack:
-            for module in uncompiled_submodules.values():
-                hook_stack.enter_context(detach_accelerate_hooks(module))
-            self._is_saving = True
-            try:
-                torch.save(self, *args, **kwargs)
-            finally:
-                self._is_saving = False
+        return cast(
+            PatchableGraph,
+            torch.load(file, *args, **kwargs),
+        )
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Wrapper around :func:`torch.save()` because some PatchableGraph internals may need to be
+        handled specially before pickling.
+
+        Future versions of graphpatch will likely implement a more secure serialization scheme and
+        disable the built-in torch.save().
+        """
+        self._is_saving = True
+        try:
+            torch.save(self, *args, **kwargs)
+        finally:
+            self._is_saving = False
 
     @classmethod
     def _unpickle(
@@ -180,8 +250,10 @@ class PatchableGraph(Module):
         state_dict: Dict[str, Any],
         parameter_names: Set[str],
         _original_graph: NodeData[Union[NodeMeta, GraphMeta]],
-        _graphpatch_output_indexes: Dict[str, NodeData[int]],
-        uncompiled_submodules: Dict[str, Module],
+        _generation_mixin_masquerade_class: Optional[Type[GenerationMixin]],
+        config: Optional[PretrainedConfig],
+        generation_config: Optional[GenerationConfig],
+        _graphpatch_override_generation_kwargs: Dict[str, Any],
     ) -> "PatchableGraph":
         deserialized_instance = cls.__new__(cls)
         super().__init__(deserialized_instance)
@@ -189,8 +261,14 @@ class PatchableGraph(Module):
         deserialized_instance._original_graph = deepcopy(_original_graph)
         deserialized_instance._meta = _original_graph
 
-        # NB: state_dict uses the pytorch module hierarchy, which differs from our meta hierarchy,
-        # since nodes do not always have the same name as their module.
+        if _generation_mixin_masquerade_class is not None:
+            deserialized_instance._copy_transformers_generation_config(
+                _generation_mixin_masquerade_class, config, generation_config
+            )
+        deserialized_instance._graphpatch_override_generation_kwargs = (
+            _graphpatch_override_generation_kwargs
+        )
+
         state_by_submodule: Dict[str, Dict[str, Any]] = defaultdict(dict)
         # For cloned graphs (and probably tied weights?) we will have multiple instances of the same
         # object in our state dict. Make sure we maintain that relationship by only constructing
@@ -198,30 +276,23 @@ class PatchableGraph(Module):
         state_entries_to_parameters: Dict[Any, Parameter] = {}
         for qualified_name, state_entry in state_dict.items():
             [*parent_path, target] = qualified_name.split(".")
-            if state_entry in state_entries_to_parameters:
+            if isinstance(state_entry, Tensor) and state_entry in state_entries_to_parameters:
                 parameter = state_entries_to_parameters[state_entry]
             elif qualified_name in parameter_names:
                 parameter = Parameter(
                     state_dict[qualified_name],
-                    requires_grad=(state_dict[qualified_name].dtype != torch.int8),
+                    requires_grad=(state_dict[qualified_name].requires_grad),
                 )
                 state_entries_to_parameters[state_entry] = parameter
             else:
                 parameter = state_entry
-                state_entries_to_parameters[state_entry] = parameter
             state_by_submodule[".".join(parent_path)][target] = parameter
 
         # GraphModule is not built to handle nested graphs, so re-inflate each sub-graph
-        # individually. Since keys will have been added in topological order, reversing guarantees
-        # that we process children before their parents.
+        # individually. Process children before their parents so we can do this in one pass.
         submodules_by_parent: Dict[str, Dict[str, Module]] = defaultdict(dict)
 
-        # Populate with any uncompiled submodules.
-        for key, submodule in uncompiled_submodules.items():
-            [*parent_path, name] = key.split(".")
-            submodules_by_parent[".".join(parent_path)][name] = submodule
-
-        for meta in reversed(list(deserialized_instance._meta.values())):
+        for meta in deserialized_instance._meta.reverse_topological_order():
             if not isinstance(meta, GraphMeta):
                 continue
             name = meta.graph_module_name
@@ -239,45 +310,16 @@ class PatchableGraph(Module):
             local_submodules = submodules_by_parent[name]
             local_state = state_by_submodule[name]
 
-            # Edge case: when we clone graphs to handle multiple invocations of the same submodule,
-            # we need to recreate the ModuleList holding the clones. This is the only time a
-            # target will have a dot in its name.
-            local_graph_modules_by_prefix = defaultdict(list)
-            for key, module in list(local_submodules.items()):
-                [prefix, *index] = key.split(".")
-                if len(index) == 1:
-                    # We should retain the original order, which means we'll need to sort these
-                    # by index in the next step.
-                    local_graph_modules_by_prefix[prefix].append((int(index[0]), module))
-                    # We're implicitly including this submodule via the ModuleList, and we don't
-                    # want the GraphModule constructor to include it twice.
-                    del local_submodules[key]
-
-                    # Similarly, we need to relocate the key in our state so the GraphModule
-                    # constructor can find it.
-                    local_state[key] = state_by_submodule[f"{name}.{key}"]
-                    del state_by_submodule[f"{name}.{key}"]
-
-            for prefix, modules in local_graph_modules_by_prefix.items():
-                local_submodules[prefix] = ModuleList(module for _, module in sorted(modules))
-
-            graph_module = GraphModule(
+            graph_module = meta.graph_module_class(
                 {
                     **local_state,
                     **local_submodules,
-                    "_graphpatch_output_indexes": _graphpatch_output_indexes[name],
                 },
                 meta.graph,
+                meta.graph_module_class.__name__,
             )
-            # GraphModule constructor fails to use our ModuleList in case of cloned graphs (probably
-            # an annoying order-of-operations thing, since it copies over attributes ordered by
-            # when they appear in the graph code, and get_attr appears before call_module).
-            for prefix in local_graph_modules_by_prefix:
-                setattr(graph_module, prefix, local_submodules[prefix])
 
-            submodules_by_parent[parent_name][target] = graph_module
-            if meta.accelerate_hook is not None:
-                add_hook_to_module(graph_module, meta.accelerate_hook)
+            submodules_by_parent[parent_name][str(target)] = graph_module
 
         deserialized_instance._graph_module = cast(
             GraphModule, submodules_by_parent["_graph_module"][""]
@@ -287,13 +329,6 @@ class PatchableGraph(Module):
         deserialized_instance._is_saving = False
 
         return deserialized_instance
-
-    def _uncompiled_submodules(self) -> Dict[str, Module]:
-        return {
-            name: module
-            for name, module in self.named_modules()
-            if not is_container(module) and not isinstance(module, GraphModule) and name != ""
-        }
 
     def __reduce__(self) -> Tuple[Callable[..., "PatchableGraph"], Tuple[Any, ...]]:
         """Set up custom serialization for when user calls torch.save(), since our node wrappers are
@@ -309,21 +344,17 @@ class PatchableGraph(Module):
         # don't want to persist autograd state.
         state_dict = self.state_dict(keep_vars=True)
 
-        # Eventually, we should figure out how to compile everything. For now, we can serialize
-        # the uncompiled ones separately.
-        uncompiled_submodules = self._uncompiled_submodules()
-        # Pop out of state_dict so we don't serialize them twice.
-        for name in uncompiled_submodules:
-            for key in list(state_dict.keys()):
-                if key.startswith(name):
-                    state_dict.pop(key)
-
-        # Handle edge case with non-state attributes, like variance_epsilon in LlamaRMSNorm. We can
-        # find the ones that matter by searching all our subgraphs for references.
+        # Handle non-state attributes, like variance_epsilon in LlamaRMSNorm, and for
+        # OpaqueGraphModule. We can find the ones that matter by searching all our subgraphs for
+        # references.
         for node in self._original_graph.values():
-            if isinstance(node, NodeMeta) and node.node.op == "get_attr":
-                target = node.node.target
-                assert isinstance(target, str)
+            if (
+                isinstance(node, NodeMeta)
+                and node.node.op == "get_attr"
+                # Don't want to pickle OpaqueGraphModule itself.
+                and node.node.target != "_graphpatch_self"
+            ):
+                target = cast(str, node.node.target)
                 parent = cast(GraphMeta, self._original_graph[node.parent])
                 parent_graph = parent.graph_module_name
                 key = f"_graph_module.{parent_graph + ('.' if parent_graph else '')}{target}"
@@ -332,36 +363,29 @@ class PatchableGraph(Module):
                 parent = cast(GraphMeta, self._original_graph[node.parent])
                 graph_module = self._graph_module.get_submodule(parent.graph_module_name)
                 state_dict[key] = getattr(graph_module, target)
-
         return (
-            self._unpickle,
+            PatchableGraph._unpickle,
             (
                 state_dict,
                 {name for name, _ in self.named_parameters()},
                 self._original_graph,
-                {
-                    name: module._graphpatch_output_indexes
-                    for name, module in self.named_modules()
-                    if isinstance(module, GraphModule)
-                },
-                uncompiled_submodules,
+                type(self).__bases__[-1] if isinstance(self, GenerationMixin) else None,
+                self.config,
+                self.generation_config,
+                self._graphpatch_override_generation_kwargs,
             ),
         )
 
-    # Unknown why, but using the more idiomatic decorator version breaks tab-completion in IPython.
-    graph = property(lambda self: self._node_path)
-    graph.__doc__ = """Convenience property for working in REPL and notebook environments. Exposes
-    the full :ref:`NodePath <node_path>` hierarchy of this PatchableGraph via recursive attribute
+    # Using the more idiomatic decorator version breaks tab-completion in IPython. This seems to be
+    # because it uses the annotated types to determine completable values, but we want it to use
+    # our custom __dir__ instead. This is a hacky way to prevent IPython from seeing the true type.
+    graph = property(
+        lambda self: self._node_path,
+        doc="""graph(NodePath)
+    Convenience property for working in REPL and notebook environments. Exposes
+    the full :class:`NodePath <meta.NodePath>` hierarchy of this PatchableGraph via recursive attribute
     access. Children of the current node can be tab-completed at each step. Has a custom
-    ``__repr__()`` to display the subgraph rooted at the current path. Dynamically generated
-    attributes:
-
-    Attributes:
-        <node_name>: One attribute per child node, having the name of that child.
-        _code: For submodules, the compiled GraphModule code. The partial stacktrace of the
-            original model for other nodes.
-        _shape: The shape of the Tensor observed at this node during compilation, if the value was
-            a Tensor.
+    ``__repr__()`` to display the subgraph rooted at the current path.
 
     Example:
 
@@ -396,12 +420,16 @@ class PatchableGraph(Module):
         In [3]: pg.graph.output._shape
         Out[3]: torch.Size([3, 3])
 
-    See :ref:`working_with_graphpatch` for more discussion and examples.
-    """
+    Also see :ref:`node_path` for more discussion and examples.
+    """,
+    )
 
     @contextmanager
     def patch(
-        self, patch_map: Dict[Union[str, NodePath], Union[List[Patch[Tensor]], Patch[Tensor]]]
+        self,
+        patch_map: Dict[
+            Union[str, NodePath], Union[List[Patch[PatchableValue]], Patch[PatchableValue]]
+        ],
     ) -> Iterator[None]:
         """Context manager that will cause the given activation patches to be applied when running
         inference on the wrapped module.
@@ -525,6 +553,12 @@ class PatchableGraph(Module):
             if isinstance(meta, NodeMeta) and isinstance(original_meta, NodeMeta):
                 meta.shape = original_meta.shape
 
+    def _add_patch_args(self, meta: NodeMeta, patch_args_node: FXNode) -> None:
+        """Adds patch args into the call to the opaque module wrapper."""
+        new_kwargs = dict(**meta.node.kwargs)
+        new_kwargs["_graphpatch_args"] = patch_args_node
+        meta.node.kwargs = new_kwargs
+
     def _wrap_graph(
         self, meta: GraphMeta, graph_module: GraphModule, patch_args_node: FXNode
     ) -> None:
@@ -618,15 +652,8 @@ class PatchableGraph(Module):
             tuple(input_nodes_copy),
             {"_graphpatch_args": patch_args_node},
         )
-        next_node = node.next
-        node.replace_all_uses_with(replacement_node, propagate_meta=True)
-        graph.erase_node(node)
-        with graph.inserting_before(next_node):
-            # A little low-level for my liking, but this lets us keep the same name for the replaced
-            # node (erase_node doesn't clean up the namespace)
-            del graph._graph_namespace._obj_to_name[node]
-            graph._graph_namespace._obj_to_name[replacement_node] = name_copy
-            graph._insert(replacement_node)
+        with graph.inserting_before(node.next):
+            hacks.replace_node_keeping_original_name(node, replacement_node, name_copy)
         return replacement_node
 
     def _make_patchable(self) -> None:
@@ -638,7 +665,9 @@ class PatchableGraph(Module):
                 # Add a placeholder to receive the patching context
                 last_placeholder = None
                 for n in (n for n in meta.graph.nodes if n.op == "placeholder"):
-                    last_placeholder = n
+                    # Must insert before varkwargs.
+                    if not n.target.startswith("**"):
+                        last_placeholder = n
 
                 if last_placeholder is not None:
                     insertion_context = meta.graph.inserting_after(last_placeholder)
@@ -662,10 +691,19 @@ class PatchableGraph(Module):
                     new_kwargs = {k: v for k, v in meta.node.kwargs.items()}
                     new_kwargs["_graphpatch_args"] = context_nodes[meta.parent]
                     meta.node.kwargs = new_kwargs
+            # Need to pass patching arguments down to opaque modules at their real call sites.
+            # TODO: should probably be an attribute on meta?
+            elif meta.node.target == "_opaque_module_call":
+                self._add_patch_args(meta, context_nodes[meta.parent])
             return meta
 
         def wrap_nodes(meta: Union[NodeMeta, GraphMeta]) -> Union[NodeMeta, GraphMeta]:
-            if meta.node is None or meta.node.op in ("placeholder", "output") or meta.is_graph:
+            if (
+                meta.node is None
+                or meta.node.op in ("placeholder", "output")
+                or meta.is_graph
+                or meta.hidden
+            ):
                 return meta
             self._replace_node(
                 meta.node,
@@ -685,11 +723,42 @@ class PatchableGraph(Module):
                 graph_module = cast(
                     GraphModule, self._graph_module.get_submodule(meta.graph_module_name)
                 )
-                with detach_accelerate_hooks(graph_module):
-                    graph_module.recompile()
+                graph_module.recompile()
             return meta
 
         self._meta.map_in_place(add_context)
         self._meta.map_in_place(wrap_graph_nodes)
         self._meta.map_in_place(wrap_nodes)
         self._meta.map_in_place(recompile)
+
+    def _copy_transformers_generation_config(
+        self,
+        cls: Type[GenerationMixin],
+        config: PretrainedConfig,
+        generation_config: GenerationConfig,
+    ) -> None:
+        type(self).__bases__ = (
+            PatchableGraph,
+            cls,
+        )
+        self.config = deepcopy(config)
+        self.generation_config = deepcopy(generation_config)
+
+        # transformers uses inspect on this method, so we need to pretend to have the same signature
+        @wraps(cls.prepare_inputs_for_generation)
+        def override_generation_kwargs(*args: Any, **kwargs: Any) -> Any:
+            kwargs.update(self._graphpatch_override_generation_kwargs)
+            return cls.prepare_inputs_for_generation(self, *args, **kwargs)
+
+        self.prepare_inputs_for_generation = override_generation_kwargs
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            # Workaround for Llama prepare_inputs_for_generation inspecting its own module hierarchy.
+            # TODO: might want to flatten hierarchy by one level, i.e. not have a root _graph_module
+            if "_modules" in self.__dict__ and name not in self._modules:
+                if name in self._graph_module._modules:
+                    return self._graph_module._modules[name]
+            raise

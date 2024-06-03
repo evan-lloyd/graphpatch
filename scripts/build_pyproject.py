@@ -2,7 +2,7 @@ import sys
 import re
 
 [root_dir, env_name, out_name] = sys.argv[1:]
-torch_version = re.match(r"lock-(torch\d+)", env_name).group(1)
+torch_version = re.match(r"(lock|update)-(torch\d+)", env_name).group(2)
 
 with open(out_name, "a") as out_file:
     for filename in [

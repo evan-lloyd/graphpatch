@@ -1,7 +1,8 @@
 import pytest
 import torch
+from torch.nn import Linear
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 from graphpatch.optional.bitsandbytes import AVAILABLE as BNB_AVAILABLE, Linear8bitLt
 
 if BNB_AVAILABLE:
@@ -11,9 +12,13 @@ if BNB_AVAILABLE:
 
         def __init__(self):
             super().__init__()
+            object.__setattr__(self, "original_linear", Linear(*QuantizedModule._shape))
             self.linear = Linear8bitLt(
                 *QuantizedModule._shape, has_fp16_weights=False, threshold=6.0
-            ).cuda()
+            )
+            self.linear.weight.data = self.original_linear.weight.data
+            self.linear.bias.data = self.original_linear.bias.data
+            self.linear.cuda()
 
         def forward(self, x):
             return self.linear(x)
@@ -27,5 +32,12 @@ if BNB_AVAILABLE:
         return torch.ones(*QuantizedModule._shape, device="cuda", dtype=torch.float16).t()
 
     @pytest.fixture
-    def patchable_quantized_module(quantized_module, quantized_module_inputs):
-        return PatchableGraph(quantized_module, quantized_module_inputs)
+    def patchable_quantized_module(request, quantized_module, quantized_module_inputs):
+        return PatchableGraph(
+            quantized_module,
+            ExtractionOptions(
+                skip_compilation=getattr(request, "param", None) == "opaque",
+                error_on_compilation_failure=True,
+            ),
+            quantized_module_inputs,
+        )

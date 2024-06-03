@@ -10,6 +10,8 @@ Reference
 *********
 
 .. toctree::
+   :titlesonly:
 
-   patchable_graph
+   extraction_options
    patch
+   patchable_graph

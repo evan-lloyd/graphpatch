@@ -11,9 +11,11 @@ from tests.fixtures.deeply_nested_output_module import DeeplyNestedOutputModule
 
 class MockNodeMeta(NodeMeta):
     shape: Optional[NodeData[int]]
+    hidden: bool = False
 
     def __init__(self, shape):
         self.shape = shape
+        self.hidden = False
 
 
 @pytest.fixture
@@ -115,7 +117,9 @@ def test_node_path_pretty_print(patchable_deeply_nested_output_module, snapshot)
     # Note we get slightly different structures for newer versions of torch, due to it retaining
     # more not-actually-used nodes. In future releases we should use our own logic to clean up
     # graphs after extraction, which should eliminate this discrepancy.
-    if TORCH_VERSION >= (2, 1):
+    if TORCH_VERSION >= (2, 2):
+        snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_2")
+    elif TORCH_VERSION >= (2, 1):
         snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_1")
     else:
         snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_0")
@@ -139,7 +143,7 @@ def test_node_path_code(patchable_deeply_nested_output_module, snapshot):
     else:
         snapshot.assert_match(pg.graph._code, "2_0")
     assert str(pg.graph.output._code) == (
-        "return ((linear,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)],"
+        "return ((linear_0,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)],"
         " {'nested_dict': [(linear_1,)]})"
     )
 

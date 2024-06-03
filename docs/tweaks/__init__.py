@@ -9,13 +9,25 @@ def resolve_type_aliases(app, env, node, contnode):
         return app.env.get_domain("py").resolve_xref(
             env, node["refdoc"], app.builder, "data", node["reftarget"], node, contnode
         )
-    elif "NodePath" in node["reftarget"]:
-        node["reftype"] = "ref"
-        node["refdomain"] = "std"
-        node["refexplicit"] = True
-        return app.env.get_domain("std").resolve_xref(
-            env, node["refdoc"], app.builder, "ref", "node_path", node, contnode
-        )
+
+
+PREFIXES_TO_STRIP = ("torch.nn", "torch.fx", "bitsandbytes.nn")
+
+
+def dequalify_intersphinx(app, doctree, docname):
+    from docutils.nodes import NodeVisitor, Text
+
+    class Visitor(NodeVisitor):
+        def dispatch_visit(self, node):
+            # Bit of a hammer, but this seems like the simplest way to get intersphinx to not
+            # qualify cross-references on a case-by-case basis. We have no easy hook to modify
+            # the text it generates because resolve_type_aliases is all-or-nothing--our own hook
+            # would always be either too late or too early.
+            if any(str(node).startswith(p) for p in PREFIXES_TO_STRIP):
+                node.parent.children = [Text(node.split(".")[-1])]
+
+    doctree.walk(Visitor(doctree.document))
+    pass
 
 
 def setup(app):
@@ -35,3 +47,4 @@ def setup(app):
 
     furo.get_navigation_tree = get_navigation_tree
     app.connect("missing-reference", resolve_type_aliases)
+    app.connect("doctree-resolved", dequalify_intersphinx)

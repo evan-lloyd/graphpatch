@@ -1,4 +1,9 @@
 [flake8]
 max_line_length = 120
+ignore =
+    # Whitespace before colon in slice, incompatible with black
+    E203
+    # Linebreak before binary operator
+    W503
 exclude =
     snapshots

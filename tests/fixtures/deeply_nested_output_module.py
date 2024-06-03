@@ -2,7 +2,7 @@ import pytest
 import torch
 from torch.nn import Linear, Module, ModuleList
 
-from graphpatch import PatchableGraph
+from graphpatch import ExtractionOptions, PatchableGraph
 
 
 class C(Module):
@@ -81,6 +81,13 @@ def deeply_nested_output_module_inputs():
 
 @pytest.fixture
 def patchable_deeply_nested_output_module(
-    deeply_nested_output_module, deeply_nested_output_module_inputs
+    request, deeply_nested_output_module, deeply_nested_output_module_inputs
 ):
-    return PatchableGraph(deeply_nested_output_module, deeply_nested_output_module_inputs)
+    return PatchableGraph(
+        deeply_nested_output_module,
+        ExtractionOptions(
+            skip_compilation=getattr(request, "param", None) == "opaque",
+            error_on_compilation_failure=True,
+        ),
+        deeply_nested_output_module_inputs,
+    )

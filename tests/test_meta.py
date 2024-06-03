@@ -139,13 +139,13 @@ def data_to_wrap():
 
 def test_wrap(data_to_wrap):
     wrapped = wrap_node_data(data_to_wrap)
-    assert wrapped._original_type is tuple
-    assert wrapped["sub_0"]._original_type is dict
-    assert wrapped["sub_0"]["foo"]._original_type is list
-    assert wrapped["sub_1"]._original_type is tuple
-    assert wrapped["sub_1"]["sub_2"]._original_type is tuple
-    assert wrapped["sub_1"]["sub_2"]["sub_1"]._original_type is dict
-    assert wrapped["sub_1"]["sub_2"]["sub_1"]["bar"]._original_type is tuple
+    assert wrapped._original_type == tuple
+    assert wrapped["sub_0"]._original_type == dict
+    assert wrapped["sub_0"]["foo"]._original_type == list
+    assert wrapped["sub_1"]._original_type == tuple
+    assert wrapped["sub_1"]["sub_2"]._original_type == tuple
+    assert wrapped["sub_1"]["sub_2"]["sub_1"]._original_type == dict
+    assert wrapped["sub_1"]["sub_2"]["sub_1"]["bar"]._original_type == tuple
 
 
 def test_unwrap(data_to_wrap):
@@ -165,6 +165,13 @@ def test_map(data_to_wrap):
     str_mapped = wrapped.map(lambda _, x: str(x))
     unwrapped = str_mapped.unwrap()
     assert unwrapped == ({"foo": ["1", "2", "3"]}, ("5", "6", ("7", {"bar": ("8", "9")})))
+
+
+def test_filter(data_to_wrap):
+    wrapped = wrap_node_data(data_to_wrap)
+    filtered = wrapped.filter(lambda _, x: x > 2 and x < 8)
+    unwrapped = filtered.unwrap()
+    assert unwrapped == ({"foo": [3]}, (5, 6, (7,)))
 
 
 def test_replace(data_to_wrap):
@@ -187,7 +194,7 @@ def test_custom_wrapping_class():
 
     class FooTainer(NodeData[Foo]):
         def handle_unwrap(self):
-            if self._original_type is Foo:
+            if self._original_type == "Foo":
                 return Foo(self["x"], self["y"])
             return NodeData._UNHANDLED_VALUE
 
@@ -198,7 +205,7 @@ def test_custom_wrapping_class():
         def handle_wrap(self, data, path):
             if isinstance(data, Foo):
                 return self.make_wrapper(
-                    _original_type=data.__class__,
+                    _original_type=type(data).__name__,
                     _children={
                         "x": self.wrap(data.x),
                         "y": self.wrap(data.y),
