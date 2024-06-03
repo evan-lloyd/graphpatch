@@ -36,14 +36,14 @@ def is_container(module: Union[Module, Type[Module]]) -> TypeGuard[Union[ModuleL
 
 
 class ModuleInvocation:
-    args: Tuple[Any]
+    args: Tuple[Any, ...]
     kwargs: Dict[str, Any]
     output: Any
 
     @hacks.skip  # type: ignore
     def __init__(
         self,
-        args: Tuple[Any],
+        args: Tuple[Any, ...],
         kwargs: Dict[str, Any],
         output: Any,
     ):

@@ -41,35 +41,35 @@ def path_data():
                                                     "baz": NodeData(
                                                         _path="sub_0.baz",
                                                         _value=0,
-                                                        _original_type="int",
+                                                        _original_type=int,
                                                     )
                                                 },
-                                                _original_type="dict",
+                                                _original_type=dict,
                                             ),
                                             "sub_1": NodeData(
                                                 _path="sub_1",
                                                 _value=0,
-                                                _original_type="int",
+                                                _original_type=int,
                                             ),
                                         },
-                                        _original_type="tuple",
+                                        _original_type=tuple,
                                     )
                                 ),
-                                _original_type="dict",
+                                _original_type=dict,
                             ),
                             "sub_1": NodeData(
                                 _path="foo.bar.sub_1",
                                 _value=MockNodeMeta(shape=None),
-                                _original_type="tuple",
+                                _original_type=tuple,
                             ),
                         },
-                        _original_type="tuple",
+                        _original_type=tuple,
                     ),
                 },
-                _original_type="dict",
+                _original_type=dict,
             ),
         },
-        _original_type="dict",
+        _original_type=dict,
     )
 
 

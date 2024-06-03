@@ -493,7 +493,7 @@ def handle_transformers_output():
         yield
     finally:
         builder.get_fake_value = orig_get_fake_value
-        if TORCH_VERSION <= (2, 2):
+        if TORCH_VERSION < (2, 2):
             DataClassVariable.include_none = orig_include_none
 
 
