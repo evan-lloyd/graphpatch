@@ -13,7 +13,7 @@ class MinimalModule(Module):
         self.linear = Linear(*MinimalModule._shape)
 
     def forward(self, x):
-        return self.linear(x)
+        return self.linear(x) + self.linear(x)
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 
 from torch import compile
 from torch.fx import Graph, GraphModule
@@ -20,14 +20,15 @@ class CompiledGraphModule(GraphPatchModule):
 def compile_module(module: Module, *args: Any, **kwargs: Any) -> CompiledGraphModule:
     try:
         hacks._CURRENTLY_COMPILING = True
-        graph_module = GraphModule({}, Graph())
+        graph_fragments: List[CompiledGraphModule] = []
 
         def callback(gm: GraphModule, *args: Any, **kwargs: Any) -> GraphModule:
-            nonlocal graph_module
-            graph_module = gm
+            print("callback", type(module._graphpatch_wrapped_module))
+            graph_fragments.append(gm)
             # There is no hook to choose a subclass of GraphModule to create during compilation, so
-            # dynamically make it a subclass of CompiledGraphModule. GraphModules are always created
-            # by torch as the sole instance of a dynamically generated class, so this is safe.
+            # dynamically make it a subclass of CompiledGraphModule. GraphModules are currently
+            # always created by torch as the sole instance of a dynamically generated class, so
+            # mucking with the class itself is safe.
             assert type(gm) is not GraphModule
 
             # We don't want to get back a LazyGraphModule, which now happens in 2.3.
@@ -42,6 +43,7 @@ def compile_module(module: Module, *args: Any, **kwargs: Any) -> CompiledGraphMo
                     )
             else:
                 type(gm).__bases__ = (CompiledGraphModule,) + type(gm).__bases__
+            print(gm._code)
             type(gm).__name__ = CompiledGraphModule.__name__
             gm._init(module)
             hacks._CURRENTLY_COMPILING = False
@@ -49,10 +51,14 @@ def compile_module(module: Module, *args: Any, **kwargs: Any) -> CompiledGraphMo
 
         # We need to actually run inference to generate a GraphModule, which gets passed to
         # our callback above.
-        compile(backend=callback, dynamic=True, fullgraph=True)(module)(*args, **kwargs)
+        compile(backend=callback, dynamic=True, fullgraph=False)(module)(*args, **kwargs)
 
-        if not isinstance(graph_module, CompiledGraphModule):
+        if len(graph_fragments) == 0:
             raise ValueError("Compilation callback was never called.")
-        return graph_module
+        elif len(graph_fragments) > 1:
+            # Stitch together fragments. We will have two graph breaks per submodule call
+            pass
+        else:
+            return graph_fragments[0]
     finally:
         hacks._CURRENTLY_COMPILING = False

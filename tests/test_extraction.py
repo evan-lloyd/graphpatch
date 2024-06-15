@@ -31,6 +31,7 @@ def test_extract_minimal_module(minimal_module, minimal_module_inputs):
     )
     validate_extraction(graph_module, minimal_module, meta)
     assert_results_identical(minimal_module, graph_module, minimal_module_inputs)
+    breakpoint()
 
 
 def test_extract_buffer_module(buffer_module, buffer_module_inputs):

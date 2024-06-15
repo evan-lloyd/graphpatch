@@ -14,6 +14,7 @@ from ..optional.typing_extensions import TypeAlias, TypeGuard
 from .graphpatch_module import GraphPatchModule
 from .wrapped_8_bit_linear import Wrapped8BitLinear
 from .wrapped_layer_norm import WrappedLayerNorm
+from torch._dynamo import graph_break
 
 CONTAINER_TYPES = (ModuleList, ModuleDict)
 WrappedModule: TypeAlias = Union["ExtractionWrapper", ModuleDict, ModuleList]
@@ -93,6 +94,20 @@ class ExtractionState:
             else:
                 local_name = sub_state.torch_name[len(name) + 1 :]
             setattr(self.wrapped_module, local_name, sub_state.wrapped_module)
+
+
+def graph_break_wrapper(fn):
+    from functools import wraps
+
+    @wraps(fn)
+    def _inner(*args, **kwargs):
+        print("gonna break???")
+        graph_break()
+        result = fn(*args, **kwargs)
+        graph_break()
+        return result
+
+    return _inner
 
 
 @hacks.allow_in_graph
@@ -178,13 +193,33 @@ class ExtractionWrapper(Module):
             )
         return output
 
+    def actually_graph_break(self):
+        """Need to do this in a separate frame since forward is skipped."""
+        graph_break()
+
     @hacks.skip  # type: ignore
     def forward(self, *args: Any, **kwargs: Any) -> Any:
+        from functools import wraps
+
+        @wraps(self._graphpatch_wrapped_module)
+        def graph_break_in_wrapped_forward(*_, **__):
+            graph_break()
+            foo = self._graphpatch_wrapped_module(*args, **kwargs)
+            graph_break()
+            return foo
+
         try:
+            # Bracket start and end of each module with a graph break so we can compile the entire
+            # hierarchy in one shot.
+            # self.actually_graph_break()
             # Unfortunately we have to repeat substitute_submodules() functionality here, since
             # torch.compile() doesn't support contextmanagers even if we're skipping.
             orig_modules = self._graphpatch_wrapped_module._modules
+            orig_forward = self._graphpatch_wrapped_module.forward
             self._graphpatch_wrapped_module._modules = self._modules
+            self._graphpatch_wrapped_module.forward = graph_break_wrapper(
+                self._graphpatch_wrapped_module.forward
+            )
             args, kwargs = self.maybe_accelerate_pre_hook(*args, **kwargs)
             output = self.maybe_accelerate_post_hook(
                 self._graphpatch_wrapped_module(*args, **kwargs)
@@ -193,9 +228,12 @@ class ExtractionWrapper(Module):
                 self._graphpatch_extraction_state.invocations.append(
                     ModuleInvocation(args, kwargs, output)
                 )
+            # self.actually_graph_break()
             return output
         finally:
             self._graphpatch_wrapped_module._modules = orig_modules
+            # if hasattr(orig_forward, "__func__") or other way if determining was class method
+            self._graphpatch_wrapped_module.forward = orig_forward
 
 
 @contextmanager
@@ -238,9 +276,14 @@ def compilation_context(root_state: ExtractionState) -> Iterator[None]:
         context_stack.enter_context(torch.inference_mode())
         context_stack.enter_context(_eval_mode(root_state.wrapped_module))
         context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
-        context_stack.enter_context(
-            hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)
-        )
+        hacks.allow_builtin_in_graph(ExtractionWrapper)
+        for submodule in root_state.wrapped_module.modules():
+            if isinstance(submodule, ExtractionWrapper):
+                context_stack.enter_context(
+                    hacks.allow_builtin_in_graph(
+                        root_state.wrapped_module._graphpatch_wrapped_module
+                    )
+                )
         context_stack.enter_context(hacks.patch_module_module(ExtractionWrapper))
         for submodule in root_state.wrapped_module.modules():
             if isinstance(submodule, ExtractionWrapper):
