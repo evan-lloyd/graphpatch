@@ -106,9 +106,6 @@ class NodeData(Generic[NodeDataType]):
         return NodeData._UNHANDLED_VALUE
 
     def keys(self) -> Iterator[str]:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempting to use mapping interface on leaf node.")
-
         def _generator() -> Iterator[str]:
             for path, node in self._iter_items():
                 if node._value is not NodeData._NO_VALUE:
@@ -117,9 +114,6 @@ class NodeData(Generic[NodeDataType]):
         return _generator()
 
     def items(self) -> Iterator[Tuple[str, NodeDataType]]:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempting to use mapping interface on leaf node.")
-
         def _generator() -> Iterator[Tuple[str, NodeDataType]]:
             for path, node in self._iter_items():
                 if node._value is not NodeData._NO_VALUE:
@@ -128,9 +122,6 @@ class NodeData(Generic[NodeDataType]):
         return _generator()
 
     def values(self) -> Iterator[NodeDataType]:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempting to use mapping interface on leaf node.")
-
         def _generator() -> Iterator[NodeDataType]:
             for _, node in self._iter_items():
                 if node._value is not NodeData._NO_VALUE:
@@ -158,8 +149,6 @@ class NodeData(Generic[NodeDataType]):
     def get(
         self, path: str, default: Optional[NodeDataType] = None
     ) -> Union[Optional[NodeDataType], "NodeData[NodeDataType]"]:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempting to use mapping interface on leaf node.")
         try:
             dig_result = self._dig(path)
             if dig_result._value is not NodeData._NO_VALUE:
@@ -170,22 +159,15 @@ class NodeData(Generic[NodeDataType]):
             return default
 
     def __len__(self) -> int:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempting to use mapping interface on leaf node.")
         return len(list(self.keys()))
 
     def __iter__(self) -> Iterator[str]:
         return self.keys()
 
     def __contains__(self, path: str) -> bool:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempting to use mapping interface on leaf node.")
         return path in self.keys()
 
     def __reversed__(self) -> Iterator[str]:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempt to use mapping interface on leaf node")
-
         def _generator() -> Iterator[str]:
             keys = list(self.keys())
             for path in reversed(keys):
@@ -200,8 +182,6 @@ class NodeData(Generic[NodeDataType]):
         return self._value == other._value and self._children == other._children
 
     def __getitem__(self, path: str) -> Union[NodeDataType, "NodeData[NodeDataType]"]:
-        if self._children is NodeData._NO_VALUE:
-            raise ValueError("Attempt to use mapping interface on leaf node")
         dig_result = self._dig(path)
         if dig_result._value is not NodeData._NO_VALUE:
             return dig_result._value

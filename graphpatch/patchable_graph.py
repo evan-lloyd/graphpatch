@@ -461,6 +461,9 @@ class PatchableGraph(Module):
             )
         prev_patch_context = self._patch_context
 
+        # Shallow copy to avoid mutating input dictionary.
+        patch_map = copy(patch_map)
+
         # Convert any singleton patch values into lists.
         for k, v in patch_map.items():
             if isinstance(v, Patch):
