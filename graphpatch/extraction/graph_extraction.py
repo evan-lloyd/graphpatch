@@ -205,14 +205,70 @@ def _repair_input_signature(state: ExtractionState) -> None:
         else:
             original_attribute_name = placeholder.target
         with graph_module.graph.inserting_after(insert_after):
-            setattr(
-                graph_module,
-                placeholder.target,
-                getattr(state.wrapped_module._graphpatch_wrapped_module, original_attribute_name),
-            )
-            get_attr_node = Node(graph_module.graph, name, "get_attr", placeholder.target, (), {})
-            hacks.replace_node_keeping_original_name(placeholder, get_attr_node, name)
-            insert_after = get_attr_node
+            if (source := placeholder.meta.get("_graphpatch_placeholder_source")) is not None:
+                access_stack = [source]
+                cur = source
+                while (base := getattr(cur, "base", None)) is not None:
+                    access_stack.append(base)
+                    cur = base
+                prev_access_node = None
+                # Unwind access stack; we want the innermost thing to be added to the graph first.
+                for access_source in access_stack[::-1]:
+                    if isinstance(access_source, hacks.AttrSource):
+                        # If getattr is the last access in the chain, we can just replace the
+                        # node.
+                        if access_source is access_stack[0]:
+                            prev_access_node = Node(
+                                graph_module.graph,
+                                access_source.member,
+                                "get_attr",
+                                access_source.member,
+                                (),
+                                {},
+                            )
+                            # May have changed due to collisions.
+                            placeholder.name = prev_access_node.name
+                            hacks.replace_node_keeping_original_name(
+                                placeholder, prev_access_node, placeholder.name
+                            )
+                        else:
+                            prev_access_node = graph_module.graph.get_attr(access_source.member)
+                        insert_after = prev_access_node
+
+                    elif isinstance(access_source, hacks.GetItemSource):
+                        # prev_access_node = graph_module.graph.call_method(
+                        #     "__getitem__", (prev_access_node, access_source.index)
+                        # )
+                        prev_access_node = Node(
+                            graph_module.graph,
+                            "get_item",
+                            "call_method",
+                            "__getitem__",
+                            (prev_access_node, access_source.index),
+                            {},
+                        )
+                        placeholder.name = prev_access_node.name
+                        hacks.replace_node_keeping_original_name(
+                            placeholder, prev_access_node, placeholder.name
+                        )
+
+                        insert_after = prev_access_node
+            else:
+                # Pre-torch 2.4, this was how we handled this. We'll still hit this path for torch
+                # 2.0, because we don't monkeypatch add_graph_input.
+                # TODO: unify with above approach.
+                setattr(
+                    graph_module,
+                    placeholder.target,
+                    getattr(
+                        state.wrapped_module._graphpatch_wrapped_module, original_attribute_name
+                    ),
+                )
+                get_attr_node = Node(
+                    graph_module.graph, name, "get_attr", placeholder.target, (), {}
+                )
+                hacks.replace_node_keeping_original_name(placeholder, get_attr_node, name)
+                insert_after = get_attr_node
 
 
 def _repair_output_signature(state: ExtractionState) -> None:

@@ -6,6 +6,7 @@ from copy import deepcopy
 from functools import partial, partialmethod
 
 import torch
+from torch._dynamo.source import AttrSource, GetItemSource, NNModuleSource
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
 from torch.utils._python_dispatch import _get_current_dispatch_mode
@@ -20,7 +21,7 @@ if TORCH_VERSION < (2, 1):
 else:
     from torch._dynamo.decorators import allow_in_graph, disable, skip  # noqa: F401
 
-__all__ = ["allow_in_graph", "disable", "skip"]
+__all__ = ["AttrSource", "GetItemSource", "NNModuleSource", "allow_in_graph", "disable", "skip"]
 
 _CURRENTLY_COMPILING = False
 
@@ -45,7 +46,6 @@ def monkeypatch_dynamic_shapes():
     from torch._dynamo.source import (
         DefaultsSource,
         LocalSource,
-        NNModuleSource,
         TensorProperty,
         TensorPropertySource,
     )
@@ -141,13 +141,26 @@ def monkeypatch_dynamic_shapes():
                 name = name.replace("L_self_", "", 1)
             elif hasattr(source, "local_name"):
                 name = source.local_name
-        return _original(self, name, *args, **kwargs)
+        result = _original(self, name, *args, **kwargs)
+
+        # It's much easier to handle module attributes that get converted to placeholders if we
+        # track the original source.
+        if node := getattr(result, "node", None):
+            node.meta["_graphpatch_placeholder_source"] = source
+        return result
 
     def __init__(self, _original, *args, **kwargs):
         _original(self, *args, **kwargs)
-        # Tweak some internal flags to avoid specializing on tensor dimensions.
-        self.specialize_zero_one = False
-        self.duck_shape = False
+        # Tweak some internal flags to avoid specializing on tensor dimensions. These got wrapped
+        # in a dataclass in 2.4.
+        if TORCH_VERSION >= (2, 4):
+            settings_target = self.settings
+        else:
+            settings_target = self
+        # Frozen dataclass, shmrozen dataclass, this is hacks.py!
+        object.__setattr__(settings_target, "specialize_zero_one", False)
+        object.__setattr__(settings_target, "duck_shape", False)
+
         self.val_to_var = {}
 
     patch_map = {
