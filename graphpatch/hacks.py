@@ -355,6 +355,12 @@ def monkeypatch_accelerate():
 
     orig_set_tensor = hooks.set_module_tensor_to_device
     orig_offload_getitem = OffloadedWeightsLoader.__getitem__
+    orig_data_ptr = FakeTensor.data_ptr
+
+    def data_ptr(self):
+        # Bypasses a check in torch >=2.4, where accelerate's pre-forward checks the data_ptr
+        # on a fake tensor, which is now considered an exception.
+        return 0
 
     def set_module_tensor_to_device(module, *accelerate_args, **accelerate_kwargs):
         if not in_fake_mode():
@@ -398,11 +404,13 @@ def monkeypatch_accelerate():
 
     hooks.set_module_tensor_to_device = set_module_tensor_to_device
     OffloadedWeightsLoader.__getitem__ = offload_getitem
+    FakeTensor.data_ptr = data_ptr
     try:
         yield
     finally:
         hooks.set_module_tensor_to_device = orig_set_tensor
         OffloadedWeightsLoader.__getitem__ = orig_offload_getitem
+        FakeTensor.data_ptr = orig_data_ptr
 
 
 @contextmanager
@@ -541,6 +549,10 @@ def replace_node_keeping_original_name(node, replacement, name):
     node.graph._graph_namespace._obj_to_name[replacement] = name
     replacement.name = name
     node.graph._insert(replacement)
+
+    # torch >= 2.4
+    if (lookup_table := getattr(node.graph, "_find_nodes_lookup_table", None)) is not None:
+        lookup_table.insert(replacement)
 
 
 def maybe_add_8_bit_linear_custom_compilation(options):

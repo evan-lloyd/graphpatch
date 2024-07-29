@@ -5,7 +5,7 @@
 
 [tool.poetry]
 name = "graphpatch"
-version = "0.2.0"
+version = "0.2.1"
 description = "graphpatch is a library for activation patching on PyTorch neural network models."
 authors = ["Evan Lloyd <evan.t.lloyd@gmail.com>"]
 classifiers = ["Development Status :: 4 - Beta"]

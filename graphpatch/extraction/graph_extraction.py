@@ -196,7 +196,9 @@ def _repair_input_signature(state: ExtractionState) -> None:
 
     # Any remaining existing placeholders do not appear in the function signature. Assume they are
     # lifted module attributes.
-    # TODO: we should track whether or not given placeholders are indeed lifted attributes.
+    # TODO: we should handle graph args with more general-purpose logic, tracking their sources.
+    # TODO: catch warning for adding get_attr
+    # TODO: add_attribute should be a function
     for name, placeholder in existing_placeholders.items():
         # Strip initial "self_" from the attribute name. For torch >= 2.1 we have already done this
         # via some monkeypatching during compilation.
@@ -204,16 +206,16 @@ def _repair_input_signature(state: ExtractionState) -> None:
             original_attribute_name = placeholder.target[5:]
         else:
             original_attribute_name = placeholder.target
-        with graph_module.graph.inserting_after(insert_after):
-            if (source := placeholder.meta.get("_graphpatch_placeholder_source")) is not None:
-                access_stack = [source]
-                cur = source
-                while (base := getattr(cur, "base", None)) is not None:
-                    access_stack.append(base)
-                    cur = base
-                prev_access_node = None
-                # Unwind access stack; we want the innermost thing to be added to the graph first.
-                for access_source in access_stack[::-1]:
+        if (source := placeholder.meta.get("_graphpatch_placeholder_source")) is not None:
+            access_stack = [source]
+            cur = source
+            while (base := getattr(cur, "base", None)) is not None:
+                access_stack.append(base)
+                cur = base
+            prev_access_node = None
+            # Unwind access stack; we want the innermost thing to be added to the graph first.
+            for access_source in access_stack[::-1]:
+                with graph_module.graph.inserting_after(insert_after):
                     if isinstance(access_source, hacks.AttrSource):
                         # If getattr is the last access in the chain, we can just replace the
                         # node.
@@ -234,11 +236,16 @@ def _repair_input_signature(state: ExtractionState) -> None:
                         else:
                             prev_access_node = graph_module.graph.get_attr(access_source.member)
                         insert_after = prev_access_node
+                        setattr(
+                            graph_module,
+                            access_source.member,
+                            getattr(
+                                state.wrapped_module._graphpatch_wrapped_module,
+                                access_source.member,
+                            ),
+                        )
 
                     elif isinstance(access_source, hacks.GetItemSource):
-                        # prev_access_node = graph_module.graph.call_method(
-                        #     "__getitem__", (prev_access_node, access_source.index)
-                        # )
                         prev_access_node = Node(
                             graph_module.graph,
                             "get_item",
@@ -253,7 +260,8 @@ def _repair_input_signature(state: ExtractionState) -> None:
                         )
 
                         insert_after = prev_access_node
-            else:
+        else:
+            with graph_module.graph.inserting_after(insert_after):
                 # Pre-torch 2.4, this was how we handled this. We'll still hit this path for torch
                 # 2.0, because we don't monkeypatch add_graph_input.
                 # TODO: unify with above approach.
