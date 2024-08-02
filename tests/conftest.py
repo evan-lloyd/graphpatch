@@ -55,13 +55,17 @@ def pytest_configure(config):
     site_packages_dir = site.getsitepackages()[0]
     for bp in config.option.graphpatch_breakpoints or []:
         match = re.match(
-            r"^https://github.com/.+?/blob/.+?/(.+?)#L(\d+)$",
+            r"^https://github.com/.+?/blob/.+?/(.+?)#L(\d+),?(.+?)?$",
             bp,
         )
         library_source = f"{site_packages_dir}/{match.group(1)}"
         line_number = int(match.group(2))
-        debugger.set_break(library_source, line_number)
-        print(f"Set breakpoint in {library_source}, line {line_number}")
+        condition = match.group(3)
+        debugger.set_break(library_source, line_number, cond=condition)
+        print(
+            f"Set breakpoint in {library_source}, line {line_number}"
+            f" {f'cond={condition}' if condition else ''}"
+        )
 
     if config.option.graphpatch_breakpoints:
         debugger.set_running_trace()

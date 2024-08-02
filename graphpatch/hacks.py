@@ -51,6 +51,7 @@ def monkeypatch_dynamic_shapes():
     )
     from torch._dynamo.variables import builder
     from torch._dynamo.variables.builder import VariableBuilder
+    from torch.fx.experimental.sym_node import SymNode
     from torch.fx.experimental.symbolic_shapes import DimDynamic, ShapeEnv
 
     def wrap_literal(self, _original, value):
@@ -145,9 +146,12 @@ def monkeypatch_dynamic_shapes():
 
         # It's much easier to handle module attributes that get converted to placeholders if we
         # track the original source.
-        if node := getattr(result, "node", None):
+        if (node := getattr(result, "node", None)) and TORCH_VERSION >= (2, 4):
             node.meta["_graphpatch_placeholder_source"] = source
         return result
+
+    def guard_bool(self, _original, *args, **kwargs):
+        return self.hint
 
     def __init__(self, _original, *args, **kwargs):
         _original(self, *args, **kwargs)
@@ -172,8 +176,9 @@ def monkeypatch_dynamic_shapes():
             __init__,
             evaluate_expr,
         ],
+        # SymNode: [guard_bool],
         builder: [wrap_fx_proxy_cls],
-        VariableBuilder: [wrap_literal],
+        # VariableBuilder: [wrap_literal],
     }
     orig_functions = {
         patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
@@ -279,6 +284,7 @@ def maybe_replace_dynamo_get_item_lambda(node):
 @contextmanager
 def set_dynamo_config():
     """Reconfigure some dynamo options for >= 2.1.0 to get compilations we can work with."""
+    _NOT_PRESENT = object()
     config_values = {
         "specialize_int": False,
         "assume_static_by_default": False,
@@ -286,15 +292,22 @@ def set_dynamo_config():
         "capture_scalar_outputs": True,
         "capture_dynamic_output_shape_ops": True,
         "raise_on_ctx_manager_usage": False,
+        # 2.4
+        # "prefer_deferred_runtime_asserts_over_guards": True,
+        # "_allow_complex_guards_as_runtime_asserts": True,
+        # "do_not_emit_runtime_asserts": True,
     }
-    orig_values = {key: getattr(torch._dynamo.config, key) for key in config_values}
+    orig_values = {key: getattr(torch._dynamo.config, key, _NOT_PRESENT) for key in config_values}
     for key, value in config_values.items():
         setattr(torch._dynamo.config, key, value)
     try:
         yield
     finally:
         for key, value in orig_values.items():
-            setattr(torch._dynamo.config, key, value)
+            if value is _NOT_PRESENT:
+                delattr(torch._dynamo.config, key)
+            else:
+                setattr(torch._dynamo.config, key, value)
 
 
 @contextmanager
@@ -499,6 +512,8 @@ def handle_transformers_output():
     orig_get_fake_value = builder.get_fake_value
 
     def get_fake_value(*args, **kwargs):
+        # if args and args[0].name == "split_size":
+        #     breakpoint()
         result = orig_get_fake_value(*args, **kwargs)
         if isinstance(result, ModelOutput):
             fields = type(result).__dataclass_fields__
@@ -519,6 +534,32 @@ def handle_transformers_output():
 
 
 @contextmanager
+def propagate_real_tensors():
+    from torch._functorch import config
+    from torch.fx.experimental import symbolic_shapes
+
+    orig_value = config.fake_tensor_propagate_real_tensors
+    orig_compute_unbacked_bindings = symbolic_shapes.compute_unbacked_bindings
+    orig_defer_runtime_assert = symbolic_shapes.ShapeEnv.defer_runtime_assert
+
+    def compute_unbacked_bindings(*args, **kwargs):
+        return
+
+    def defer_runtime_assert(*args, **kwargs):
+        return
+
+    try:
+        # config.fake_tensor_propagate_real_tensors = True
+        # symbolic_shapes.compute_unbacked_bindings = compute_unbacked_bindings
+        # symbolic_shapes.ShapeEnv.defer_runtime_assert = defer_runtime_assert
+        yield
+    finally:
+        config.fake_tensor_propagate_real_tensors = orig_value
+        symbolic_shapes.compute_unbacked_bindings = orig_compute_unbacked_bindings
+        symbolic_shapes.ShapeEnv.defer_runtime_assert = orig_defer_runtime_assert
+
+
+@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
         if TORCH_VERSION < (2, 1):
@@ -529,11 +570,22 @@ def dynamo_hacks_for_current_torch_version():
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
         if TORCH_VERSION >= (2, 3):
             hack_stack.enter_context(allow_inlining_skipped_functions())
+        if TORCH_VERSION >= (2, 4):
+            hack_stack.enter_context(propagate_real_tensors())
         if TRANSFORMERS_AVAILABLE:
             hack_stack.enter_context(handle_transformers_output())
         hack_stack.enter_context(monkeypatch_accelerate())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield
+
+
+def insert_node(node):
+    node.graph._insert(node)
+    # torch >= 2.4
+    if (lookup_table := getattr(node.graph, "_find_nodes_lookup_table", None)) is not None:
+        lookup_table.insert(node)
+    node.graph._len += 1
+    node.graph._graph_namespace._obj_to_name[node] = node.name
 
 
 def replace_node_keeping_original_name(node, replacement, name):
@@ -548,11 +600,8 @@ def replace_node_keeping_original_name(node, replacement, name):
     del node.graph._graph_namespace._obj_to_name[node]
     node.graph._graph_namespace._obj_to_name[replacement] = name
     replacement.name = name
-    node.graph._insert(replacement)
-
-    # torch >= 2.4
-    if (lookup_table := getattr(node.graph, "_find_nodes_lookup_table", None)) is not None:
-        lookup_table.insert(replacement)
+    if replacement not in node.graph.nodes:
+        insert_node(replacement)
 
 
 def maybe_add_8_bit_linear_custom_compilation(options):
