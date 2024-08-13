@@ -159,11 +159,12 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 hacks.insert_node(new_placeholder)
             insert_after = new_placeholder
 
-    # Demangle varargs/kwargs for torch 2.0.*. It'd be nice to do this by tracking the source of
-    # each argument to the FX graph, but unfortunately the GraphArgs are entirely decoupled from
-    # the corresponding placeholders in the compile implementation, so we have to do this by name.
+    # Any remaining existing placeholders do not appear in the function signature; we have to handle
+    # them differently depending on torch version.
+    # For torch 2.0.*, the GraphArgs are entirely decoupled from the corresponding placeholders,
+    # so we have to track them by name only.
     if hacks.TORCH_VERSION < (2, 1):
-        for name, placeholder in dict(existing_placeholders.items()).items():
+        for name, placeholder in existing_placeholders.items():
             getitem_args: Optional[Tuple[Node, Union[str, int]]] = None
             if varargs_node is not None and (
                 match := re.match(f"{varargs_node.target[1:]}_(\\d)_", name)
@@ -179,10 +180,10 @@ def _repair_input_signature(state: ExtractionState) -> None:
                     varkwargs_node,
                     match.group(1),
                 )
-            if not getitem_args:
-                continue
-            with graph_module.graph.inserting_after(insert_after):
-                get_item_node = Node(
+
+            # This was var(kw)args; replace the placeholder with a getitem.
+            if getitem_args:
+                new_node = Node(
                     graph_module.graph,
                     name,
                     "call_method",
@@ -190,63 +191,75 @@ def _repair_input_signature(state: ExtractionState) -> None:
                     getitem_args,
                     {},
                 )
-                hacks.replace_node_keeping_original_name(placeholder, get_item_node, name)
-                insert_after = get_item_node
-                del existing_placeholders[name]
-
-    # Any remaining existing placeholders do not appear in the function signature. Assume they are
-    # lifted module attributes.
-    # TODO: catch warning for adding get_attr
-    attribute_nodes: Dict[str, Node] = {}
-    for name, placeholder in existing_placeholders.items():
-        root_source = placeholder.meta["_graphpatch_placeholder_source"]
-        source = root_source
-        attribute_name = None
-        replacement_node = None
-        while True:
-            if isinstance(source, hacks.AttrSource):
-                attribute_name = source.member
-                break
-            if not hasattr(source, "base"):
-                break
-            source = source.base
-        if attribute_name not in attribute_nodes:
-            with graph_module.graph.inserting_after(insert_after):
-                attribute_nodes[attribute_name] = Node(
-                    graph_module.graph,
-                    attribute_name,
-                    "get_attr",
-                    attribute_name,
-                    (),
-                    {},
-                )
-                replacement_node = attribute_nodes[attribute_name]
-                hacks.insert_node(attribute_nodes[attribute_name])
-                insert_after = attribute_nodes[attribute_name]
+            # Otherwise, this was a lifted attribute.
+            else:
+                # Strip initial "self_" from the name.
+                original_attribute_name = placeholder.target[5:]
                 setattr(
                     graph_module,
-                    attribute_name,
-                    getattr(state.wrapped_module._graphpatch_wrapped_module, attribute_name),
+                    placeholder.target,
+                    getattr(
+                        state.wrapped_module._graphpatch_wrapped_module, original_attribute_name
+                    ),
                 )
-        # TODO: we should be able to handle arbitrary nesting, but I'm not even sure compile() can,
-        # so putting that off for now.
-        if isinstance(root_source, hacks.GetItemSource):
-            with graph_module.graph.inserting_after(insert_after):
-                get_item_node = Node(
-                    graph_module.graph,
-                    "getitem",
-                    "call_method",
-                    "__getitem__",
-                    (attribute_nodes[attribute_name], root_source.index),
-                    {},
-                )
-                insert_after = get_item_node
-                replacement_node = get_item_node
-                hacks.insert_node(get_item_node)
+                new_node = Node(graph_module.graph, name, "get_attr", placeholder.target, (), {})
 
-        hacks.replace_node_keeping_original_name(
-            placeholder, replacement_node, replacement_node.name
-        )
+            with graph_module.graph.inserting_after(insert_after):
+                hacks.replace_node_keeping_original_name(placeholder, new_node, name)
+
+            insert_after = new_node
+    # In torch >= 2.1, we are able to track the source of each GraphArg.
+    else:
+        attribute_nodes: Dict[str, Node] = {}
+        for name, placeholder in existing_placeholders.items():
+            root_source = placeholder.meta["_graphpatch_placeholder_source"]
+            source = root_source
+            attribute_name = None
+            replacement_node = None
+            while True:
+                if isinstance(source, hacks.AttrSource):
+                    attribute_name = source.member
+                    break
+                if not hasattr(source, "base"):
+                    break
+                source = source.base
+            if attribute_name not in attribute_nodes:
+                with graph_module.graph.inserting_after(insert_after):
+                    attribute_nodes[attribute_name] = Node(
+                        graph_module.graph,
+                        attribute_name,
+                        "get_attr",
+                        attribute_name,
+                        (),
+                        {},
+                    )
+                    replacement_node = attribute_nodes[attribute_name]
+                    hacks.insert_node(attribute_nodes[attribute_name])
+                    insert_after = attribute_nodes[attribute_name]
+                    setattr(
+                        graph_module,
+                        attribute_name,
+                        getattr(state.wrapped_module._graphpatch_wrapped_module, attribute_name),
+                    )
+            # TODO: we should be able to handle arbitrary nesting, but I'm not even sure compile()
+            # can, so putting that off for now.
+            if isinstance(root_source, hacks.GetItemSource):
+                with graph_module.graph.inserting_after(insert_after):
+                    get_item_node = Node(
+                        graph_module.graph,
+                        "getitem",
+                        "call_method",
+                        "__getitem__",
+                        (attribute_nodes[attribute_name], root_source.index),
+                        {},
+                    )
+                    insert_after = get_item_node
+                    replacement_node = get_item_node
+                    hacks.insert_node(get_item_node)
+
+            hacks.replace_node_keeping_original_name(
+                placeholder, replacement_node, replacement_node.name
+            )
 
 
 def _repair_output_signature(state: ExtractionState) -> None:

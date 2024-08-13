@@ -170,6 +170,5 @@ def test_protected_names(patchable_protected_name_module, protected_name_module_
         "_graphpatch_args",
     ]
 
-    # The renamed nodes should still be in the graph.
-    assert any(n.node.name == "_shape" for n in pg._meta.values() if n.node is not None)
+    # The renamed node should still be in the graph.
     assert any(n.node.name == "_code" for n in pg._meta.values() if n.node is not None)

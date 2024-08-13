@@ -368,23 +368,23 @@ def test_patch_pretrained_module(pg, pretrained_module_inputs):
 @requires_transformers
 @requires_accelerate
 @opaque_and_compiled("patchable_accelerate_pretrained_module")
-def test_patch_accelerate_pretrained_module(pg, pretrained_module_inputs):
-    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+def test_patch_accelerate_pretrained_module(pg, accelerate_pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, accelerate_pretrained_module_inputs)
 
 
 @requires_gpu
 @requires_transformers
 @requires_accelerate
 @opaque_and_compiled("patchable_mixed_cpu_pretrained_module")
-def test_patch_mixed_cpu_pretrained_module(pg, pretrained_module_inputs):
-    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+def test_patch_mixed_cpu_pretrained_module(pg, mixed_cpu_pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, mixed_cpu_pretrained_module_inputs)
 
 
 @requires_transformers
 @requires_accelerate
 @opaque_and_compiled("patchable_disk_offload_pretrained_module")
-def test_patch_disk_offload_pretrained_module(pg, pretrained_module_inputs):
-    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+def test_patch_disk_offload_pretrained_module(pg, disk_offload_pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, disk_offload_pretrained_module_inputs)
 
 
 @requires_gpu
@@ -392,5 +392,5 @@ def test_patch_disk_offload_pretrained_module(pg, pretrained_module_inputs):
 @requires_accelerate
 @requires_bitsandbytes
 @opaque_and_compiled("patchable_quantized_pretrained_module")
-def test_patch_quantized_pretrained_module(pg, pretrained_module_inputs):
-    _pretrained_module_patch_asserts(pg, pretrained_module_inputs)
+def test_patch_quantized_pretrained_module(pg, quantized_pretrained_module_inputs):
+    _pretrained_module_patch_asserts(pg, quantized_pretrained_module_inputs)

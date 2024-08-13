@@ -51,7 +51,6 @@ def monkeypatch_dynamic_shapes():
     )
     from torch._dynamo.variables import builder
     from torch._dynamo.variables.builder import VariableBuilder
-    from torch.fx.experimental.sym_node import SymNode
     from torch.fx.experimental.symbolic_shapes import DimDynamic, ShapeEnv
 
     def wrap_literal(self, _original, value):
@@ -146,12 +145,9 @@ def monkeypatch_dynamic_shapes():
 
         # It's much easier to handle module attributes that get converted to placeholders if we
         # track the original source.
-        if (node := getattr(result, "node", None)) and TORCH_VERSION >= (2, 4):
+        if node := getattr(result, "node", None):
             node.meta["_graphpatch_placeholder_source"] = source
         return result
-
-    def guard_bool(self, _original, *args, **kwargs):
-        return self.hint
 
     def __init__(self, _original, *args, **kwargs):
         _original(self, *args, **kwargs)
@@ -176,9 +172,8 @@ def monkeypatch_dynamic_shapes():
             __init__,
             evaluate_expr,
         ],
-        # SymNode: [guard_bool],
         builder: [wrap_fx_proxy_cls],
-        # VariableBuilder: [wrap_literal],
+        VariableBuilder: [wrap_literal] if TORCH_VERSION < (2, 4) else [],
     }
     orig_functions = {
         patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
@@ -534,32 +529,6 @@ def handle_transformers_output():
 
 
 @contextmanager
-def propagate_real_tensors():
-    from torch._functorch import config
-    from torch.fx.experimental import symbolic_shapes
-
-    orig_value = config.fake_tensor_propagate_real_tensors
-    orig_compute_unbacked_bindings = symbolic_shapes.compute_unbacked_bindings
-    orig_defer_runtime_assert = symbolic_shapes.ShapeEnv.defer_runtime_assert
-
-    def compute_unbacked_bindings(*args, **kwargs):
-        return
-
-    def defer_runtime_assert(*args, **kwargs):
-        return
-
-    try:
-        # config.fake_tensor_propagate_real_tensors = True
-        # symbolic_shapes.compute_unbacked_bindings = compute_unbacked_bindings
-        # symbolic_shapes.ShapeEnv.defer_runtime_assert = defer_runtime_assert
-        yield
-    finally:
-        config.fake_tensor_propagate_real_tensors = orig_value
-        symbolic_shapes.compute_unbacked_bindings = orig_compute_unbacked_bindings
-        symbolic_shapes.ShapeEnv.defer_runtime_assert = orig_defer_runtime_assert
-
-
-@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
         if TORCH_VERSION < (2, 1):
@@ -570,8 +539,6 @@ def dynamo_hacks_for_current_torch_version():
             hack_stack.enter_context(monkeypatch_dynamic_shapes())
         if TORCH_VERSION >= (2, 3):
             hack_stack.enter_context(allow_inlining_skipped_functions())
-        if TORCH_VERSION >= (2, 4):
-            hack_stack.enter_context(propagate_real_tensors())
         if TRANSFORMERS_AVAILABLE:
             hack_stack.enter_context(handle_transformers_output())
         hack_stack.enter_context(monkeypatch_accelerate())

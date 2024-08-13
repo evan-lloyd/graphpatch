@@ -89,7 +89,7 @@ def mixed_cpu_pretrained_module(pretrained_module_path):
 
 @fixture
 def mixed_cpu_pretrained_module_inputs(pretrained_module_inputs):
-    return pretrained_module_inputs
+    return pretrained_module_inputs.to(device="cuda")
 
 
 @fixture
