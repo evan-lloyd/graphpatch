@@ -53,7 +53,6 @@ debugger = ProgrammaticPdb()
 
 
 def pytest_configure(config):
-    # https://github.com/pytorch/pytorch/blob/dcfa7702c3ecd8754e8a66bc49142de00c8474ee/torch/_dynamo/source.py#L375
     site_packages_dir = site.getsitepackages()[0]
     for bp in config.option.graphpatch_breakpoints or []:
         match = re.match(

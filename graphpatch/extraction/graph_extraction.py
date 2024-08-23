@@ -214,7 +214,7 @@ def _repair_input_signature(state: ExtractionState) -> None:
         for name, placeholder in existing_placeholders.items():
             root_source = placeholder.meta["_graphpatch_placeholder_source"]
             source = root_source
-            attribute_name = None
+            attribute_name = placeholder.target
             replacement_node = None
             while True:
                 if isinstance(source, hacks.AttrSource):
@@ -223,9 +223,6 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 if not hasattr(source, "base"):
                     break
                 source = source.base
-
-            if attribute_name is None:
-                continue
 
             if attribute_name not in attribute_nodes:
                 with graph_module.graph.inserting_after(insert_after):
