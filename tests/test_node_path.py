@@ -118,13 +118,13 @@ def test_node_path_pretty_print(patchable_deeply_nested_output_module, snapshot)
     # more not-actually-used nodes. In future releases we should use our own logic to clean up
     # graphs after extraction, which should eliminate this discrepancy.
     if TORCH_VERSION >= (2, 4):
-        snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_4")
+        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_4")
     elif TORCH_VERSION >= (2, 2):
-        snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_2")
+        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_2")
     elif TORCH_VERSION >= (2, 1):
-        snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_1")
+        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_1")
     else:
-        snapshot.assert_match(repr(patchable_deeply_nested_output_module.graph), "2_0")
+        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_0")
 
 
 def test_node_path_shape(patchable_deeply_nested_output_module):
@@ -141,9 +141,9 @@ def test_node_path_shape(patchable_deeply_nested_output_module):
 def test_node_path_code(patchable_deeply_nested_output_module, snapshot):
     pg = patchable_deeply_nested_output_module
     if TORCH_VERSION >= (2, 1):
-        snapshot.assert_match(pg.graph._code, "2_1")
+        assert pg.graph._code == snapshot(name="2_1")
     else:
-        snapshot.assert_match(pg.graph._code, "2_0")
+        assert pg.graph._code == snapshot(name="2_0")
     assert str(pg.graph.output._code) == (
         "return ((linear_0,), [([getitem_5], getitem_6), ([getitem_9], getitem_10), ([getitem_13], getitem_14)],"
         " {'nested_dict': [(linear_1,)]})"

@@ -5,6 +5,8 @@ import sys
 from pdb import Pdb
 
 import pytest
+from syrupy.data import SnapshotCollections
+from syrupy.report import SnapshotReport
 
 # No tests in the fixtures directory.
 collect_ignore = ["fixtures"]
@@ -69,3 +71,34 @@ def pytest_configure(config):
 
     if config.option.graphpatch_breakpoints:
         debugger.set_running_trace()
+
+    # Monkeypatch syrupy to not delete "unused" snapshots; we need to maintain different snapshots
+    # depending on torch version, which won't get accessed on envs not using that version.
+    class TorchVersionedReport(SnapshotReport):
+        @property
+        def unused(self):
+            return SnapshotCollections()
+
+    from syrupy import session
+
+    session.SnapshotReport = TorchVersionedReport
+
+
+# We currently have some snapshots that will vary between Torch versions; make syrupy not detect
+# the not-currently-running versions as "unused" by appending torch major/minor version to dir.
+# class TorchVersionedSnapshot(AmberSnapshotExtension):
+#     # @classmethod
+#     # def dirname(cls, *, test_location):
+#     #     from graphpatch.hacks import TORCH_VERSION
+
+#     #     original_name = AmberSnapshotExtension.dirname(test_location=test_location)
+#     #     return f"{original_name}{TORCH_VERSION[0]}_{TORCH_VERSION[1]}"
+
+#     @property
+#     def unused(self):
+#         return SnapshotCollection()
+
+
+# @pytest.fixture
+# def snapshot(snapshot):
+#     return snapshot.use_extension(TorchVersionedSnapshot)

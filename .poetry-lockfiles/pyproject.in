@@ -91,7 +91,7 @@ mypy = "^1.6.1"
 [tool.poetry.group.testenv-test.dependencies]
 pytest = "^7.4.2"
 pytest-mock = "^3.12.0"
-snapshottest = "^0.6.0"
+syrupy = "^4.6.4"
 ipython = "^8.12.3"
 pdbpp = "^0.10.3"
 pytest-xdist = "^3.5.0"
