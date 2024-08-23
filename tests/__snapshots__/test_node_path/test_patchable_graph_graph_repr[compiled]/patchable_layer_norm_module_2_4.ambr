@@ -1,0 +1,14 @@
+'''
+<root>: CompiledGraphModule
+├─x: Tensor(3, 2)
+├─ln: CompiledGraphModule
+│ ├─input: Tensor(3, 2)
+│ ├─normalized_shape: tuple(1)
+│ │ └─sub_0: int
+│ ├─getitem: int
+│ ├─weight: Tensor(2)
+│ ├─bias: Tensor(2)
+│ ├─layer_norm: Tensor(3, 2)
+│ └─output: Tensor(3, 2)
+└─output: Tensor(3, 2)
+'''

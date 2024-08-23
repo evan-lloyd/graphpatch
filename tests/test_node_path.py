@@ -1,12 +1,30 @@
 from typing import Optional
 
 import pytest
+from syrupy.extensions.json import JSONSnapshotExtension
+from syrupy.extensions.amber.serializer import AmberDataSerializer
 
 from graphpatch.hacks import TORCH_VERSION
 from graphpatch.meta import NodeData, NodeMeta, wrap_node_path
 from graphpatch.meta.graph_meta import WrappedCode
 from graphpatch.meta.node_path import NodeShapePath
 from tests.fixtures.deeply_nested_output_module import DeeplyNestedOutputModule
+
+
+class SingleFileAmber(JSONSnapshotExtension):
+    _file_extension = "ambr"
+
+    def serialize(self, data, **kwargs):
+        return AmberDataSerializer.serialize(data, **kwargs)
+
+    @classmethod
+    def dirname(cls, *, test_location):
+        original = JSONSnapshotExtension.dirname(test_location=test_location)
+        return f"{original}/{test_location.testname}"
+
+    @classmethod
+    def get_snapshot_name(cls, *, test_location, index):
+        return str(index)
 
 
 class MockNodeMeta(NodeMeta):
@@ -112,19 +130,26 @@ def test_node_path_autocomplete(path_data):
     assert set(node_path.foo.bar.sub_0.sub_1.__dir__()) == {"_code", "_shape"}
 
 
-def test_node_path_pretty_print(patchable_deeply_nested_output_module, snapshot):
-    # This is complicated enough of a structure that it should detect any regressions.
+@pytest.mark.parametrize("opacity", ["compiled", "opaque"])
+def test_patchable_graph_graph_repr(all_patchable_graphs, opacity, snapshot):
+    snapshot = snapshot.with_defaults(extension_class=SingleFileAmber)
+
     # Note we get slightly different structures for newer versions of torch, due to it retaining
     # more not-actually-used nodes. In future releases we should use our own logic to clean up
     # graphs after extraction, which should eliminate this discrepancy.
     if TORCH_VERSION >= (2, 4):
-        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_4")
+        torch_version_suffix = "2_4"
     elif TORCH_VERSION >= (2, 2):
-        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_2")
+        torch_version_suffix = "2_2-2_3"
     elif TORCH_VERSION >= (2, 1):
-        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_1")
+        torch_version_suffix = "2_1"
     else:
-        assert repr(patchable_deeply_nested_output_module.graph) == snapshot(name="2_0")
+        torch_version_suffix = "2_0"
+
+    for pg_name, pg in all_patchable_graphs.items():
+        assert repr(pg.graph) == snapshot(
+            name=f"{pg_name}_{torch_version_suffix}"
+        ), f"Snapshot mismatch for {pg_name}[{opacity}]"
 
 
 def test_node_path_shape(patchable_deeply_nested_output_module):

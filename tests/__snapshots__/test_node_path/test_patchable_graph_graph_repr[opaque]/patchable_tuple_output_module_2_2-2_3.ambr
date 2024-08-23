@@ -1,0 +1,20 @@
+'''
+<root>: CompiledGraphModule
+├─x: Tensor(3, 2)
+├─linear_0: CompiledGraphModule
+│ ├─input: Tensor(3, 2)
+│ ├─weight: Tensor(3, 2)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─add: Tensor(3, 2)
+├─linear_1: CompiledGraphModule
+│ ├─input: Tensor(3, 2)
+│ ├─weight: Tensor(3, 2)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+└─output: tuple(2)
+  ├─sub_0: Tensor(3, 3)
+  └─sub_1: Tensor(3, 3)
+'''

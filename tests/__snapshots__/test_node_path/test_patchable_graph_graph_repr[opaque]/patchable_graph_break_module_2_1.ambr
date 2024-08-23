@@ -1,0 +1,38 @@
+'''
+<root>: OpaqueGraphModule
+├─x: Tensor(3, 3)
+├─foo: int
+├─sub_shape: tuple(2)
+│ ├─sub_0: int
+│ └─sub_1: int
+├─bar: int
+├─instance_value: int
+├─shadowed_class_var: int
+├─linear_0: CompiledGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─weight: Tensor(3, 3)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─linear_1: CompiledGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─weight: Tensor(3, 3)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─linear_2: CompiledGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─weight: Tensor(3, 3)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─unused_submodule: OpaqueGraphModule
+│ ├─input
+│ ├─constants
+│ ├─bias
+│ ├─in_features
+│ ├─out_features
+│ ├─weight
+│ └─output
+└─output: Tensor(3, 3)
+'''

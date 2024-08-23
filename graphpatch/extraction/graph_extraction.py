@@ -214,6 +214,8 @@ def _repair_input_signature(state: ExtractionState) -> None:
         for name, placeholder in existing_placeholders.items():
             root_source = placeholder.meta["_graphpatch_placeholder_source"]
             source = root_source
+            # Not all lifted attributes end up having an AttrSource for some reason. In that case
+            # fall back to handling by name.
             attribute_name = placeholder.target
             replacement_node = None
             while True:

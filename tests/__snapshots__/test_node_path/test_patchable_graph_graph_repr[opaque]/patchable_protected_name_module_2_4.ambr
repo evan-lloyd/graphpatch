@@ -1,0 +1,21 @@
+'''
+<root>: CompiledGraphModule
+├─sub_shape_1: Tensor(3, 2)
+├─sub_code_1: int
+├─sub_shape: int
+├─sub_shape_2: tuple(2)
+│ ├─sub_0: int
+│ └─sub_1: int
+├─getitem: int
+├─add: Tensor(3, 2)
+├─add_1: Tensor(3, 2)
+├─add_2: Tensor(3, 2)
+├─add_3: Tensor(3, 2)
+├─_code_: CompiledGraphModule
+│ ├─input: Tensor(3, 2)
+│ ├─weight: Tensor(3, 2)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+└─output: Tensor(3, 3)
+'''

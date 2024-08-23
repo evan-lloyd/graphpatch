@@ -1,0 +1,36 @@
+'''
+<root>: CompiledGraphModule
+├─x: Tensor(3, 3)
+├─foos: tuple(3)
+│ ├─sub_0: Tensor(3, 3)
+│ ├─sub_1: Tensor(3, 3)
+│ └─sub_2: Tensor(3, 3)
+├─blah: int
+├─bars: dict(2)
+│ ├─a: Tensor(3, 3)
+│ └─b: Tensor(3, 3)
+├─foos_0_: Tensor(3, 3)
+├─foos_1_: Tensor(3, 3)
+├─foos_2_: Tensor(3, 3)
+├─bars_a_: Tensor(3, 3)
+├─bars_b_: Tensor(3, 3)
+├─linear_0: CompiledGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─weight: Tensor(3, 3)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─iadd: Tensor(3, 3)
+├─iadd_1: Tensor(3, 3)
+├─iadd_2: Tensor(3, 3)
+├─add: Tensor(3, 3)
+├─linear_1: CompiledGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─weight: Tensor(3, 3)
+│ ├─bias: Tensor(3)
+│ ├─linear: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─iadd_3: Tensor(3, 3)
+├─iadd_4: Tensor(3, 3)
+└─output: Tensor(3, 3)
+'''
