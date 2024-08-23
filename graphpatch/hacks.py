@@ -287,10 +287,6 @@ def set_dynamo_config():
         "capture_scalar_outputs": True,
         "capture_dynamic_output_shape_ops": True,
         "raise_on_ctx_manager_usage": False,
-        # 2.4
-        # "prefer_deferred_runtime_asserts_over_guards": True,
-        # "_allow_complex_guards_as_runtime_asserts": True,
-        # "do_not_emit_runtime_asserts": True,
     }
     orig_values = {key: getattr(torch._dynamo.config, key, _NOT_PRESENT) for key in config_values}
     for key, value in config_values.items():
@@ -507,8 +503,6 @@ def handle_transformers_output():
     orig_get_fake_value = builder.get_fake_value
 
     def get_fake_value(*args, **kwargs):
-        # if args and args[0].name == "split_size":
-        #     breakpoint()
         result = orig_get_fake_value(*args, **kwargs)
         if isinstance(result, ModelOutput):
             fields = type(result).__dataclass_fields__

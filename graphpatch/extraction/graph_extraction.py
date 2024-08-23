@@ -223,6 +223,10 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 if not hasattr(source, "base"):
                     break
                 source = source.base
+
+            if attribute_name is None:
+                continue
+
             if attribute_name not in attribute_nodes:
                 with graph_module.graph.inserting_after(insert_after):
                     attribute_nodes[attribute_name] = Node(
@@ -257,9 +261,10 @@ def _repair_input_signature(state: ExtractionState) -> None:
                     replacement_node = get_item_node
                     hacks.insert_node(get_item_node)
 
-            hacks.replace_node_keeping_original_name(
-                placeholder, replacement_node, replacement_node.name
-            )
+            if replacement_node is not None:
+                hacks.replace_node_keeping_original_name(
+                    placeholder, replacement_node, replacement_node.name
+                )
 
 
 def _repair_output_signature(state: ExtractionState) -> None:

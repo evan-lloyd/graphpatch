@@ -82,23 +82,3 @@ def pytest_configure(config):
     from syrupy import session
 
     session.SnapshotReport = TorchVersionedReport
-
-
-# We currently have some snapshots that will vary between Torch versions; make syrupy not detect
-# the not-currently-running versions as "unused" by appending torch major/minor version to dir.
-# class TorchVersionedSnapshot(AmberSnapshotExtension):
-#     # @classmethod
-#     # def dirname(cls, *, test_location):
-#     #     from graphpatch.hacks import TORCH_VERSION
-
-#     #     original_name = AmberSnapshotExtension.dirname(test_location=test_location)
-#     #     return f"{original_name}{TORCH_VERSION[0]}_{TORCH_VERSION[1]}"
-
-#     @property
-#     def unused(self):
-#         return SnapshotCollection()
-
-
-# @pytest.fixture
-# def snapshot(snapshot):
-#     return snapshot.use_extension(TorchVersionedSnapshot)

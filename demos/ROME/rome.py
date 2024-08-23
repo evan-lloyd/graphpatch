@@ -2,6 +2,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import torch
 from torch import Tensor
+from torch.optim import Adam  # type: ignore
 
 from graphpatch import AddPatch, Patch, PatchableGraph, ProbePatch
 from graphpatch.optional.dataclasses import dataclass
@@ -165,7 +166,7 @@ def generate_value_vector(
         requires_grad=True,
         device=clean_target.device,
     )
-    optimizer = torch.optim.Adam([delta], lr=0.5)
+    optimizer = Adam([delta], lr=0.5)
     for _ in range(20):
         optimizer.zero_grad()
 
