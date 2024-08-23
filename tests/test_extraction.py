@@ -25,6 +25,16 @@ from .util import (
 )
 
 
+def test_extract_singleton_module(minimal_module, minimal_module_inputs):
+    graph_module, meta = extract(
+        minimal_module.linear,
+        ExtractionOptions(error_on_compilation_failure=True),
+        minimal_module_inputs,
+    )
+    validate_extraction(graph_module, minimal_module.linear, meta)
+    assert_results_identical(minimal_module.linear, graph_module, minimal_module_inputs)
+
+
 def test_extract_minimal_module(minimal_module, minimal_module_inputs):
     graph_module, meta = extract(
         minimal_module, ExtractionOptions(error_on_compilation_failure=True), minimal_module_inputs
