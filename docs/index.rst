@@ -134,7 +134,9 @@ Version compatibility
 make for a Python library. If you end up with errors that seem related to ``graphpatch``'s integration
 with these libraries, you might try changing their versions to those listed below. This list was
 automatically generated as part of the ``graphpatch`` release process; it reflects the versions
-used while testing ``graphpatch {{graphpatch_version}}``.
+used while testing ``graphpatch {{graphpatch_version}}``:
+
+.. include:: transformers_versions.rst
 
 .. _related_work:
 
