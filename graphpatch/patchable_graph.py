@@ -468,6 +468,8 @@ class PatchableGraph(Module):
         for k, v in patch_map.items():
             if isinstance(v, Patch):
                 patch_map[k] = [v]
+            else:
+                patch_map[k] = copy(v)
 
         # Convert any NodePaths into str.
         converted_patch_map: Dict[str, List[Patch[Tensor]]] = {}

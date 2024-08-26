@@ -1,4 +1,4 @@
-graphpatch 0.2.0
+graphpatch 0.2.1
 ================
 
 Documentation is hosted on `Read the Docs <https://graphpatch.readthedocs.io/en/stable>`_.
@@ -63,9 +63,10 @@ The only mandatory requirements are ``torch>=2`` and ``numpy>=1.17``. Version 2+
 because ``graphpatch`` leverages :func:`torch.compile`, which was introduced in ``2.0.0``, to extract computational graphs from models.
 CUDA support is not required. ``numpy`` is required for full ``compile()`` support.
 
-Python 3.8--3.11 are supported. Note that ``torch`` versions prior to ``2.1.0`` do not support compilation
-on Python 3.11; you will get an exception when trying to use ``graphpatch`` with such a configuration.
-No version of ``torch`` yet supports compilation on Python 3.12.
+Python 3.8--3.12 are supported. Note that ``torch`` versions prior to ``2.1.0`` do not support compilation
+on Python 3.11, and versions prior to ``2.4.0`` do not support compilation on Python 3.12;
+you will get an exception when trying to use ``graphpatch`` with such a configuration. No version of
+``torch`` yet supports compilation on Python 3.13.
 
 Installation
 ############
@@ -125,6 +126,15 @@ combination with activation patching:
    # Prevent Llama from outputting "Paris"
    with pg.patch({"lm_head.output": ZeroPatch(slice=(slice(None), slice(None), 3681))}):
       output_tokens = pg.generate(**inputs, max_length=20, use_cache=False)
+
+Version compatibility
+---------------------
+``graphpatch`` should be compatible with all versions of ``transformers``, ``accelerate``, and
+``bitsandbytes`` matching the minimum version requirements, but this is a highly ambitious claim to
+make for a Python library. If you end up with errors that seem related to ``graphpatch``'s integration
+with these libraries, you might try changing their versions to those listed below. This list was
+automatically generated as part of the ``graphpatch`` release process; it reflects the versions
+used while testing ``graphpatch {{graphpatch_version}}``.
 
 .. _related_work:
 
