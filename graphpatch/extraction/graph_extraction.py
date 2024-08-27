@@ -127,9 +127,6 @@ def _repair_input_signature(state: ExtractionState) -> None:
     ).parameters
     canonical_placeholders: Dict[str, Node] = {}
 
-    varargs_node = None
-    varkwargs_node = None
-
     # Construct (possibly new) graph inputs in the correct order.
     for name, parameter in forward_parameters.items():
         if name in existing_placeholders:
@@ -155,10 +152,6 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 {},
                 type_annotation,
             )
-            if target.startswith("**"):
-                varkwargs_node = new_placeholder
-            elif target.startswith("*"):
-                varargs_node = new_placeholder
             if target in existing_placeholders:
                 hacks.replace_node_keeping_original_name(
                     existing_placeholders[target], new_placeholder, name
@@ -170,121 +163,78 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 canonical_placeholders[target.replace("*", "")] = new_placeholder
             insert_after = new_placeholder
 
-    # Any remaining existing placeholders do not appear in the function signature; we have to handle
-    # them differently depending on torch version.
-    # For torch 2.0.*, the GraphArgs are entirely decoupled from the corresponding placeholders,
-    # so we have to track them by name only.
-    if hacks.TORCH_VERSION < (2, 0):
-        for name, placeholder in existing_placeholders.items():
-            getitem_args: Optional[Tuple[Node, Union[str, int]]] = None
-            if varargs_node is not None and (
-                match := re.match(f"{varargs_node.target[1:]}_(\\d)_", name)
-            ):
-                getitem_args = (
-                    varargs_node,
-                    int(match.group(1)),
-                )
-            if varkwargs_node is not None and (
-                match := re.match(f"{varkwargs_node.target[2:]}_(.+?)_", name)
-            ):
-                getitem_args = (
-                    varkwargs_node,
-                    match.group(1),
-                )
+    # Any remaining placeholders do not appear in the function signature. There are two known causes
+    # for this:
+    # 1) Lifted attributes; generally, non-Tensor attributes on the module that get converted into
+    #    arguments to the GraphModule.
+    # 2) Weird handling of container typed arguments. For example, each element of a tuple will get
+    #    split into separate arguments, which are attributed to a LocalSource. (My guess is this
+    #    happens because compile() assumes that it is going to flatten everything into one module,
+    #    but because we override that it ends up just making no sense.)
+    attribute_nodes: Dict[str, Node] = {}
+    for name, placeholder in existing_placeholders.items():
+        root_source = placeholder.meta["_graphpatch_placeholder_source"]
+        source = root_source
+        # Not all lifted attributes end up having an AttrSource for some reason. In that case
+        # fall back to handling by name.
+        attribute_name = placeholder.target
+        replacement_node = None
+        while True:
+            if isinstance(source, hacks.AttrSource):
+                attribute_name = source.member
+                break
+            # Happens for container inputs that aren't used directly, but their members are.
+            elif isinstance(source, hacks.LocalSource):
+                attribute_name = source.local_name
+                attribute_nodes[attribute_name] = canonical_placeholders[attribute_name]
+                break
 
-            # This was var(kw)args; replace the placeholder with a getitem.
-            if getitem_args:
-                new_node = Node(
+            if hasattr(source, "base"):
+                source = source.base
+            # torch 2.0
+            elif hasattr(source, "inner"):
+                source = source.inner
+            else:
+                break
+
+        if attribute_name not in attribute_nodes:
+            with graph_module.graph.inserting_after(insert_after):
+                attribute_nodes[attribute_name] = Node(
                     graph_module.graph,
-                    name,
-                    "call_method",
-                    "__getitem__",
-                    getitem_args,
+                    attribute_name,
+                    "get_attr",
+                    attribute_name,
+                    (),
                     {},
                 )
-            # Otherwise, this was a lifted attribute.
-            else:
-                # Strip initial "self_" from the name.
-                original_attribute_name = placeholder.target[5:]
+                replacement_node = attribute_nodes[attribute_name]
+                hacks.insert_node(attribute_nodes[attribute_name])
+                insert_after = attribute_nodes[attribute_name]
                 setattr(
                     graph_module,
-                    placeholder.target,
-                    getattr(
-                        state.wrapped_module._graphpatch_wrapped_module, original_attribute_name
-                    ),
+                    attribute_name,
+                    getattr(state.wrapped_module._graphpatch_wrapped_module, attribute_name),
                 )
-                new_node = Node(graph_module.graph, name, "get_attr", placeholder.target, (), {})
-
+        # TODO: we should be able to handle arbitrary nesting, but I'm not even sure compile()
+        # can, so putting that off for now.
+        if isinstance(root_source, hacks.GetItemSource):
             with graph_module.graph.inserting_after(insert_after):
-                hacks.replace_node_keeping_original_name(placeholder, new_node, name)
-
-            insert_after = new_node
-    # In torch >= 2.1, we are able to track the source of each GraphArg.
-    else:
-        attribute_nodes: Dict[str, Node] = {}
-        for name, placeholder in existing_placeholders.items():
-            root_source = placeholder.meta["_graphpatch_placeholder_source"]
-            source = root_source
-            # Not all lifted attributes end up having an AttrSource for some reason. In that case
-            # fall back to handling by name.
-            attribute_name = placeholder.target
-            replacement_node = None
-            while True:
-                if isinstance(source, hacks.AttrSource):
-                    attribute_name = source.member
-                    break
-                # Happens for container inputs that aren't used directly, but their members are.
-                elif isinstance(source, hacks.LocalSource):
-                    attribute_name = source.local_name
-                    attribute_nodes[attribute_name] = canonical_placeholders[attribute_name]
-                    break
-
-                if hasattr(source, "base"):
-                    source = source.base
-                # torch 2.0
-                elif hasattr(source, "inner"):
-                    source = source.inner
-                else:
-                    break
-
-            if attribute_name not in attribute_nodes:
-                with graph_module.graph.inserting_after(insert_after):
-                    attribute_nodes[attribute_name] = Node(
-                        graph_module.graph,
-                        attribute_name,
-                        "get_attr",
-                        attribute_name,
-                        (),
-                        {},
-                    )
-                    replacement_node = attribute_nodes[attribute_name]
-                    hacks.insert_node(attribute_nodes[attribute_name])
-                    insert_after = attribute_nodes[attribute_name]
-                    setattr(
-                        graph_module,
-                        attribute_name,
-                        getattr(state.wrapped_module._graphpatch_wrapped_module, attribute_name),
-                    )
-            # TODO: we should be able to handle arbitrary nesting, but I'm not even sure compile()
-            # can, so putting that off for now.
-            if isinstance(root_source, hacks.GetItemSource):
-                with graph_module.graph.inserting_after(insert_after):
-                    get_item_node = Node(
-                        graph_module.graph,
-                        "getitem",
-                        "call_method",
-                        "__getitem__",
-                        (attribute_nodes[attribute_name], root_source.index),
-                        {},
-                    )
-                    insert_after = get_item_node
-                    replacement_node = get_item_node
-                    hacks.insert_node(get_item_node)
-
-            if replacement_node is not None:
-                hacks.replace_node_keeping_original_name(
-                    placeholder, replacement_node, replacement_node.name
+                get_item_node = Node(
+                    graph_module.graph,
+                    "getitem",
+                    "call_method",
+                    "__getitem__",
+                    (attribute_nodes[attribute_name], root_source.index),
+                    {},
                 )
+                insert_after = get_item_node
+                replacement_node = get_item_node
+                hacks.insert_node(get_item_node)
+
+        if replacement_node is not None:
+            hacks.replace_node_keeping_original_name(
+                placeholder, replacement_node, replacement_node.name
+            )
 
 
 def _repair_output_signature(state: ExtractionState) -> None:
