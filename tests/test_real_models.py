@@ -33,7 +33,12 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
     original_model = LlamaForCausalLM(config=tiny_llama_config)
     gm, _ = extract(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
+        ExtractionOptions(
+            error_on_compilation_failure=True,
+            skip_compilation=opacity == "opaque",
+            # Some versions of Llama have an unused rotary embedding submodule due to it being moved
+            allow_unused_submodules=True,
+        ),
         inputs.input_ids,
         use_cache=False,
     )
@@ -56,7 +61,11 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
     )
     pg = PatchableGraph(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
+        ExtractionOptions(
+            error_on_compilation_failure=True,
+            skip_compilation=opacity == "opaque",
+            allow_unused_submodules=True,
+        ),
         inputs.input_ids,
         use_cache=False,
     )

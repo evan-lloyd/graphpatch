@@ -12,7 +12,7 @@ from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
-from ..exceptions import GraphPatchWarning
+from ..exceptions import GraphPatchException, GraphPatchWarning
 from ..meta import (
     GraphMeta,
     NodeData,
@@ -34,6 +34,14 @@ from .extraction_options import ExtractionOptions
 from .graphpatch_module import GraphPatchModule
 from .multiply_invoked_module import MultiplyInvokedModule
 from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
+
+
+class CompilationError(GraphPatchException):
+    pass
+
+
+class NoRecordedInvocations(CompilationError):
+    pass
 
 
 class CompilationWarning(GraphPatchWarning):
@@ -117,6 +125,7 @@ def _repair_input_signature(state: ExtractionState) -> None:
     forward_parameters = inspect.signature(
         state.wrapped_module._graphpatch_wrapped_module.forward
     ).parameters
+    canonical_placeholders: Dict[str, Node] = {}
 
     varargs_node = None
     varkwargs_node = None
@@ -157,13 +166,15 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 del existing_placeholders[target]
             else:
                 hacks.insert_node(new_placeholder)
+                # Edge case for varargs/kwargs nodes
+                canonical_placeholders[target.replace("*", "")] = new_placeholder
             insert_after = new_placeholder
 
     # Any remaining existing placeholders do not appear in the function signature; we have to handle
     # them differently depending on torch version.
     # For torch 2.0.*, the GraphArgs are entirely decoupled from the corresponding placeholders,
     # so we have to track them by name only.
-    if hacks.TORCH_VERSION < (2, 1):
+    if hacks.TORCH_VERSION < (2, 0):
         for name, placeholder in existing_placeholders.items():
             getitem_args: Optional[Tuple[Node, Union[str, int]]] = None
             if varargs_node is not None and (
@@ -222,9 +233,19 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 if isinstance(source, hacks.AttrSource):
                     attribute_name = source.member
                     break
-                if not hasattr(source, "base"):
+                # Happens for container inputs that aren't used directly, but their members are.
+                elif isinstance(source, hacks.LocalSource):
+                    attribute_name = source.local_name
+                    attribute_nodes[attribute_name] = canonical_placeholders[attribute_name]
                     break
-                source = source.base
+
+                if hasattr(source, "base"):
+                    source = source.base
+                # torch 2.0
+                elif hasattr(source, "inner"):
+                    source = source.inner
+                else:
+                    break
 
             if attribute_name not in attribute_nodes:
                 with graph_module.graph.inserting_after(insert_after):
@@ -510,12 +531,16 @@ def _handle_compilation_failure(
     try:
         yield
     except Exception as exc:
+        if isinstance(exc, NoRecordedInvocations) and options.allow_unused_submodules:
+            # Allow this failure and fall back to OpaqueGraphModule?
+            pass
         # No fallback for OpaqueGraphModule failure.
-        if (
+        elif (
             options.error_on_compilation_failure
             or state.extraction_method is ExtractionMethod.opaque
         ):
             raise
+
         if options.warn_on_compilation_failure:
             if state.extraction_method is ExtractionMethod.custom:
                 method_description = "Custom extraction function"
@@ -535,6 +560,7 @@ def _handle_compilation_failure(
                 # user isn't trying to call extract directly.
                 stacklevel=3,
             )
+
         # Fall back to OpaqueGraphModule.
         state.extraction_method = ExtractionMethod.opaque
         state.extracted_module = None
@@ -569,7 +595,7 @@ def extract(
                 kwargs = trace_kwargs
             else:
                 if len(state.invocations) == 0:
-                    raise ValueError(
+                    raise NoRecordedInvocations(
                         f"Unable to compile {state.torch_name}; it was never called when"
                         " evaluating the given example inputs."
                     )
@@ -588,13 +614,13 @@ def extract(
             do_extraction()
             _repair_input_signature(state)
 
+    # For the type-checker's benefit; this is a cannot-happen.
+    assert isinstance(root_state.extracted_module, GraphPatchModule)
+
     # Undo the unrolling of containers performed by compile(), so we'll end up with the same
     # module hierarchy as originally. Reset _modules so we'll additionally restore the original
     # ordering (compile re-orders them to the order in which they are invoked).
     for torch_qual_name, state in extraction_state.items():
-        assert state.extracted_module is not None
-        assert root_state.extracted_module is not None
-
         if isinstance(state.extracted_module, CompiledGraphModule):
             _retarget_submodule_calls(state)
             state.extracted_module._modules = OrderedDict()

@@ -13,6 +13,9 @@ class ExtractionOptions:
     keyword-only dataclass; to construct one, pass any number of options from the below.
 
     Attributes:
+        allow_unused_submodules: Whether to treat a submodule not being called under the given
+            example inputs as a normal condition. Default: ``True`` if ``error_on_compilation_failure``
+            is ``False``, otherwise ("strict mode"), ``False``.
         classes_to_skip_compiling: Set of Module classes to leave uncompiled. These modules will
             only be patchable at their inputs, outputs, parameters, and buffers. May be useful for
             working around compilation issues. Default: ``set()``.
@@ -46,6 +49,7 @@ class ExtractionOptions:
             pg = PatchableGraph(my_model, options, **example_inputs)
     """
 
+    allow_unused_submodules: Optional[bool] = None
     classes_to_skip_compiling: Set[Type[Module]] = field(default_factory=set)
     copy_transformers_generation_config: bool = True
     custom_extraction_functions: Dict[Type[Module], Callable[[Module], Graph]] = field(
@@ -55,3 +59,7 @@ class ExtractionOptions:
     postprocessing_function: Optional[Callable[[GraphModule, Module], None]] = None
     skip_compilation: bool = False
     warn_on_compilation_failure: bool = False
+
+    def __post_init__(self):
+        if self.allow_unused_submodules is None:
+            self.allow_unused_submodules = not self.error_on_compilation_failure

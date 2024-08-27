@@ -177,7 +177,11 @@ class PatchableGraph(Module):
         if graph_module is None or meta is None:
             raise ValueError("Unable to extract graph.")
 
-        self._graphpatch_override_generation_kwargs = {"use_cache": False, "cache_position": None}
+        self._graphpatch_override_generation_kwargs = {
+            "use_cache": False,
+            "cache_position": None,
+            "past_key_values": None,
+        }
         self._patch_context: Optional[Dict[str, List[Patch[Tensor]]]] = None
         self._graph_module = graph_module
         self._meta = meta

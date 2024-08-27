@@ -6,7 +6,7 @@ from copy import deepcopy
 from functools import partial, partialmethod
 
 import torch
-from torch._dynamo.source import AttrSource, GetItemSource, NNModuleSource
+from torch._dynamo.source import AttrSource, GetItemSource, NNModuleSource, LocalSource
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
 from torch.utils._python_dispatch import _get_current_dispatch_mode
@@ -21,7 +21,15 @@ if TORCH_VERSION < (2, 1):
 else:
     from torch._dynamo.decorators import allow_in_graph, disable, skip  # noqa: F401
 
-__all__ = ["AttrSource", "GetItemSource", "NNModuleSource", "allow_in_graph", "disable", "skip"]
+__all__ = [
+    "AttrSource",
+    "GetItemSource",
+    "LocalSource",
+    "NNModuleSource",
+    "allow_in_graph",
+    "disable",
+    "skip",
+]
 
 _CURRENTLY_COMPILING = False
 
@@ -42,7 +50,7 @@ def monkeypatch_dynamic_shapes():
     work with that, since we assume a static GraphModule. In the future, we may want to refactor to
     roll with these re-compilations, in which case we can probably do away with this hack.
     """
-    from torch._dynamo.output_graph import OutputGraph, SubgraphTracer
+    from torch._dynamo.output_graph import OutputGraph
     from torch._dynamo.source import (
         DefaultsSource,
         LocalSource,
@@ -133,22 +141,6 @@ def monkeypatch_dynamic_shapes():
             if isinstance(arg.source, (TensorPropertySource, DefaultsSource)):
                 self.remove_node(node)
 
-    def create_graph_input(self, _original, name, *args, **kwargs):
-        """Unmangles input names, which end up with something hideous like L__foo_"""
-        source = kwargs.get("source")
-        if source is not None:
-            if isinstance(source, NNModuleSource) and name.startswith("L_self_"):
-                name = name.replace("L_self_", "", 1)
-            elif hasattr(source, "local_name"):
-                name = source.local_name
-        result = _original(self, name, *args, **kwargs)
-
-        # It's much easier to handle module attributes that get converted to placeholders if we
-        # track the original source.
-        if node := getattr(result, "node", None):
-            node.meta["_graphpatch_placeholder_source"] = source
-        return result
-
     def __init__(self, _original, *args, **kwargs):
         _original(self, *args, **kwargs)
         # Tweak some internal flags to avoid specializing on tensor dimensions. These got wrapped
@@ -164,7 +156,6 @@ def monkeypatch_dynamic_shapes():
         self.val_to_var = {}
 
     patch_map = {
-        SubgraphTracer: [create_graph_input],
         OutputGraph: [remove_unused_graphargs],
         ShapeEnv: [
             _maybe_guard_eq if TORCH_VERSION < (2, 3) else _maybe_guard_rel,
@@ -235,6 +226,71 @@ def monkeypatch_graph_names():
     backend/tracer.
     """
     from torch._dynamo.output_graph import OutputGraph
+    from torch._dynamo.variables.builder import VariableBuilder
+
+    if TORCH_VERSION >= (2, 1):
+        from torch._dynamo.output_graph import SubgraphTracer as GraphInputTarget
+    else:
+        GraphInputTarget = OutputGraph
+
+    original_create_graph_input = GraphInputTarget.create_graph_input
+
+    if TORCH_VERSION < (2, 1):
+        original_wrap_tensor = VariableBuilder.wrap_tensor
+        original_wrap_sym = VariableBuilder.wrap_sym
+        original_wrap_unspecialized_primitive = VariableBuilder.wrap_unspecialized_primitive
+
+    def create_graph_input(self, name, *args, **kwargs):
+        """Unmangles input names, which end up with something hideous like L__foo_"""
+        if TORCH_VERSION >= (2, 1):
+            source = kwargs.get("source")
+        else:
+            # torch 2.0 did not expect source (we monkey-patched it in); need to pop before calling
+            # original.
+            source = kwargs.pop("source", None)
+
+        if source is not None:
+            if isinstance(source, NNModuleSource) and name.startswith("L_self_"):
+                name = name.replace("L_self_", "", 1)
+            elif hasattr(source, "local_name"):
+                name = source.local_name
+        result = original_create_graph_input(self, name, *args, **kwargs)
+
+        # It's much easier to handle module attributes that get converted to placeholders if we
+        # track the original source.
+        if node := getattr(result, "node", None):
+            node.meta["_graphpatch_placeholder_source"] = source
+        return result
+
+    def wrap_unspecialized_primitive(outer_self, *args, **kwargs):
+        def graph_input_with_curried_source(inner_self, *args, **kwargs):
+            return create_graph_input(inner_self, *args, **kwargs, source=outer_self.get_source())
+
+        try:
+            GraphInputTarget.create_graph_input = graph_input_with_curried_source
+            return original_wrap_unspecialized_primitive(outer_self, *args, **kwargs)
+        finally:
+            GraphInputTarget.create_graph_input = create_graph_input
+
+    def wrap_sym(outer_self, *args, **kwargs):
+        def graph_input_with_curried_source(inner_self, *args, **kwargs):
+            return create_graph_input(inner_self, *args, **kwargs, source=outer_self.get_source())
+
+        try:
+            GraphInputTarget.create_graph_input = graph_input_with_curried_source
+            return original_wrap_sym(outer_self, *args, **kwargs)
+        finally:
+            GraphInputTarget.create_graph_input = create_graph_input
+
+    def wrap_tensor(outer_self, *args, **kwargs):
+        def graph_input_with_curried_source(inner_self, *args, **kwargs):
+            return create_graph_input(inner_self, *args, **kwargs, source=outer_self.get_source())
+
+        try:
+            GraphInputTarget.create_graph_input = graph_input_with_curried_source
+            return original_wrap_tensor(outer_self, *args, **kwargs)
+        finally:
+            GraphInputTarget.create_graph_input = create_graph_input
 
     orig_register_attr = OutputGraph.register_attr_or_module
 
@@ -255,9 +311,19 @@ def monkeypatch_graph_names():
 
     try:
         OutputGraph.register_attr_or_module = demangle_names
+        GraphInputTarget.create_graph_input = create_graph_input
+        if TORCH_VERSION < (2, 1):
+            VariableBuilder.wrap_tensor = wrap_tensor
+            VariableBuilder.wrap_sym = wrap_sym
+            VariableBuilder.wrap_unspecialized_primitive = wrap_unspecialized_primitive
         yield
     finally:
         OutputGraph.register_attr_or_module = orig_register_attr
+        GraphInputTarget.create_graph_input = original_create_graph_input
+        if TORCH_VERSION < (2, 1):
+            VariableBuilder.wrap_tensor = original_wrap_tensor
+            VariableBuilder.wrap_sym = original_wrap_sym
+            VariableBuilder.wrap_unspecialized_primitive = original_wrap_unspecialized_primitive
 
 
 def get_size(target, index):
@@ -351,9 +417,6 @@ def patch_module_module(cls):
 
 @contextmanager
 def monkeypatch_accelerate():
-    if not ACCELERATE_AVAILABLE:
-        yield
-        return
     from accelerate import hooks
     from accelerate.utils.offload import OffloadedWeightsLoader
 
@@ -535,7 +598,8 @@ def dynamo_hacks_for_current_torch_version():
             hack_stack.enter_context(allow_inlining_skipped_functions())
         if TRANSFORMERS_AVAILABLE:
             hack_stack.enter_context(handle_transformers_output())
-        hack_stack.enter_context(monkeypatch_accelerate())
+        if ACCELERATE_AVAILABLE:
+            hack_stack.enter_context(monkeypatch_accelerate())
         hack_stack.enter_context(monkeypatch_graph_names())
         yield
 
