@@ -1,5 +1,5 @@
 '''
-<root>: OpaqueGraphModule
+<root>: CompiledGraphModule
 ├─x: Tensor(3, 3)
 ├─foos: tuple(3)
 │ ├─sub_0: Tensor(3, 3)
@@ -9,20 +9,24 @@
 ├─bars: dict(2)
 │ ├─a: Tensor(3, 3)
 │ └─b: Tensor(3, 3)
-├─sub_shape: tuple(2)
-│ ├─sub_0: int
-│ └─sub_1: int
+├─getitem: Tensor(3, 3)
 ├─linear_0: CompiledGraphModule
 │ ├─input: Tensor(3, 3)
 │ ├─weight: Tensor(3, 3)
 │ ├─bias: Tensor(3)
 │ ├─linear: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
+├─result_1: Tensor(3, 3)
+├─result_2: Tensor(3, 3)
+├─result_3: Tensor(3, 3)
+├─add: Tensor(3, 3)
 ├─linear_1: CompiledGraphModule
 │ ├─input: Tensor(3, 3)
 │ ├─weight: Tensor(3, 3)
 │ ├─bias: Tensor(3)
 │ ├─linear: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
+├─result_5: Tensor(3, 3)
+├─result_6: Tensor(3, 3)
 └─output: Tensor(3, 3)
 '''

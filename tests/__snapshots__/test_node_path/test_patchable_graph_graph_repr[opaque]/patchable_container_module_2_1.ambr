@@ -1,154 +1,230 @@
 '''
-<root>: CompiledGraphModule
+<root>: OpaqueGraphModule
 ├─x: Tensor(3, 3)
-├─duped_linear: CompiledGraphModule
+├─sub_shape: tuple(2)
+│ ├─sub_0: int
+│ └─sub_1: int
+├─linear_0: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
-│ └─output: Tensor(3, 3)
-├─module_dict_foo: CompiledGraphModule
-│ ├─input: Tensor(3, 3)
+│ ├─in_features: int
+│ ├─out_features: int
 │ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─sub: Tensor(3, 3)
-├─module_dict_bar_baz_0: CompiledGraphModule
+├─linear_1: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
 │ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─linear_0: CompiledGraphModule
+├─linear_2: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
 │ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─mul: Tensor(3, 3)
-├─iadd: Tensor(3, 3)
-├─module_dict_bar_baz_1: CompiledGraphModule
+├─linear_3: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
 │ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─linear_1: CompiledGraphModule
+├─duped_linear: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
 │ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─mul_1: Tensor(3, 3)
-├─iadd_1: Tensor(3, 3)
-├─module_dict_bar_baz_2: CompiledGraphModule
+├─sequential: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
-│ ├─sub_0: CompiledGraphModule
+│ ├─sub_0: OpaqueGraphModule
 │ │ ├─input: Tensor(3, 3)
-│ │ ├─weight: Tensor(3, 3)
+│ │ ├─constants: list(2)
+│ │ │ ├─sub_0: str
+│ │ │ └─sub_1: str
 │ │ ├─bias: Tensor(3)
-│ │ ├─linear: Tensor(3, 3)
-│ │ └─output: Tensor(3, 3)
-│ ├─sub_1: CompiledGraphModule
-│ │ ├─input: Tensor(3, 3)
+│ │ ├─in_features: int
+│ │ ├─out_features: int
 │ │ ├─weight: Tensor(3, 3)
-│ │ ├─bias: Tensor(3)
-│ │ ├─linear: Tensor(3, 3)
 │ │ └─output: Tensor(3, 3)
-│ ├─sub_2: CompiledGraphModule
+│ ├─sub_1: OpaqueGraphModule
 │ │ ├─input: Tensor(3, 3)
-│ │ ├─sub_0: CompiledGraphModule
+│ │ ├─constants: list(2)
+│ │ │ ├─sub_0: str
+│ │ │ └─sub_1: str
+│ │ ├─bias: Tensor(3)
+│ │ ├─in_features: int
+│ │ ├─out_features: int
+│ │ ├─weight: Tensor(3, 3)
+│ │ └─output: Tensor(3, 3)
+│ ├─sub_2: OpaqueGraphModule
+│ │ ├─input: Tensor(3, 3)
+│ │ ├─sub_0: OpaqueGraphModule
 │ │ │ ├─input: Tensor(3, 3)
-│ │ │ ├─weight: Tensor(3, 3)
+│ │ │ ├─constants: list(2)
+│ │ │ │ ├─sub_0: str
+│ │ │ │ └─sub_1: str
 │ │ │ ├─bias: Tensor(3)
-│ │ │ ├─linear: Tensor(3, 3)
+│ │ │ ├─in_features: int
+│ │ │ ├─out_features: int
+│ │ │ ├─weight: Tensor(3, 3)
 │ │ │ └─output: Tensor(3, 3)
-│ │ ├─sub_1: CompiledGraphModule
+│ │ ├─sub_1: OpaqueGraphModule
 │ │ │ ├─input: Tensor(3, 3)
-│ │ │ ├─weight: Tensor(3, 3)
+│ │ │ ├─constants: list(2)
+│ │ │ │ ├─sub_0: str
+│ │ │ │ └─sub_1: str
 │ │ │ ├─bias: Tensor(3)
-│ │ │ ├─linear: Tensor(3, 3)
-│ │ │ └─output: Tensor(3, 3)
-│ │ └─output: Tensor(3, 3)
-│ ├─sub_3: CompiledGraphModule
-│ │ ├─input: Tensor(3, 3)
-│ │ ├─weight: Tensor(3, 3)
-│ │ ├─bias: Tensor(3)
-│ │ ├─linear: Tensor(3, 3)
-│ │ └─output: Tensor(3, 3)
-│ └─output: Tensor(3, 3)
-├─linear_2: CompiledGraphModule
-│ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
-│ └─output: Tensor(3, 3)
-├─mul_2: Tensor(3, 3)
-├─iadd_2: Tensor(3, 3)
-├─module_list_0_0: CompiledGraphModule
-│ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
-│ └─output: Tensor(3, 3)
-├─iadd_3: Tensor(3, 3)
-├─module_list_1: CompiledGraphModule
-│ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
-│ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
-│ └─output: Tensor(3, 3)
-├─iadd_4: Tensor(3, 3)
-├─sequential: CompiledGraphModule
-│ ├─input: Tensor(3, 3)
-│ ├─sub_0: CompiledGraphModule
-│ │ ├─input: Tensor(3, 3)
-│ │ ├─weight: Tensor(3, 3)
-│ │ ├─bias: Tensor(3)
-│ │ ├─linear: Tensor(3, 3)
-│ │ └─output: Tensor(3, 3)
-│ ├─sub_1: CompiledGraphModule
-│ │ ├─input: Tensor(3, 3)
-│ │ ├─weight: Tensor(3, 3)
-│ │ ├─bias: Tensor(3)
-│ │ ├─linear: Tensor(3, 3)
-│ │ └─output: Tensor(3, 3)
-│ ├─sub_2: CompiledGraphModule
-│ │ ├─input: Tensor(3, 3)
-│ │ ├─sub_0: CompiledGraphModule
-│ │ │ ├─input: Tensor(3, 3)
+│ │ │ ├─in_features: int
+│ │ │ ├─out_features: int
 │ │ │ ├─weight: Tensor(3, 3)
-│ │ │ ├─bias: Tensor(3)
-│ │ │ ├─linear: Tensor(3, 3)
-│ │ │ └─output: Tensor(3, 3)
-│ │ ├─sub_1: CompiledGraphModule
-│ │ │ ├─input: Tensor(3, 3)
-│ │ │ ├─weight: Tensor(3, 3)
-│ │ │ ├─bias: Tensor(3)
-│ │ │ ├─linear: Tensor(3, 3)
 │ │ │ └─output: Tensor(3, 3)
 │ │ └─output: Tensor(3, 3)
-│ ├─sub_3: CompiledGraphModule
+│ ├─sub_3: OpaqueGraphModule
 │ │ ├─input: Tensor(3, 3)
-│ │ ├─weight: Tensor(3, 3)
+│ │ ├─constants: list(2)
+│ │ │ ├─sub_0: str
+│ │ │ └─sub_1: str
 │ │ ├─bias: Tensor(3)
-│ │ ├─linear: Tensor(3, 3)
+│ │ ├─in_features: int
+│ │ ├─out_features: int
+│ │ ├─weight: Tensor(3, 3)
 │ │ └─output: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─linear_3: CompiledGraphModule
+├─module_list_0_0: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─add: Tensor(3, 3)
-├─module_list_0_1: CompiledGraphModule
+├─module_list_0_1: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─add_1: Tensor(3, 3)
+├─module_list_1: OpaqueGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─module_dict_foo: OpaqueGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─module_dict_bar_baz_0: OpaqueGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─module_dict_bar_baz_1: OpaqueGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
+│ ├─bias: Tensor(3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+├─module_dict_bar_baz_2: OpaqueGraphModule
+│ ├─input: Tensor(3, 3)
+│ ├─sub_0: OpaqueGraphModule
+│ │ ├─input: Tensor(3, 3)
+│ │ ├─constants: list(2)
+│ │ │ ├─sub_0: str
+│ │ │ └─sub_1: str
+│ │ ├─bias: Tensor(3)
+│ │ ├─in_features: int
+│ │ ├─out_features: int
+│ │ ├─weight: Tensor(3, 3)
+│ │ └─output: Tensor(3, 3)
+│ ├─sub_1: OpaqueGraphModule
+│ │ ├─input: Tensor(3, 3)
+│ │ ├─constants: list(2)
+│ │ │ ├─sub_0: str
+│ │ │ └─sub_1: str
+│ │ ├─bias: Tensor(3)
+│ │ ├─in_features: int
+│ │ ├─out_features: int
+│ │ ├─weight: Tensor(3, 3)
+│ │ └─output: Tensor(3, 3)
+│ ├─sub_2: OpaqueGraphModule
+│ │ ├─input: Tensor(3, 3)
+│ │ ├─sub_0: OpaqueGraphModule
+│ │ │ ├─input: Tensor(3, 3)
+│ │ │ ├─constants: list(2)
+│ │ │ │ ├─sub_0: str
+│ │ │ │ └─sub_1: str
+│ │ │ ├─bias: Tensor(3)
+│ │ │ ├─in_features: int
+│ │ │ ├─out_features: int
+│ │ │ ├─weight: Tensor(3, 3)
+│ │ │ └─output: Tensor(3, 3)
+│ │ ├─sub_1: OpaqueGraphModule
+│ │ │ ├─input: Tensor(3, 3)
+│ │ │ ├─constants: list(2)
+│ │ │ │ ├─sub_0: str
+│ │ │ │ └─sub_1: str
+│ │ │ ├─bias: Tensor(3)
+│ │ │ ├─in_features: int
+│ │ │ ├─out_features: int
+│ │ │ ├─weight: Tensor(3, 3)
+│ │ │ └─output: Tensor(3, 3)
+│ │ └─output: Tensor(3, 3)
+│ ├─sub_3: OpaqueGraphModule
+│ │ ├─input: Tensor(3, 3)
+│ │ ├─constants: list(2)
+│ │ │ ├─sub_0: str
+│ │ │ └─sub_1: str
+│ │ ├─bias: Tensor(3)
+│ │ ├─in_features: int
+│ │ ├─out_features: int
+│ │ ├─weight: Tensor(3, 3)
+│ │ └─output: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
 └─output: Tensor(3, 3)
 '''

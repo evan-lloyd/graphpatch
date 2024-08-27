@@ -1,11 +1,16 @@
 '''
-<root>: CompiledGraphModule
+<root>: OpaqueGraphModule
 ├─x: Tensor(3, 2)
-├─ln: CompiledGraphModule
+├─sub_shape: tuple(2)
+│ ├─sub_0: int
+│ └─sub_1: int
+├─ln: OpaqueGraphModule
 │ ├─input: Tensor(3, 2)
-│ ├─weight: Tensor(2)
 │ ├─bias: Tensor(2)
-│ ├─layer_norm: Tensor(3, 2)
+│ ├─eps: float
+│ ├─normalized_shape: tuple(1)
+│ │ └─sub_0: int
+│ ├─weight: Tensor(2)
 │ └─output: Tensor(3, 2)
 └─output: Tensor(3, 2)
 '''

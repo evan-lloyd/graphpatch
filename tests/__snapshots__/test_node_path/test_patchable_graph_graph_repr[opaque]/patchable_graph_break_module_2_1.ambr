@@ -8,23 +8,35 @@
 ├─bar: int
 ├─instance_value: int
 ├─shadowed_class_var: int
-├─linear_0: CompiledGraphModule
+├─linear_0: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─linear_1: CompiledGraphModule
+├─linear_1: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
-├─linear_2: CompiledGraphModule
+├─linear_2: OpaqueGraphModule
 │ ├─input: Tensor(3, 3)
-│ ├─weight: Tensor(3, 3)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(3)
-│ ├─linear: Tensor(3, 3)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(3, 3)
 │ └─output: Tensor(3, 3)
 ├─unused_submodule: OpaqueGraphModule
 │ ├─input

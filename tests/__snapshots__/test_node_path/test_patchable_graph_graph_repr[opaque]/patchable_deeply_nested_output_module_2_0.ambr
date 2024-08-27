@@ -1,218 +1,198 @@
 '''
-<root>: CompiledGraphModule
+<root>: OpaqueGraphModule
 ├─x: Tensor(10, 10)
-├─child_a: CompiledGraphModule
+├─sub_shape: tuple(2)
+│ ├─sub_0: int
+│ └─sub_1: int
+├─child_a: OpaqueGraphModule
 │ ├─a_inputs: Tensor(10, 10)
-│ ├─grandchildren_b_0: CompiledGraphModule
-│ │ ├─b_inputs: Tensor(10, 10)
-│ │ ├─a_inputs: Tensor(10, 10)
-│ │ ├─ones_like: Tensor(10, 10)
-│ │ ├─mul: Tensor(10, 10)
-│ │ ├─c: CompiledGraphModule
-│ │ │ ├─c_inputs: Tensor(10, 10)
-│ │ │ ├─inputs_2: Tensor(10, 10)
-│ │ │ ├─inputs_3: Tensor(10, 10)
-│ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear_0: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ ├─add: Tensor(10, 10)
-│ │ │ ├─c_linear_1: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ ├─add_1: Tensor(10, 10)
-│ │ │ ├─c_linear_2: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ └─output: list(2)
-│ │ │   ├─sub_0: Tensor(10, 10)
-│ │ │   └─sub_1: tuple(2)
-│ │ │     ├─sub_0: Tensor(10, 10)
-│ │ │     └─sub_1: Tensor(10, 10)
-│ │ ├─getitem_1: tuple(2)
-│ │ │ ├─sub_0: Tensor(10, 10)
-│ │ │ └─sub_1: Tensor(10, 10)
-│ │ ├─getitem_2: Tensor(10, 10)
-│ │ ├─b_linear: CompiledGraphModule
-│ │ │ ├─input: Tensor(10, 10)
-│ │ │ ├─weight: Tensor(10, 10)
-│ │ │ ├─bias: Tensor(10)
-│ │ │ ├─linear: Tensor(10, 10)
-│ │ │ └─output: Tensor(10, 10)
-│ │ └─output: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: tuple(1)
-│ │       └─sub_0: tuple(1)
-│ │         └─sub_0: tuple(1)
-│ │           └─sub_0: Tensor(10, 10)
-│ ├─getitem: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: tuple(1)
-│ │       └─sub_0: Tensor(10, 10)
-│ ├─getitem_1: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: Tensor(10, 10)
-│ ├─getitem_2: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: Tensor(10, 10)
-│ ├─getitem_3: tuple(1)
-│ │ └─sub_0: Tensor(10, 10)
-│ ├─getitem_4: Tensor(10, 10)
-│ ├─mul: Tensor(10, 10)
-│ ├─clone: Tensor(10, 10)
-│ ├─grandchildren_b_1: CompiledGraphModule
-│ │ ├─b_inputs: Tensor(10, 10)
-│ │ ├─a_inputs: Tensor(10, 10)
-│ │ ├─ones_like: Tensor(10, 10)
-│ │ ├─mul: Tensor(10, 10)
-│ │ ├─c: CompiledGraphModule
-│ │ │ ├─c_inputs: Tensor(10, 10)
-│ │ │ ├─inputs_2: Tensor(10, 10)
-│ │ │ ├─inputs_3: Tensor(10, 10)
-│ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear_0: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ ├─add: Tensor(10, 10)
-│ │ │ ├─c_linear_1: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ ├─add_1: Tensor(10, 10)
-│ │ │ ├─c_linear_2: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ └─output: list(2)
-│ │ │   ├─sub_0: Tensor(10, 10)
-│ │ │   └─sub_1: tuple(2)
-│ │ │     ├─sub_0: Tensor(10, 10)
-│ │ │     └─sub_1: Tensor(10, 10)
-│ │ ├─getitem_1: tuple(2)
-│ │ │ ├─sub_0: Tensor(10, 10)
-│ │ │ └─sub_1: Tensor(10, 10)
-│ │ ├─getitem_2: Tensor(10, 10)
-│ │ ├─b_linear: CompiledGraphModule
-│ │ │ ├─input: Tensor(10, 10)
-│ │ │ ├─weight: Tensor(10, 10)
-│ │ │ ├─bias: Tensor(10)
-│ │ │ ├─linear: Tensor(10, 10)
-│ │ │ └─output: Tensor(10, 10)
-│ │ └─output: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: tuple(1)
-│ │       └─sub_0: tuple(1)
-│ │         └─sub_0: tuple(1)
-│ │           └─sub_0: Tensor(10, 10)
-│ ├─getitem_5: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: tuple(1)
-│ │       └─sub_0: Tensor(10, 10)
-│ ├─getitem_6: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: Tensor(10, 10)
-│ ├─getitem_7: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: Tensor(10, 10)
-│ ├─getitem_8: tuple(1)
-│ │ └─sub_0: Tensor(10, 10)
-│ ├─getitem_9: Tensor(10, 10)
-│ ├─mul_1: Tensor(10, 10)
-│ ├─clone_1: Tensor(10, 10)
-│ ├─grandchildren_b_2: CompiledGraphModule
-│ │ ├─b_inputs: Tensor(10, 10)
-│ │ ├─a_inputs: Tensor(10, 10)
-│ │ ├─ones_like: Tensor(10, 10)
-│ │ ├─mul: Tensor(10, 10)
-│ │ ├─c: CompiledGraphModule
-│ │ │ ├─c_inputs: Tensor(10, 10)
-│ │ │ ├─inputs_2: Tensor(10, 10)
-│ │ │ ├─inputs_3: Tensor(10, 10)
-│ │ │ ├─inputs_4: Tensor(10, 10)
-│ │ │ ├─c_linear_0: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ ├─add: Tensor(10, 10)
-│ │ │ ├─c_linear_1: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ ├─add_1: Tensor(10, 10)
-│ │ │ ├─c_linear_2: CompiledGraphModule
-│ │ │ │ ├─input: Tensor(10, 10)
-│ │ │ │ ├─weight: Tensor(10, 10)
-│ │ │ │ ├─bias: Tensor(10)
-│ │ │ │ ├─linear: Tensor(10, 10)
-│ │ │ │ └─output: Tensor(10, 10)
-│ │ │ └─output: list(2)
-│ │ │   ├─sub_0: Tensor(10, 10)
-│ │ │   └─sub_1: tuple(2)
-│ │ │     ├─sub_0: Tensor(10, 10)
-│ │ │     └─sub_1: Tensor(10, 10)
-│ │ ├─getitem_1: tuple(2)
-│ │ │ ├─sub_0: Tensor(10, 10)
-│ │ │ └─sub_1: Tensor(10, 10)
-│ │ ├─getitem_2: Tensor(10, 10)
-│ │ ├─b_linear: CompiledGraphModule
-│ │ │ ├─input: Tensor(10, 10)
-│ │ │ ├─weight: Tensor(10, 10)
-│ │ │ ├─bias: Tensor(10)
-│ │ │ ├─linear: Tensor(10, 10)
-│ │ │ └─output: Tensor(10, 10)
-│ │ └─output: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: tuple(1)
-│ │       └─sub_0: tuple(1)
-│ │         └─sub_0: tuple(1)
-│ │           └─sub_0: Tensor(10, 10)
-│ ├─getitem_10: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: tuple(1)
-│ │       └─sub_0: Tensor(10, 10)
-│ ├─getitem_11: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: tuple(1)
-│ │     └─sub_0: Tensor(10, 10)
-│ ├─getitem_12: tuple(1)
-│ │ └─sub_0: tuple(1)
-│ │   └─sub_0: Tensor(10, 10)
-│ ├─getitem_13: tuple(1)
-│ │ └─sub_0: Tensor(10, 10)
-│ ├─getitem_14: Tensor(10, 10)
-│ ├─mul_2: Tensor(10, 10)
-│ ├─clone_2: Tensor(10, 10)
-│ ├─a_linear: CompiledGraphModule
+│ ├─a_linear: OpaqueGraphModule
 │ │ ├─input: Tensor(10, 10)
-│ │ ├─weight: Tensor(10, 10)
+│ │ ├─constants: list(2)
+│ │ │ ├─sub_0: str
+│ │ │ └─sub_1: str
 │ │ ├─bias: Tensor(10)
-│ │ ├─linear: Tensor(10, 10)
+│ │ ├─in_features: int
+│ │ ├─out_features: int
+│ │ ├─weight: Tensor(10, 10)
 │ │ └─output: Tensor(10, 10)
+│ ├─grandchildren_b_0: OpaqueGraphModule
+│ │ ├─b_inputs: Tensor(10, 10)
+│ │ ├─a_inputs: Tensor(10, 10)
+│ │ ├─b_linear: OpaqueGraphModule
+│ │ │ ├─input: Tensor(10, 10)
+│ │ │ ├─constants: list(2)
+│ │ │ │ ├─sub_0: str
+│ │ │ │ └─sub_1: str
+│ │ │ ├─bias: Tensor(10)
+│ │ │ ├─in_features: int
+│ │ │ ├─out_features: int
+│ │ │ ├─weight: Tensor(10, 10)
+│ │ │ └─output: Tensor(10, 10)
+│ │ ├─c: OpaqueGraphModule
+│ │ │ ├─c_inputs: Tensor(10, 10)
+│ │ │ ├─inputs_2: Tensor(10, 10)
+│ │ │ ├─inputs_3: Tensor(10, 10)
+│ │ │ ├─inputs_4: Tensor(10, 10)
+│ │ │ ├─c_linear_0: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ ├─c_linear_1: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ ├─c_linear_2: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ └─output: list(2)
+│ │ │   ├─sub_0: Tensor(10, 10)
+│ │ │   └─sub_1: tuple(2)
+│ │ │     ├─sub_0: Tensor(10, 10)
+│ │ │     └─sub_1: Tensor(10, 10)
+│ │ └─output: tuple(1)
+│ │   └─sub_0: tuple(1)
+│ │     └─sub_0: tuple(1)
+│ │       └─sub_0: tuple(1)
+│ │         └─sub_0: tuple(1)
+│ │           └─sub_0: Tensor(10, 10)
+│ ├─grandchildren_b_1: OpaqueGraphModule
+│ │ ├─b_inputs: Tensor(10, 10)
+│ │ ├─a_inputs: Tensor(10, 10)
+│ │ ├─b_linear: OpaqueGraphModule
+│ │ │ ├─input: Tensor(10, 10)
+│ │ │ ├─constants: list(2)
+│ │ │ │ ├─sub_0: str
+│ │ │ │ └─sub_1: str
+│ │ │ ├─bias: Tensor(10)
+│ │ │ ├─in_features: int
+│ │ │ ├─out_features: int
+│ │ │ ├─weight: Tensor(10, 10)
+│ │ │ └─output: Tensor(10, 10)
+│ │ ├─c: OpaqueGraphModule
+│ │ │ ├─c_inputs: Tensor(10, 10)
+│ │ │ ├─inputs_2: Tensor(10, 10)
+│ │ │ ├─inputs_3: Tensor(10, 10)
+│ │ │ ├─inputs_4: Tensor(10, 10)
+│ │ │ ├─c_linear_0: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ ├─c_linear_1: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ ├─c_linear_2: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ └─output: list(2)
+│ │ │   ├─sub_0: Tensor(10, 10)
+│ │ │   └─sub_1: tuple(2)
+│ │ │     ├─sub_0: Tensor(10, 10)
+│ │ │     └─sub_1: Tensor(10, 10)
+│ │ └─output: tuple(1)
+│ │   └─sub_0: tuple(1)
+│ │     └─sub_0: tuple(1)
+│ │       └─sub_0: tuple(1)
+│ │         └─sub_0: tuple(1)
+│ │           └─sub_0: Tensor(10, 10)
+│ ├─grandchildren_b_2: OpaqueGraphModule
+│ │ ├─b_inputs: Tensor(10, 10)
+│ │ ├─a_inputs: Tensor(10, 10)
+│ │ ├─b_linear: OpaqueGraphModule
+│ │ │ ├─input: Tensor(10, 10)
+│ │ │ ├─constants: list(2)
+│ │ │ │ ├─sub_0: str
+│ │ │ │ └─sub_1: str
+│ │ │ ├─bias: Tensor(10)
+│ │ │ ├─in_features: int
+│ │ │ ├─out_features: int
+│ │ │ ├─weight: Tensor(10, 10)
+│ │ │ └─output: Tensor(10, 10)
+│ │ ├─c: OpaqueGraphModule
+│ │ │ ├─c_inputs: Tensor(10, 10)
+│ │ │ ├─inputs_2: Tensor(10, 10)
+│ │ │ ├─inputs_3: Tensor(10, 10)
+│ │ │ ├─inputs_4: Tensor(10, 10)
+│ │ │ ├─c_linear_0: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ ├─c_linear_1: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ ├─c_linear_2: OpaqueGraphModule
+│ │ │ │ ├─input: Tensor(10, 10)
+│ │ │ │ ├─constants: list(2)
+│ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ └─sub_1: str
+│ │ │ │ ├─bias: Tensor(10)
+│ │ │ │ ├─in_features: int
+│ │ │ │ ├─out_features: int
+│ │ │ │ ├─weight: Tensor(10, 10)
+│ │ │ │ └─output: Tensor(10, 10)
+│ │ │ └─output: list(2)
+│ │ │   ├─sub_0: Tensor(10, 10)
+│ │ │   └─sub_1: tuple(2)
+│ │ │     ├─sub_0: Tensor(10, 10)
+│ │ │     └─sub_1: Tensor(10, 10)
+│ │ └─output: tuple(1)
+│ │   └─sub_0: tuple(1)
+│ │     └─sub_0: tuple(1)
+│ │       └─sub_0: tuple(1)
+│ │         └─sub_0: tuple(1)
+│ │           └─sub_0: Tensor(10, 10)
 │ └─output: tuple(2)
 │   ├─sub_0: list(1)
 │   │ └─sub_0: Tensor(10, 10)
@@ -229,58 +209,25 @@
 │       ├─sub_0: list(1)
 │       │ └─sub_0: Tensor(10, 10)
 │       └─sub_1: Tensor(10, 10)
-├─getitem: list(1)
-│ └─sub_0: Tensor(10, 10)
-├─getitem_1: Tensor(10, 10)
-├─getitem_2: list(3)
-│ ├─sub_0: tuple(2)
-│ │ ├─sub_0: list(1)
-│ │ │ └─sub_0: Tensor(10, 10)
-│ │ └─sub_1: Tensor(10, 10)
-│ ├─sub_1: tuple(2)
-│ │ ├─sub_0: list(1)
-│ │ │ └─sub_0: Tensor(10, 10)
-│ │ └─sub_1: Tensor(10, 10)
-│ └─sub_2: tuple(2)
-│   ├─sub_0: list(1)
-│   │ └─sub_0: Tensor(10, 10)
-│   └─sub_1: Tensor(10, 10)
-├─getitem_3: tuple(2)
-│ ├─sub_0: list(1)
-│ │ └─sub_0: Tensor(10, 10)
-│ └─sub_1: Tensor(10, 10)
-├─getitem_4: list(1)
-│ └─sub_0: Tensor(10, 10)
-├─getitem_5: Tensor(10, 10)
-├─getitem_6: Tensor(10, 10)
-├─getitem_7: tuple(2)
-│ ├─sub_0: list(1)
-│ │ └─sub_0: Tensor(10, 10)
-│ └─sub_1: Tensor(10, 10)
-├─getitem_8: list(1)
-│ └─sub_0: Tensor(10, 10)
-├─getitem_9: Tensor(10, 10)
-├─getitem_10: Tensor(10, 10)
-├─getitem_11: tuple(2)
-│ ├─sub_0: list(1)
-│ │ └─sub_0: Tensor(10, 10)
-│ └─sub_1: Tensor(10, 10)
-├─getitem_12: list(1)
-│ └─sub_0: Tensor(10, 10)
-├─getitem_13: Tensor(10, 10)
-├─getitem_14: Tensor(10, 10)
-├─linear_0: CompiledGraphModule
+├─linear_0: OpaqueGraphModule
 │ ├─input: Tensor(10, 10)
-│ ├─weight: Tensor(10, 10)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(10)
-│ ├─linear: Tensor(10, 10)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(10, 10)
 │ └─output: Tensor(10, 10)
-├─add: Tensor(10, 10)
-├─linear_1: CompiledGraphModule
+├─linear_1: OpaqueGraphModule
 │ ├─input: Tensor(10, 10)
-│ ├─weight: Tensor(10, 10)
+│ ├─constants: list(2)
+│ │ ├─sub_0: str
+│ │ └─sub_1: str
 │ ├─bias: Tensor(10)
-│ ├─linear: Tensor(10, 10)
+│ ├─in_features: int
+│ ├─out_features: int
+│ ├─weight: Tensor(10, 10)
 │ └─output: Tensor(10, 10)
 └─output: tuple(3)
   ├─sub_0: tuple(1)

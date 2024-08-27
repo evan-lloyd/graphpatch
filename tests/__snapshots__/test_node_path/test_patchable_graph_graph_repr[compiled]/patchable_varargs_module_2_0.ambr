@@ -9,11 +9,7 @@
 ├─bars: dict(2)
 │ ├─a: Tensor(3, 3)
 │ └─b: Tensor(3, 3)
-├─foos_0_: Tensor(3, 3)
-├─foos_1_: Tensor(3, 3)
-├─foos_2_: Tensor(3, 3)
-├─bars_a_: Tensor(3, 3)
-├─bars_b_: Tensor(3, 3)
+├─getitem: Tensor(3, 3)
 ├─linear_0: CompiledGraphModule
 │ ├─input: Tensor(3, 3)
 │ ├─weight: Tensor(3, 3)

@@ -1,7 +1,7 @@
 '''
 <root>: CompiledGraphModule
 ├─x: Tensor(3, 2)
-├─self_attribute_to_serialize: float
+├─attribute_to_serialize: float
 ├─add: Tensor(3, 2)
 ├─linear: CompiledGraphModule
 │ ├─input: Tensor(3, 2)

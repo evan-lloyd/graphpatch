@@ -1,6 +1,9 @@
 '''
-<root>: CompiledGraphModule
+<root>: OpaqueGraphModule
 ├─x: Tensor(3, 2)
+├─sub_shape: tuple(2)
+│ ├─sub_0: int
+│ └─sub_1: int
 ├─linear: CompiledGraphModule
 │ ├─x: Tensor(3, 2)
 │ ├─cb: Tensor(3, 2)

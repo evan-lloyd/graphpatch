@@ -1,121 +1,21 @@
 '''
-<root>: CompiledGraphModule
+<root>: OpaqueGraphModule
 ├─input_ids: Tensor(1, 100)
 ├─kwargs
-├─getitem: Tensor(1, 100)
-├─size: Size(2)
-│ ├─sub_0: int
-│ └─sub_1: int
-├─getitem_1: int
-├─getitem_2: int
-├─view: Tensor(1, 1, 100)
-├─repeat: Tensor(1, 100, 100)
-├─embedding: Tensor(1, 100, 100)
-├─model: CompiledGraphModule
+├─model: OpaqueGraphModule
 │ ├─root_inputs: Tensor(1, 100, 100)
-│ ├─child_a: CompiledGraphModule
+│ ├─root_linear: CompiledGraphModule
+│ │ ├─x: Tensor(1, 100, 100)
+│ │ ├─cb: Tensor(100, 100)
+│ │ ├─scb: Tensor(100, 1)
+│ │ ├─bias: Tensor(100)
+│ │ ├─threshold: float
+│ │ ├─mul: Tensor(100, 100)
+│ │ ├─weight: Tensor(100, 100)
+│ │ ├─matmul_8bit: Tensor(1, 100, 100)
+│ │ └─output: Tensor(1, 100, 100)
+│ ├─child_a: OpaqueGraphModule
 │ │ ├─a_inputs: Tensor(1, 100, 100)
-│ │ ├─grandchildren_b_0: CompiledGraphModule
-│ │ │ ├─b_inputs: Tensor(1, 100, 100)
-│ │ │ ├─a_inputs: Tensor(1, 100, 100)
-│ │ │ ├─ones_like: Tensor(1, 100, 100)
-│ │ │ ├─mul: Tensor(1, 100, 100)
-│ │ │ ├─c: CompiledGraphModule
-│ │ │ │ ├─c_inputs: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_2: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_3: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_4: Tensor(1, 100, 100)
-│ │ │ │ ├─add: Tensor(1, 100, 100)
-│ │ │ │ ├─add_1: Tensor(1, 100, 100)
-│ │ │ │ ├─add_2: Tensor(1, 100, 100)
-│ │ │ │ ├─c_linear: CompiledGraphModule
-│ │ │ │ │ ├─x: Tensor(1, 100, 100)
-│ │ │ │ │ ├─cb: Tensor(100, 100)
-│ │ │ │ │ ├─scb: Tensor(100, 1)
-│ │ │ │ │ ├─bias: Tensor(100)
-│ │ │ │ │ ├─threshold: float
-│ │ │ │ │ ├─mul: Tensor(100, 100)
-│ │ │ │ │ ├─weight: Tensor(100, 100)
-│ │ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
-│ │ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ ├─b_linear: CompiledGraphModule
-│ │ │ │ ├─x: Tensor(1, 100, 100)
-│ │ │ │ ├─cb: Tensor(100, 100)
-│ │ │ │ ├─scb: Tensor(100, 1)
-│ │ │ │ ├─bias: Tensor(100)
-│ │ │ │ ├─threshold: float
-│ │ │ │ ├─mul: Tensor(100, 100)
-│ │ │ │ ├─weight: Tensor(100, 100)
-│ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
-│ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ └─output: Tensor(1, 100, 100)
-│ │ ├─grandchildren_b_1: CompiledGraphModule
-│ │ │ ├─b_inputs: Tensor(1, 100, 100)
-│ │ │ ├─a_inputs: Tensor(1, 100, 100)
-│ │ │ ├─ones_like: Tensor(1, 100, 100)
-│ │ │ ├─mul: Tensor(1, 100, 100)
-│ │ │ ├─c: CompiledGraphModule
-│ │ │ │ ├─c_inputs: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_2: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_3: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_4: Tensor(1, 100, 100)
-│ │ │ │ ├─add: Tensor(1, 100, 100)
-│ │ │ │ ├─add_1: Tensor(1, 100, 100)
-│ │ │ │ ├─add_2: Tensor(1, 100, 100)
-│ │ │ │ ├─c_linear: CompiledGraphModule
-│ │ │ │ │ ├─x: Tensor(1, 100, 100)
-│ │ │ │ │ ├─cb: Tensor(100, 100)
-│ │ │ │ │ ├─scb: Tensor(100, 1)
-│ │ │ │ │ ├─bias: Tensor(100)
-│ │ │ │ │ ├─threshold: float
-│ │ │ │ │ ├─mul: Tensor(100, 100)
-│ │ │ │ │ ├─weight: Tensor(100, 100)
-│ │ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
-│ │ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ ├─b_linear: CompiledGraphModule
-│ │ │ │ ├─x: Tensor(1, 100, 100)
-│ │ │ │ ├─cb: Tensor(100, 100)
-│ │ │ │ ├─scb: Tensor(100, 1)
-│ │ │ │ ├─bias: Tensor(100)
-│ │ │ │ ├─threshold: float
-│ │ │ │ ├─mul: Tensor(100, 100)
-│ │ │ │ ├─weight: Tensor(100, 100)
-│ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
-│ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ └─output: Tensor(1, 100, 100)
-│ │ ├─grandchildren_b_2: CompiledGraphModule
-│ │ │ ├─b_inputs: Tensor(1, 100, 100)
-│ │ │ ├─a_inputs: Tensor(1, 100, 100)
-│ │ │ ├─ones_like: Tensor(1, 100, 100)
-│ │ │ ├─mul: Tensor(1, 100, 100)
-│ │ │ ├─c: CompiledGraphModule
-│ │ │ │ ├─c_inputs: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_2: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_3: Tensor(1, 100, 100)
-│ │ │ │ ├─inputs_4: Tensor(1, 100, 100)
-│ │ │ │ ├─add: Tensor(1, 100, 100)
-│ │ │ │ ├─add_1: Tensor(1, 100, 100)
-│ │ │ │ ├─add_2: Tensor(1, 100, 100)
-│ │ │ │ ├─c_linear: CompiledGraphModule
-│ │ │ │ │ ├─input: Tensor(1, 100, 100)
-│ │ │ │ │ ├─weight: Tensor(100, 100)
-│ │ │ │ │ ├─bias: Tensor(100)
-│ │ │ │ │ ├─linear: Tensor(1, 100, 100)
-│ │ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ ├─b_linear: CompiledGraphModule
-│ │ │ │ ├─x: Tensor(1, 100, 100)
-│ │ │ │ ├─cb: Tensor(100, 100)
-│ │ │ │ ├─scb: Tensor(100, 1)
-│ │ │ │ ├─bias: Tensor(100)
-│ │ │ │ ├─threshold: float
-│ │ │ │ ├─mul: Tensor(100, 100)
-│ │ │ │ ├─weight: Tensor(100, 100)
-│ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
-│ │ │ │ └─output: Tensor(1, 100, 100)
-│ │ │ └─output: Tensor(1, 100, 100)
 │ │ ├─a_linear: CompiledGraphModule
 │ │ │ ├─x: Tensor(1, 100, 100)
 │ │ │ ├─cb: Tensor(100, 100)
@@ -126,16 +26,96 @@
 │ │ │ ├─weight: Tensor(100, 100)
 │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
 │ │ │ └─output: Tensor(1, 100, 100)
-│ │ └─output: Tensor(1, 100, 100)
-│ ├─root_linear: CompiledGraphModule
-│ │ ├─x: Tensor(1, 100, 100)
-│ │ ├─cb: Tensor(100, 100)
-│ │ ├─scb: Tensor(100, 1)
-│ │ ├─bias: Tensor(100)
-│ │ ├─threshold: float
-│ │ ├─mul: Tensor(100, 100)
-│ │ ├─weight: Tensor(100, 100)
-│ │ ├─matmul_8bit: Tensor(1, 100, 100)
+│ │ ├─grandchildren_b_0: OpaqueGraphModule
+│ │ │ ├─b_inputs: Tensor(1, 100, 100)
+│ │ │ ├─a_inputs: Tensor(1, 100, 100)
+│ │ │ ├─b_linear: CompiledGraphModule
+│ │ │ │ ├─x: Tensor(1, 100, 100)
+│ │ │ │ ├─cb: Tensor(100, 100)
+│ │ │ │ ├─scb: Tensor(100, 1)
+│ │ │ │ ├─bias: Tensor(100)
+│ │ │ │ ├─threshold: float
+│ │ │ │ ├─mul: Tensor(100, 100)
+│ │ │ │ ├─weight: Tensor(100, 100)
+│ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
+│ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ ├─c: OpaqueGraphModule
+│ │ │ │ ├─c_inputs: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_2: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_3: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_4: Tensor(1, 100, 100)
+│ │ │ │ ├─c_linear: CompiledGraphModule
+│ │ │ │ │ ├─x: Tensor(1, 100, 100)
+│ │ │ │ │ ├─cb: Tensor(100, 100)
+│ │ │ │ │ ├─scb: Tensor(100, 1)
+│ │ │ │ │ ├─bias: Tensor(100)
+│ │ │ │ │ ├─threshold: float
+│ │ │ │ │ ├─mul: Tensor(100, 100)
+│ │ │ │ │ ├─weight: Tensor(100, 100)
+│ │ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
+│ │ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ └─output: Tensor(1, 100, 100)
+│ │ ├─grandchildren_b_1: OpaqueGraphModule
+│ │ │ ├─b_inputs: Tensor(1, 100, 100)
+│ │ │ ├─a_inputs: Tensor(1, 100, 100)
+│ │ │ ├─b_linear: CompiledGraphModule
+│ │ │ │ ├─x: Tensor(1, 100, 100)
+│ │ │ │ ├─cb: Tensor(100, 100)
+│ │ │ │ ├─scb: Tensor(100, 1)
+│ │ │ │ ├─bias: Tensor(100)
+│ │ │ │ ├─threshold: float
+│ │ │ │ ├─mul: Tensor(100, 100)
+│ │ │ │ ├─weight: Tensor(100, 100)
+│ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
+│ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ ├─c: OpaqueGraphModule
+│ │ │ │ ├─c_inputs: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_2: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_3: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_4: Tensor(1, 100, 100)
+│ │ │ │ ├─c_linear: CompiledGraphModule
+│ │ │ │ │ ├─x: Tensor(1, 100, 100)
+│ │ │ │ │ ├─cb: Tensor(100, 100)
+│ │ │ │ │ ├─scb: Tensor(100, 1)
+│ │ │ │ │ ├─bias: Tensor(100)
+│ │ │ │ │ ├─threshold: float
+│ │ │ │ │ ├─mul: Tensor(100, 100)
+│ │ │ │ │ ├─weight: Tensor(100, 100)
+│ │ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
+│ │ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ └─output: Tensor(1, 100, 100)
+│ │ ├─grandchildren_b_2: OpaqueGraphModule
+│ │ │ ├─b_inputs: Tensor(1, 100, 100)
+│ │ │ ├─a_inputs: Tensor(1, 100, 100)
+│ │ │ ├─b_linear: CompiledGraphModule
+│ │ │ │ ├─x: Tensor(1, 100, 100)
+│ │ │ │ ├─cb: Tensor(100, 100)
+│ │ │ │ ├─scb: Tensor(100, 1)
+│ │ │ │ ├─bias: Tensor(100)
+│ │ │ │ ├─threshold: float
+│ │ │ │ ├─mul: Tensor(100, 100)
+│ │ │ │ ├─weight: Tensor(100, 100)
+│ │ │ │ ├─matmul_8bit: Tensor(1, 100, 100)
+│ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ ├─c: OpaqueGraphModule
+│ │ │ │ ├─c_inputs: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_2: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_3: Tensor(1, 100, 100)
+│ │ │ │ ├─inputs_4: Tensor(1, 100, 100)
+│ │ │ │ ├─c_linear: OpaqueGraphModule
+│ │ │ │ │ ├─input: Tensor(1, 100, 100)
+│ │ │ │ │ ├─constants: list(2)
+│ │ │ │ │ │ ├─sub_0: str
+│ │ │ │ │ │ └─sub_1: str
+│ │ │ │ │ ├─bias: Tensor(100)
+│ │ │ │ │ ├─in_features: int
+│ │ │ │ │ ├─out_features: int
+│ │ │ │ │ ├─weight: Tensor(100, 100)
+│ │ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ │ └─output: Tensor(1, 100, 100)
+│ │ │ └─output: Tensor(1, 100, 100)
 │ │ └─output: Tensor(1, 100, 100)
 │ └─output: Tensor(1, 100, 100)
 └─output: CausalLMOutput(1)
