@@ -54,8 +54,7 @@ def patchable_varargs_module(
         varargs_module,
         ExtractionOptions(
             skip_compilation=getattr(request, "param", None) == "opaque",
-            # TODO: set to True when supported
-            error_on_compilation_failure=False,
+            error_on_compilation_failure=True,
         ),
         varargs_module_inputs,
         *varargs_module_varargs,

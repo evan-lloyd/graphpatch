@@ -31,6 +31,7 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
         "The Eiffel Tower, located in", return_tensors="pt", padding=False
     )
     original_model = LlamaForCausalLM(config=tiny_llama_config)
+    original_model.eval()
     gm, _ = extract(
         original_model,
         ExtractionOptions(
@@ -102,10 +103,15 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
 def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
     standardize_tokenizer(tiny_gpt2_tokenizer)
     original_model = GPT2LMHeadModel(tiny_gpt2_config)
+    original_model.eval()
     inputs = tiny_gpt2_tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False)
     gm, _ = extract(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
+        ExtractionOptions(
+            error_on_compilation_failure=True,
+            skip_compilation=opacity == "opaque",
+            allow_unused_submodules=True,
+        ),
         inputs.input_ids,
         use_cache=False,
     )
@@ -122,7 +128,11 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
     )
     pg = PatchableGraph(
         original_model,
-        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
+        ExtractionOptions(
+            error_on_compilation_failure=True,
+            skip_compilation=opacity == "opaque",
+            allow_unused_submodules=True,
+        ),
         inputs.input_ids,
         use_cache=False,
     )
@@ -166,6 +176,7 @@ def test_llama(tmp_path_factory, opacity):
         torch_dtype=torch.float16,
         attn_implementation="eager",
     )
+    llama.eval()
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(
         device=torch.device("cuda:0")
     )
@@ -174,6 +185,7 @@ def test_llama(tmp_path_factory, opacity):
         ExtractionOptions(
             error_on_compilation_failure=True,
             skip_compilation=opacity == "opaque",
+            allow_unused_submodules=True,
         ),
         inputs.input_ids,
         use_cache=False,
@@ -260,12 +272,17 @@ def test_gpt2(tmp_path_factory, opacity):
         quantization_config=BitsAndBytesConfig(load_in_8bit=True),
         torch_dtype=torch.float16,
     )
+    gpt2.eval()
     inputs = tokenizer("The Eiffel Tower, located in", return_tensors="pt", padding=False).to(
         torch.device("cuda:0")
     )
     patchable_gpt2 = PatchableGraph(
         gpt2,
-        ExtractionOptions(error_on_compilation_failure=True, skip_compilation=opacity == "opaque"),
+        ExtractionOptions(
+            error_on_compilation_failure=True,
+            skip_compilation=opacity == "opaque",
+            allow_unused_submodules=True,
+        ),
         inputs.input_ids,
         use_cache=False,
     )

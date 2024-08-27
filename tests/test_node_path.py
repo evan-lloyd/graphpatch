@@ -130,8 +130,8 @@ def test_node_path_autocomplete(path_data):
     assert set(node_path.foo.bar.sub_0.sub_1.__dir__()) == {"_code", "_shape"}
 
 
-@pytest.mark.parametrize("opacity", ["compiled", "opaque"])
-def test_patchable_graph_graph_repr(all_patchable_graphs, opacity, snapshot):
+@pytest.mark.parametrize("all_patchable_graphs", ["compiled", "opaque"], indirect=True)
+def test_patchable_graph_graph_repr(all_patchable_graphs, snapshot):
     snapshot = snapshot.with_defaults(extension_class=SingleFileAmber)
 
     # Note we get slightly different structures for newer versions of torch, due to it retaining
@@ -149,7 +149,7 @@ def test_patchable_graph_graph_repr(all_patchable_graphs, opacity, snapshot):
     for pg_name, pg in all_patchable_graphs.items():
         assert repr(pg.graph) == snapshot(
             name=f"{pg_name}_{torch_version_suffix}"
-        ), f"Snapshot mismatch for {pg_name}[{opacity}]"
+        ), f"Snapshot mismatch for {pg_name}"
 
 
 def test_node_path_shape(patchable_deeply_nested_output_module):
