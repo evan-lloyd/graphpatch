@@ -19,6 +19,15 @@ try:
     from transformers.utils.generic import ModelOutput
 
     AVAILABLE = True
+
+    import torch
+
+    # Fixes an annoying error with some combinations of transformers/torch
+    if not hasattr(torch, "compiler"):
+        torch.compiler = torch._dynamo
+    if not hasattr(torch.compiler, "is_compiling"):
+        torch.compiler.is_compiling = torch._dynamo.is_compiling
+
 except ImportError:
 
     class AutoConfig:

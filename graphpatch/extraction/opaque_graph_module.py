@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union, 
 from torch.fx import Graph, Node
 from torch.nn import Module
 
+from .. import hacks
 from ..optional.accelerate import ModelHook
 from ..optional.transformers import AVAILABLE as TRANSFORMERS_AVAILABLE, PreTrainedModel
 from .graphpatch_module import GraphPatchModule
@@ -137,8 +138,9 @@ class SubmoduleWrapper:
     module_name: str
 
     def __init__(self, module_name: str):
-        self.module_name = module_name
-        self.__name__ = module_name
+        overridden_name = hacks.override_reserved_name(module_name)
+        self.module_name = overridden_name
+        self.__name__ = overridden_name
         self.__module__ = "opaque_module_submodule"
 
     def __call__(self, *args: Any, **kwargs: Any) -> None:
@@ -311,9 +313,19 @@ class OpaqueGraphModule(GraphPatchModule):
         return cast(Iterator[Tuple[str, GraphPatchModule]], self._child_modules(self._modules))
 
     def _initialize_proxy(self, root: Union[Module, Dict[str, Any]]) -> None:
-        self._graphpatch_opaque_module_proxy = self._graphpatch_opaque_module_class.__new__(
-            self._graphpatch_opaque_module_class
+        orig_get_attr = self._graphpatch_opaque_module_class.__getattr__
+
+        def handle_reserved_name_override(self: Module, key: str) -> Any:
+            return orig_get_attr(self, hacks.override_reserved_name(key))
+
+        proxy_class = type(
+            f"{self._graphpatch_opaque_module_class.__name__}Proxy",
+            (self._graphpatch_opaque_module_class,),
+            {"__getattr__": handle_reserved_name_override},
         )
+
+        self._graphpatch_opaque_module_proxy = proxy_class.__new__(proxy_class)  # type: ignore
+
         Module.__init__(self._graphpatch_opaque_module_proxy)
         # Deliberately not copying here; we want our proxy's submodules to always match ours.
         self._graphpatch_opaque_module_proxy._modules = self._modules

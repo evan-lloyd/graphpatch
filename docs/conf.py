@@ -7,9 +7,9 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "graphpatch"
-copyright = "2023, Evan Lloyd"
+copyright = "2023--2024, Evan Lloyd"
 author = "Evan Lloyd"
-release = "0.2.0"
+release = "0.2.1"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -58,3 +58,7 @@ autodoc_typehints_format = "short"
 
 markdown_http_base = "https://graphpatch.readthedocs.io/en/stable"
 markdown_uri_doc_suffix = ".html"
+
+rst_epilog = f"""
+.. |graphpatch_version| replace:: ``graphpatch {release}``
+"""

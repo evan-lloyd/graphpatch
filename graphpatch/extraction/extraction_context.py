@@ -199,22 +199,6 @@ class ExtractionWrapper(Module):
 
 
 @contextmanager
-def _eval_mode(module: Module) -> Iterator[None]:
-    """Set a module into eval mode, so we skip including training-only things like dropouts in
-    our graph.
-    """
-    eval_state = module.training
-
-    if eval_state:
-        module.eval()
-
-    yield
-
-    if eval_state:
-        module.train()
-
-
-@contextmanager
 def detach_accelerate_hooks(module: Module) -> Iterator[None]:
     """Temporarily detach accelerate's hooks from the module, since they don't play nice with
     torch.compile().
@@ -236,7 +220,6 @@ def detach_accelerate_hooks(module: Module) -> Iterator[None]:
 def compilation_context(root_state: ExtractionState) -> Iterator[None]:
     with ExitStack() as context_stack:
         context_stack.enter_context(torch.inference_mode())
-        context_stack.enter_context(_eval_mode(root_state.wrapped_module))
         context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
         context_stack.enter_context(
             hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)

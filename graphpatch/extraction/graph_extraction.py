@@ -1,18 +1,17 @@
 import inspect
-import re
 import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Iterator, Optional, Tuple, Union, cast
+from typing import Any, Dict, Iterator, Optional, Tuple, Union, cast
 from warnings import warn
 
-from torch.fx import Node
+from torch.fx import Graph, Node
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 
 from .. import hacks
-from ..exceptions import GraphPatchWarning
+from ..exceptions import GraphPatchException, GraphPatchWarning
 from ..meta import (
     GraphMeta,
     NodeData,
@@ -28,12 +27,28 @@ from .extraction_context import (
     ExtractionState,
     ExtractionWrapper,
     compilation_context,
+    detach_accelerate_hooks,
     is_container,
 )
 from .extraction_options import ExtractionOptions
 from .graphpatch_module import GraphPatchModule
 from .multiply_invoked_module import MultiplyInvokedModule
 from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
+
+
+class UnusedModule(GraphPatchModule):
+    def __init__(self) -> None:
+        super().__init__(Module(), Graph(), "UnusedModule")
+        self._graphpatch_output_indexes = OutputArgumentIndex(None, False)
+        self._graphpatch_submodules = {}
+
+
+class CompilationError(GraphPatchException):
+    pass
+
+
+class NoRecordedInvocations(CompilationError):
+    pass
 
 
 class CompilationWarning(GraphPatchWarning):
@@ -114,13 +129,11 @@ def _repair_input_signature(state: ExtractionState) -> None:
     assert graph_module is not None
     insert_after = graph_module.graph._root
     existing_placeholders = {n.target: n for n in graph_module.graph.nodes if n.op == "placeholder"}
-    forward_parameters = inspect.signature(
-        state.wrapped_module._graphpatch_wrapped_module.forward
-    ).parameters
-
-    varargs_node = None
-    varkwargs_node = None
-
+    with detach_accelerate_hooks(state.wrapped_module._graphpatch_wrapped_module):
+        forward_parameters = inspect.signature(
+            state.wrapped_module._graphpatch_wrapped_module.forward
+        ).parameters
+    canonical_placeholders: Dict[str, Node] = {}
     # Construct (possibly new) graph inputs in the correct order.
     for name, parameter in forward_parameters.items():
         if name in existing_placeholders:
@@ -146,73 +159,89 @@ def _repair_input_signature(state: ExtractionState) -> None:
                 {},
                 type_annotation,
             )
-            if target.startswith("**"):
-                varkwargs_node = new_placeholder
-            elif target.startswith("*"):
-                varargs_node = new_placeholder
             if target in existing_placeholders:
                 hacks.replace_node_keeping_original_name(
                     existing_placeholders[target], new_placeholder, name
                 )
                 del existing_placeholders[target]
             else:
-                graph_module.graph._insert(new_placeholder)
+                hacks.insert_node(new_placeholder)
+                # Edge case for varargs/kwargs nodes
+                canonical_placeholders[target.replace("*", "")] = new_placeholder
             insert_after = new_placeholder
 
-    # Demangle varargs/kwargs for torch 2.0.*. It'd be nice to do this by tracking the source of
-    # each argument to the FX graph, but unfortunately the GraphArgs are entirely decoupled from
-    # the corresponding placeholders in the compile implementation, so we have to do this by name.
-    if hacks.TORCH_VERSION < (2, 1):
-        for name, placeholder in dict(existing_placeholders.items()).items():
-            getitem_args: Optional[Tuple[Node, Union[str, int]]] = None
-            if varargs_node is not None and (
-                match := re.match(f"{varargs_node.target[1:]}_(\\d)_", name)
-            ):
-                getitem_args = (
-                    varargs_node,
-                    int(match.group(1)),
+    # Any remaining placeholders do not appear in the function signature. There are two known causes
+    # for this:
+    # 1) Lifted attributes; generally, non-Tensor attributes on the module that get converted into
+    #    arguments to the GraphModule.
+    # 2) Weird handling of container typed arguments. For example, each element of a tuple will get
+    #    split into separate arguments, which are attributed to a LocalSource. (My guess is this
+    #    happens because compile() assumes that it is going to flatten everything into one module,
+    #    but because we override that it ends up just making no sense.)
+    attribute_nodes: Dict[str, Node] = {}
+    for name, placeholder in existing_placeholders.items():
+        root_source = placeholder.meta["_graphpatch_placeholder_source"]
+        source = root_source
+        # Not all lifted attributes end up having an AttrSource for some reason. In that case
+        # fall back to handling by name.
+        attribute_name = placeholder.target
+        replacement_node = None
+        while True:
+            if isinstance(source, hacks.AttrSource):
+                attribute_name = source.member
+                break
+            # Happens for container inputs that aren't used directly, but their members are.
+            elif isinstance(source, hacks.LocalSource):
+                attribute_name = source.local_name
+                attribute_nodes[attribute_name] = canonical_placeholders[attribute_name]
+                break
+
+            if hasattr(source, "base"):
+                source = source.base
+            # torch 2.0
+            elif hasattr(source, "inner"):
+                source = source.inner
+            else:
+                break
+
+        if attribute_name not in attribute_nodes:
+            with graph_module.graph.inserting_after(insert_after):
+                attribute_nodes[attribute_name] = Node(
+                    graph_module.graph,
+                    attribute_name,
+                    "get_attr",
+                    attribute_name,
+                    (),
+                    {},
                 )
-            if varkwargs_node is not None and (
-                match := re.match(f"{varkwargs_node.target[2:]}_(.+?)_", name)
-            ):
-                getitem_args = (
-                    varkwargs_node,
-                    match.group(1),
+                replacement_node = attribute_nodes[attribute_name]
+                hacks.insert_node(attribute_nodes[attribute_name])
+                insert_after = attribute_nodes[attribute_name]
+                setattr(
+                    graph_module,
+                    attribute_name,
+                    getattr(state.wrapped_module._graphpatch_wrapped_module, attribute_name),
                 )
-            if not getitem_args:
-                continue
+        # TODO: we should be able to handle arbitrary nesting, but I'm not even sure compile()
+        # can, so putting that off for now.
+        if isinstance(root_source, hacks.GetItemSource):
             with graph_module.graph.inserting_after(insert_after):
                 get_item_node = Node(
                     graph_module.graph,
-                    name,
+                    "getitem",
                     "call_method",
                     "__getitem__",
-                    getitem_args,
+                    (attribute_nodes[attribute_name], root_source.index),
                     {},
                 )
-                hacks.replace_node_keeping_original_name(placeholder, get_item_node, name)
                 insert_after = get_item_node
-                del existing_placeholders[name]
+                replacement_node = get_item_node
+                hacks.insert_node(get_item_node)
 
-    # Any remaining existing placeholders do not appear in the function signature. Assume they are
-    # lifted module attributes.
-    # TODO: we should track whether or not given placeholders are indeed lifted attributes.
-    for name, placeholder in existing_placeholders.items():
-        # Strip initial "self_" from the attribute name. For torch >= 2.1 we have already done this
-        # via some monkeypatching during compilation.
-        if hacks.TORCH_VERSION < (2, 1):
-            original_attribute_name = placeholder.target[5:]
-        else:
-            original_attribute_name = placeholder.target
-        with graph_module.graph.inserting_after(insert_after):
-            setattr(
-                graph_module,
-                placeholder.target,
-                getattr(state.wrapped_module._graphpatch_wrapped_module, original_attribute_name),
+        if replacement_node is not None:
+            hacks.replace_node_keeping_original_name(
+                placeholder, replacement_node, replacement_node.name
             )
-            get_attr_node = Node(graph_module.graph, name, "get_attr", placeholder.target, (), {})
-            hacks.replace_node_keeping_original_name(placeholder, get_attr_node, name)
-            insert_after = get_attr_node
 
 
 def _repair_output_signature(state: ExtractionState) -> None:
@@ -459,12 +488,16 @@ def _handle_compilation_failure(
     try:
         yield
     except Exception as exc:
+        if isinstance(exc, NoRecordedInvocations) and options.allow_unused_submodules:
+            # Allow this failure and fall back to OpaqueGraphModule?
+            pass
         # No fallback for OpaqueGraphModule failure.
-        if (
+        elif (
             options.error_on_compilation_failure
             or state.extraction_method is ExtractionMethod.opaque
         ):
             raise
+
         if options.warn_on_compilation_failure:
             if state.extraction_method is ExtractionMethod.custom:
                 method_description = "Custom extraction function"
@@ -484,6 +517,7 @@ def _handle_compilation_failure(
                 # user isn't trying to call extract directly.
                 stacklevel=3,
             )
+
         # Fall back to OpaqueGraphModule.
         state.extraction_method = ExtractionMethod.opaque
         state.extracted_module = None
@@ -518,7 +552,7 @@ def extract(
                 kwargs = trace_kwargs
             else:
                 if len(state.invocations) == 0:
-                    raise ValueError(
+                    raise NoRecordedInvocations(
                         f"Unable to compile {state.torch_name}; it was never called when"
                         " evaluating the given example inputs."
                     )
@@ -537,22 +571,47 @@ def extract(
             do_extraction()
             _repair_input_signature(state)
 
+    # For the type-checker's benefit; this is a cannot-happen.
+    assert isinstance(root_state.extracted_module, GraphPatchModule)
+
     # Undo the unrolling of containers performed by compile(), so we'll end up with the same
     # module hierarchy as originally. Reset _modules so we'll additionally restore the original
     # ordering (compile re-orders them to the order in which they are invoked).
     for torch_qual_name, state in extraction_state.items():
-        assert state.extracted_module is not None
-        assert root_state.extracted_module is not None
-
         if isinstance(state.extracted_module, CompiledGraphModule):
             _retarget_submodule_calls(state)
             state.extracted_module._modules = OrderedDict()
         if torch_qual_name == "":
             continue
         [*parent_path, local_name] = torch_qual_name.split(".")
-        parent = ".".join(parent_path)
-        parent_module = root_state.extracted_module.get_submodule(parent)
-        setattr(parent_module, local_name, state.extracted_module)
+
+        parent_module: Module = root_state.extracted_module
+        non_container_parent: Module = root_state.extracted_module
+
+        # We should ignore the entire hierarchy under any UnusedModules.
+        for child_name in parent_path:
+            if isinstance(parent_module, UnusedModule):
+                break
+            child = cast(Module, parent_module._modules[child_name])
+            parent_module = child
+            if not is_container(child):
+                non_container_parent = child
+        if isinstance(parent_module, UnusedModule):
+            continue
+
+        assert state.extracted_module is not None
+        # Replace unusued submodules with dummies, unless the parent is opaque. For compiled
+        # modules, we know the submodule is definitely never going to be used, since we didn't write
+        # any instructions that would actually use it. For opaque modules, it could be the case that
+        # with different data the module would be used, so we should keep it around to be safe.
+        if (
+            len(state.invocations) == 0
+            and not is_container(state.extracted_module)
+            and isinstance(non_container_parent, CompiledGraphModule)
+        ):
+            setattr(parent_module, local_name, UnusedModule())
+        else:
+            setattr(parent_module, local_name, state.extracted_module)
 
     # With the container hierarchy finalized, we can set up additional attributes needed for
     # eventual serialization.
@@ -568,7 +627,7 @@ def extract(
 
     # Escape hatch for modules that torch just refuses to compile correctly. Ideally as
     # compatibility improves we won't need this in the future!
-    graph_module = cast(GraphPatchModule, root_state.extracted_module)
+    graph_module = root_state.extracted_module
     if options.postprocessing_function is not None:
         options.postprocessing_function(graph_module, root_module)
         graph_module.recompile()
