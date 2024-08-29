@@ -1,5 +1,5 @@
 graphpatch |release|
-================
+====================
 
 Documentation is hosted on `Read the Docs <https://graphpatch.readthedocs.io/en/stable>`_.
 
@@ -129,14 +129,13 @@ combination with activation patching:
 
 Version compatibility
 ---------------------
-``graphpatch`` should be compatible with all versions of ``transformers``, ``accelerate``, and
-``bitsandbytes`` matching the minimum version requirements, but this is a highly ambitious claim to
-make for a Python library. If you end up with errors that seem related to ``graphpatch``'s integration
-with these libraries, you might try changing their versions to those listed below. This list was
-automatically generated as part of the ``graphpatch`` release process. It reflects the versions
-used while testing |graphpatch_version|:
+``graphpatch`` should be compatible with all versions of optional libraries matching the minimum
+version requirements, but this is a highly ambitious claim to make for a Python library. If you end
+up with errors that seem related to ``graphpatch``'s integration with these libraries, you might try
+changing their versions to those listed below. This list was automatically generated as part of the
+``graphpatch`` release process. It reflects the versions used while testing |graphpatch_version|:
 
-.. include:: transformers_versions.rst
+.. include:: extras_versions.rst
 
 .. _related_work:
 

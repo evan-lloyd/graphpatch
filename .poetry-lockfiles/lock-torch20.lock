@@ -5584,4 +5584,4 @@ transformers = ["accelerate", "bitsandbytes", "sentencepiece", "transformers"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.8.1, <3.13"
-content-hash = "4ad61bdde7b6f5d059319cee01817e9bcbccd95e9b8265e395608a09b77e1a5e"
+content-hash = "f903e23bd00dad88d4097e60bd721915c16387a2e68272256cffb5d41f890100"

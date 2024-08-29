@@ -62,11 +62,8 @@ transformer-lens = { version = ">=1.16.0", optional = true }
 transformers = [
     "transformers",
     "sentencepiece",
-    "protobuf",
     "accelerate",
     "bitsandbytes",
-    "scipy",
-    "setuptools",
 ]
 transformer-lens = ["transformer-lens"]
 
