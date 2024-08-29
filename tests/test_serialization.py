@@ -132,6 +132,16 @@ def test_nested_module_serialization(patchable_nested_module, nested_module_inpu
     _serialization_asserts(patchable_nested_module, deserialized, nested_module_inputs)
 
 
+@opaque_and_compiled("patchable_unused_submodule_module")
+def test_unused_submodule_module_serialization(
+    patchable_unused_submodule_module, unused_submodule_module_inputs
+):
+    deserialized = _roundtrip(patchable_unused_submodule_module)
+    _serialization_asserts(
+        patchable_unused_submodule_module, deserialized, unused_submodule_module_inputs
+    )
+
+
 @opaque_and_compiled("patchable_tuple_output_module")
 def test_tuple_output_module_serialization(
     patchable_tuple_output_module, tuple_output_module_inputs

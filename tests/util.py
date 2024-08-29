@@ -154,8 +154,10 @@ def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, i
     return output_1, output_2
 
 
-def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=None):
-    if isinstance(module_1, UnusedModule) or isinstance(module_2, UnusedModule):
+def assert_gradients_identical(
+    module_1, module_2, output_1, output_2, tolerance=None, allow_unused=False
+):
+    if (isinstance(module_1, UnusedModule) or isinstance(module_2, UnusedModule)) and allow_unused:
         return
 
     for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
@@ -175,25 +177,26 @@ def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance
         params_2 = dict(module_2.named_parameters(remove_duplicate=False))
 
         # Filter out parameters belonging to unused submodules
-        for name in list(params_1.keys()):
-            for submodule_name in [""] + name.split(".")[:-1]:
-                if submodule_name == "":
-                    cur_module = module_1
-                else:
-                    cur_module = cur_module._modules[submodule_name]
-                if isinstance(cur_module, UnusedModule):
-                    params_1.pop(name, None)
-                    params_2.pop(name, None)
-                    break
-            for submodule_name in [""] + name.split(".")[:-1]:
-                if submodule_name == "":
-                    cur_module = module_2
-                else:
-                    cur_module = cur_module._modules[submodule_name]
-                if isinstance(cur_module, UnusedModule):
-                    params_1.pop(name, None)
-                    params_2.pop(name, None)
-                    break
+        if allow_unused:
+            for name in list(params_1.keys()):
+                for submodule_name in [""] + name.split(".")[:-1]:
+                    if submodule_name == "":
+                        cur_module = module_1
+                    else:
+                        cur_module = cur_module._modules[submodule_name]
+                    if isinstance(cur_module, UnusedModule):
+                        params_1.pop(name, None)
+                        params_2.pop(name, None)
+                        break
+                for submodule_name in [""] + name.split(".")[:-1]:
+                    if submodule_name == "":
+                        cur_module = module_2
+                    else:
+                        cur_module = cur_module._modules[submodule_name]
+                    if isinstance(cur_module, UnusedModule):
+                        params_1.pop(name, None)
+                        params_2.pop(name, None)
+                        break
 
         for name in params_1.keys():
             # Can happen if module makes multiple calls so that our compiled version clones it. In
@@ -226,11 +229,15 @@ def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance
                 ), f"Gradient mismatch for {name} at {prefix_1 or '<root>'}"
 
 
-def assert_results_identical(module_1, module_2, *test_inputs, tolerance=None, input_kwargs=None):
+def assert_results_identical(
+    module_1, module_2, *test_inputs, tolerance=None, input_kwargs=None, allow_unused=False
+):
     output_1, output_2 = assert_outputs_identical(
         module_1, module_2, *test_inputs, tolerance=tolerance, input_kwargs=input_kwargs
     )
-    assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=tolerance)
+    assert_gradients_identical(
+        module_1, module_2, output_1, output_2, tolerance=tolerance, allow_unused=allow_unused
+    )
 
 
 def validate_node_meta(graph_module, meta):
@@ -244,10 +251,13 @@ def validate_node_meta(graph_module, meta):
     # ModuleList added to handle duplicate instances of submodule in original code
 
 
-def validate_module_hierarchy(graph_module, original_module):
+def validate_module_hierarchy(graph_module, original_module, allow_unused=False):
     submodule_stack = [("", graph_module, original_module)]
     while submodule_stack:
         path, cur_module, cur_orig = submodule_stack.pop()
+        if isinstance(cur_module, UnusedModule) and allow_unused:
+            continue
+
         if not isinstance(cur_module, MultiplyInvokedModule):
             assert list(cur_module._modules.keys()) == list(
                 cur_orig._modules.keys()
@@ -268,9 +278,9 @@ def validate_module_hierarchy(graph_module, original_module):
             )
 
 
-def validate_extraction(graph_module, original_module, meta):
+def validate_extraction(graph_module, original_module, meta, allow_unused=False):
     validate_node_meta(graph_module, meta)
-    validate_module_hierarchy(graph_module, original_module)
+    validate_module_hierarchy(graph_module, original_module, allow_unused=allow_unused)
 
 
 def requires_multi_gpu(f):

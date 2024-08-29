@@ -586,6 +586,8 @@ def extract(
 
         parent_module = root_state.extracted_module
         non_container_parent = root_state.extracted_module
+
+        # We should ignore the entire hierarchy under any UnusedModules.
         for child_name in parent_path:
             if isinstance(parent_module, UnusedModule):
                 break
@@ -593,6 +595,8 @@ def extract(
             parent_module = child
             if not is_container(child):
                 non_container_parent = child
+        if isinstance(parent_module, UnusedModule):
+            continue
 
         # Replace unusued submodules with dummies, unless the parent is opaque. For compiled
         # modules, we know the submodule is definitely never going to be used,

@@ -8,6 +8,7 @@ from graphpatch.extraction import (
     CompiledGraphModule,
     ExtractionOptions,
     OpaqueGraphModule,
+    UnusedModule,
 )
 from graphpatch.extraction.graph_extraction import CompilationWarning, extract
 from graphpatch.extraction.multiply_invoked_module import MultiplyInvokedModule
@@ -60,6 +61,25 @@ def test_extract_nested_module(nested_module, nested_module_inputs):
     )
     validate_extraction(graph_module, nested_module, meta)
     assert_results_identical(nested_module, graph_module, nested_module_inputs)
+
+
+def test_unused_submodule_module(unused_submodule_module, unused_submodule_module_inputs):
+    graph_module, meta = extract(
+        unused_submodule_module,
+        ExtractionOptions(error_on_compilation_failure=True, allow_unused_submodules=True),
+        unused_submodule_module_inputs,
+    )
+    validate_extraction(graph_module, unused_submodule_module, meta, allow_unused=True)
+    assert_results_identical(
+        unused_submodule_module, graph_module, unused_submodule_module_inputs, allow_unused=True
+    )
+    assert isinstance(graph_module.get_submodule("child_a.grandchildren_b.2"), UnusedModule)
+    assert isinstance(
+        graph_module.get_submodule("child_a.grandchildren_b.1.c.c_unused"), UnusedModule
+    )
+    # Unused submodules shouldn't show up in meta
+    assert not any("c_unused" in k for k in meta.keys())
+    assert not any("b_2" in k for k in meta.keys())
 
 
 def test_extract_tuple_output_module(tuple_output_module, tuple_output_module_inputs):

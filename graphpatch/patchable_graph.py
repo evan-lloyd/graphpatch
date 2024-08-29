@@ -29,7 +29,7 @@ from typing_extensions import TypedDict
 
 from . import hacks
 from .exceptions import GraphPatchWarning
-from .extraction import ExtractionOptions, OpaqueGraphModule, extract, UnusedModule
+from .extraction import ExtractionOptions, UnusedModule, extract
 from .meta import (
     GraphMeta,
     NodeData,
@@ -248,7 +248,7 @@ class PatchableGraph(Module):
         cls,
         state_dict: Dict[str, Any],
         parameter_names: Set[str],
-        unused_modules: Tuple[str],
+        unused_modules: Set[str],
         _original_graph: NodeData[Union[NodeMeta, GraphMeta]],
         _generation_mixin_masquerade_class: Optional[Type[GenerationMixin]],
         config: Optional[PretrainedConfig],
@@ -290,13 +290,6 @@ class PatchableGraph(Module):
                 parameter = state_entry
             state_by_submodule[".".join(parent_path)][target] = parameter
 
-        # Unused submodules will not appear in meta, so we need to make sure they get constructed
-        # before they are needed.
-        for module_name in unused_modules:
-            [*parent_path, target] = module_name.split(".")
-            parent_name = ".".join(parent_path)
-            submodules_by_parent[parent_name][target] = UnusedModule()
-
         # GraphModule is not built to handle nested graphs, so re-inflate each sub-graph
         # individually. Process children before their parents so we can do this in one pass.
         for meta in deserialized_instance._meta.reverse_topological_order():
@@ -314,10 +307,20 @@ class PatchableGraph(Module):
                 parent_name = "_graph_module"
             target = cast(str, meta.node.target) if meta.node is not None else ""
 
+            unused_submodules = {}
+            for submodule_name in state_by_submodule[name]["_extra_state"][
+                "_graphpatch_submodules"
+            ]:
+                qualified_name = f"{name}.{submodule_name}"
+                if qualified_name in unused_modules:
+                    unused_modules.remove(qualified_name)
+                    unused_submodules[submodule_name] = UnusedModule()
+
             graph_module = meta.graph_module_class(
                 {
                     **state_by_submodule[name],
                     **submodules_by_parent[name],
+                    **unused_submodules,
                 },
                 meta.graph,
                 meta.graph_module_class.__name__,
@@ -372,7 +375,7 @@ class PatchableGraph(Module):
             (
                 state_dict,
                 {name for name, _ in self.named_parameters()},
-                tuple(
+                set(
                     name
                     for name, module in self.named_modules(remove_duplicate=False)
                     if isinstance(module, UnusedModule)
