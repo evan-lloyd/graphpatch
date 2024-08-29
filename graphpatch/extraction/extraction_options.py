@@ -60,6 +60,6 @@ class ExtractionOptions:
     skip_compilation: bool = False
     warn_on_compilation_failure: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.allow_unused_submodules is None:
             self.allow_unused_submodules = not self.error_on_compilation_failure

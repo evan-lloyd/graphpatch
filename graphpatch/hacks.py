@@ -6,7 +6,7 @@ from copy import deepcopy
 from functools import partial, partialmethod
 
 import torch
-from torch._dynamo.source import AttrSource, GetItemSource, NNModuleSource, LocalSource
+from torch._dynamo.source import AttrSource, GetItemSource, LocalSource, NNModuleSource
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
 from torch.utils._python_dispatch import _get_current_dispatch_mode

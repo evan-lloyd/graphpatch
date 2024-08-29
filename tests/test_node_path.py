@@ -1,8 +1,8 @@
 from typing import Optional
 
 import pytest
-from syrupy.extensions.json import JSONSnapshotExtension
 from syrupy.extensions.amber.serializer import AmberDataSerializer
+from syrupy.extensions.json import JSONSnapshotExtension
 
 from graphpatch.hacks import TORCH_VERSION
 from graphpatch.meta import NodeData, NodeMeta, wrap_node_path

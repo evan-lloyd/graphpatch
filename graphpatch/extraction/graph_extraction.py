@@ -36,7 +36,7 @@ from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
 
 
 class UnusedModule(GraphPatchModule):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(Module(), Graph(), "UnusedModule")
         self._graphpatch_output_indexes = OutputArgumentIndex(None, False)
         self._graphpatch_submodules = {}
@@ -584,25 +584,25 @@ def extract(
             continue
         [*parent_path, local_name] = torch_qual_name.split(".")
 
-        parent_module = root_state.extracted_module
-        non_container_parent = root_state.extracted_module
+        parent_module: Module = root_state.extracted_module
+        non_container_parent: Module = root_state.extracted_module
 
         # We should ignore the entire hierarchy under any UnusedModules.
         for child_name in parent_path:
             if isinstance(parent_module, UnusedModule):
                 break
-            child = parent_module._modules[child_name]
+            child = cast(Module, parent_module._modules[child_name])
             parent_module = child
             if not is_container(child):
                 non_container_parent = child
         if isinstance(parent_module, UnusedModule):
             continue
 
+        assert state.extracted_module is not None
         # Replace unusued submodules with dummies, unless the parent is opaque. For compiled
-        # modules, we know the submodule is definitely never going to be used,
-        # since we didn't write any instructions that would actually use it. For opaque modules,
-        # it could be the case that with different data the module would be used, so we should keep
-        # it around to be safe.
+        # modules, we know the submodule is definitely never going to be used, since we didn't write
+        # any instructions that would actually use it. For opaque modules, it could be the case that
+        # with different data the module would be used, so we should keep it around to be safe.
         if (
             len(state.invocations) == 0
             and not is_container(state.extracted_module)
@@ -626,7 +626,7 @@ def extract(
 
     # Escape hatch for modules that torch just refuses to compile correctly. Ideally as
     # compatibility improves we won't need this in the future!
-    graph_module = cast(GraphPatchModule, root_state.extracted_module)
+    graph_module = root_state.extracted_module
     if options.postprocessing_function is not None:
         options.postprocessing_function(graph_module, root_module)
         graph_module.recompile()

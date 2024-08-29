@@ -313,10 +313,9 @@ class OpaqueGraphModule(GraphPatchModule):
         return cast(Iterator[Tuple[str, GraphPatchModule]], self._child_modules(self._modules))
 
     def _initialize_proxy(self, root: Union[Module, Dict[str, Any]]) -> None:
-
         orig_get_attr = self._graphpatch_opaque_module_class.__getattr__
 
-        def handle_reserved_name_override(self, key):
+        def handle_reserved_name_override(self: Module, key: str) -> Any:
             return orig_get_attr(self, hacks.override_reserved_name(key))
 
         proxy_class = type(
@@ -325,7 +324,7 @@ class OpaqueGraphModule(GraphPatchModule):
             {"__getattr__": handle_reserved_name_override},
         )
 
-        self._graphpatch_opaque_module_proxy = proxy_class.__new__(proxy_class)
+        self._graphpatch_opaque_module_proxy = proxy_class.__new__(proxy_class)  # type: ignore
 
         Module.__init__(self._graphpatch_opaque_module_proxy)
         # Deliberately not copying here; we want our proxy's submodules to always match ours.
