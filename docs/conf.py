@@ -58,3 +58,7 @@ autodoc_typehints_format = "short"
 
 markdown_http_base = "https://graphpatch.readthedocs.io/en/stable"
 markdown_uri_doc_suffix = ".html"
+
+rst_epilog = f"""
+.. |graphpatch_version| replace:: ``graphpatch {release}``
+"""
