@@ -47,7 +47,7 @@ def test_extract_minimal_module(minimal_module, minimal_module_inputs):
 def test_extract_buffer_module(buffer_module, buffer_module_inputs):
     graph_module, meta = extract(
         buffer_module,
-        ExtractionOptions(error_on_compilation_failure=True, allow_unused_submodules=True),
+        ExtractionOptions(error_on_compilation_failure=True),
         buffer_module_inputs,
     )
     validate_extraction(graph_module, buffer_module, meta)

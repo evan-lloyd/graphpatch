@@ -97,13 +97,6 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
         "<s> This should still work<s><s><s><s>Paris Paris Paris Paris Paris",
         "<s>Even though the inputs are a different shape Paris Paris Paris Paris Paris",
     ]
-    # from torch._subclasses.fake_tensor import FakeTensor
-    # import objgraph
-
-    # objgraph.show_chain(
-    #     objgraph.find_ref_chain(pg, lambda x: isinstance(x, FakeTensor)), backrefs=False
-    # )
-    # breakpoint()
 
     deserialized = _roundtrip(pg)
     _serialization_asserts(pg, deserialized, batched_inputs.input_ids, "output|logits")
