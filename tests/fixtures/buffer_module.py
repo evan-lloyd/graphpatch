@@ -11,6 +11,9 @@ class BufferModule(Module):
     def __init__(self):
         super().__init__()
         self.linear = Linear(*BufferModule._shape)
+        # TODO: we should make a separate test case for this functionality. I think it can wait
+        # until we simplify the test suite with pytest-cases or similar.
+        self.unused = Linear(*BufferModule._shape)
         self.register_buffer("buffer", ones(*([BufferModule._shape[1]] * 2)))
 
     def forward(self, x):
@@ -34,6 +37,7 @@ def patchable_buffer_module(request, buffer_module, buffer_module_inputs):
         ExtractionOptions(
             skip_compilation=getattr(request, "param", None) == "opaque",
             error_on_compilation_failure=True,
+            allow_unused_submodules=True,
         ),
         buffer_module_inputs,
     )

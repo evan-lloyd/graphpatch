@@ -29,7 +29,7 @@ from typing_extensions import TypedDict
 
 from . import hacks
 from .exceptions import GraphPatchWarning
-from .extraction import ExtractionOptions, extract
+from .extraction import ExtractionOptions, OpaqueGraphModule, extract, UnusedModule
 from .meta import (
     GraphMeta,
     NodeData,
@@ -186,11 +186,6 @@ class PatchableGraph(Module):
         self._graph_module = graph_module
         self._meta = meta
         self._original_graph = deepcopy(meta)
-        # In torch >= 2.1.0, FakeTensors get attached in each FXNode's meta, but they are
-        # unpicklable.
-        for node_meta in self._original_graph.values():
-            if node_meta.node is not None:
-                node_meta.node.meta.pop("example_value", None)
         self._make_patchable()
         self._trace_output_shapes(*extraction_args, **extraction_kwargs)
         self._node_path = wrap_node_path(self._meta)
@@ -253,6 +248,7 @@ class PatchableGraph(Module):
         cls,
         state_dict: Dict[str, Any],
         parameter_names: Set[str],
+        unused_modules: Tuple[str],
         _original_graph: NodeData[Union[NodeMeta, GraphMeta]],
         _generation_mixin_masquerade_class: Optional[Type[GenerationMixin]],
         config: Optional[PretrainedConfig],
@@ -274,6 +270,8 @@ class PatchableGraph(Module):
         )
 
         state_by_submodule: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        submodules_by_parent: Dict[str, Dict[str, Module]] = defaultdict(dict)
+
         # For cloned graphs (and probably tied weights?) we will have multiple instances of the same
         # object in our state dict. Make sure we maintain that relationship by only constructing
         # Parameters once.
@@ -292,10 +290,15 @@ class PatchableGraph(Module):
                 parameter = state_entry
             state_by_submodule[".".join(parent_path)][target] = parameter
 
+        # Unused submodules will not appear in meta, so we need to make sure they get constructed
+        # before they are needed.
+        for module_name in unused_modules:
+            [*parent_path, target] = module_name.split(".")
+            parent_name = ".".join(parent_path)
+            submodules_by_parent[parent_name][target] = UnusedModule()
+
         # GraphModule is not built to handle nested graphs, so re-inflate each sub-graph
         # individually. Process children before their parents so we can do this in one pass.
-        submodules_by_parent: Dict[str, Dict[str, Module]] = defaultdict(dict)
-
         for meta in deserialized_instance._meta.reverse_topological_order():
             if not isinstance(meta, GraphMeta):
                 continue
@@ -311,13 +314,10 @@ class PatchableGraph(Module):
                 parent_name = "_graph_module"
             target = cast(str, meta.node.target) if meta.node is not None else ""
 
-            local_submodules = submodules_by_parent[name]
-            local_state = state_by_submodule[name]
-
             graph_module = meta.graph_module_class(
                 {
-                    **local_state,
-                    **local_submodules,
+                    **state_by_submodule[name],
+                    **submodules_by_parent[name],
                 },
                 meta.graph,
                 meta.graph_module_class.__name__,
@@ -372,6 +372,11 @@ class PatchableGraph(Module):
             (
                 state_dict,
                 {name for name, _ in self.named_parameters()},
+                tuple(
+                    name
+                    for name, module in self.named_modules(remove_duplicate=False)
+                    if isinstance(module, UnusedModule)
+                ),
                 self._original_graph,
                 type(self).__bases__[-1] if isinstance(self, GenerationMixin) else None,
                 self.config,

@@ -1,5 +1,4 @@
 import inspect
-import re
 import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
@@ -7,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, Iterator, Optional, Tuple, Union, cast
 from warnings import warn
 
-from torch.fx import Node
+from torch.fx import Graph, Node
 from torch.fx.graph_module import GraphModule
 from torch.nn import Module, ModuleDict, ModuleList
 
@@ -34,6 +33,13 @@ from .extraction_options import ExtractionOptions
 from .graphpatch_module import GraphPatchModule
 from .multiply_invoked_module import MultiplyInvokedModule
 from .opaque_graph_module import OpaqueGraphModule, SubmoduleWrapper
+
+
+class UnusedModule(GraphPatchModule):
+    def __init__(self):
+        super().__init__(Module(), Graph(), "UnusedModule")
+        self._graphpatch_output_indexes = OutputArgumentIndex(None, False)
+        self._graphpatch_submodules = {}
 
 
 class CompilationError(GraphPatchException):
@@ -577,9 +583,30 @@ def extract(
         if torch_qual_name == "":
             continue
         [*parent_path, local_name] = torch_qual_name.split(".")
-        parent = ".".join(parent_path)
-        parent_module = root_state.extracted_module.get_submodule(parent)
-        setattr(parent_module, local_name, state.extracted_module)
+
+        parent_module = root_state.extracted_module
+        non_container_parent = root_state.extracted_module
+        for child_name in parent_path:
+            if isinstance(parent_module, UnusedModule):
+                break
+            child = parent_module._modules[child_name]
+            parent_module = child
+            if not is_container(child):
+                non_container_parent = child
+
+        # Replace unusued submodules with dummies, unless the parent is opaque. For compiled
+        # modules, we know the submodule is definitely never going to be used,
+        # since we didn't write any instructions that would actually use it. For opaque modules,
+        # it could be the case that with different data the module would be used, so we should keep
+        # it around to be safe.
+        if (
+            len(state.invocations) == 0
+            and not is_container(state.extracted_module)
+            and isinstance(non_container_parent, CompiledGraphModule)
+        ):
+            setattr(parent_module, local_name, UnusedModule())
+        else:
+            setattr(parent_module, local_name, state.extracted_module)
 
     # With the container hierarchy finalized, we can set up additional attributes needed for
     # eventual serialization.

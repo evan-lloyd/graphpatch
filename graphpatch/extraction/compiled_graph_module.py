@@ -53,6 +53,12 @@ def compile_module(module: Module, *args: Any, **kwargs: Any) -> CompiledGraphMo
 
         if not isinstance(graph_module, CompiledGraphModule):
             raise ValueError("Compilation callback was never called.")
+
+        # In torch >= 2.1.0, FakeTensors get attached in each FXNode's meta, but they are
+        # unpicklable. Make sure we don't keep them around.
+        for node in graph_module.graph.nodes:
+            node.meta.pop("example_value", None)
+
         return graph_module
     finally:
         hacks._CURRENTLY_COMPILING = False

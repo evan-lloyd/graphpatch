@@ -6,7 +6,7 @@ import torch
 from torch.fx.graph_module import GraphModule
 
 from graphpatch import PatchableGraph
-from graphpatch.extraction.multiply_invoked_module import MultiplyInvokedModule
+from graphpatch.extraction import MultiplyInvokedModule, UnusedModule
 from graphpatch.meta import GraphMeta
 from graphpatch.optional.transformers import ModelOutput
 
@@ -155,6 +155,9 @@ def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, i
 
 
 def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance=None):
+    if isinstance(module_1, UnusedModule) or isinstance(module_2, UnusedModule):
+        return
+
     for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
         assert (
             cur_1.requires_grad == cur_2.requires_grad
@@ -170,6 +173,27 @@ def assert_gradients_identical(module_1, module_2, output_1, output_2, tolerance
 
         params_1 = dict(module_1.named_parameters(remove_duplicate=False))
         params_2 = dict(module_2.named_parameters(remove_duplicate=False))
+
+        # Filter out parameters belonging to unused submodules
+        for name in list(params_1.keys()):
+            for submodule_name in [""] + name.split(".")[:-1]:
+                if submodule_name == "":
+                    cur_module = module_1
+                else:
+                    cur_module = cur_module._modules[submodule_name]
+                if isinstance(cur_module, UnusedModule):
+                    params_1.pop(name, None)
+                    params_2.pop(name, None)
+                    break
+            for submodule_name in [""] + name.split(".")[:-1]:
+                if submodule_name == "":
+                    cur_module = module_2
+                else:
+                    cur_module = cur_module._modules[submodule_name]
+                if isinstance(cur_module, UnusedModule):
+                    params_1.pop(name, None)
+                    params_2.pop(name, None)
+                    break
 
         for name in params_1.keys():
             # Can happen if module makes multiple calls so that our compiled version clones it. In
