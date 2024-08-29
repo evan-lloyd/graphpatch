@@ -1,4 +1,4 @@
-graphpatch 0.2.1
+graphpatch |release|
 ================
 
 Documentation is hosted on `Read the Docs <https://graphpatch.readthedocs.io/en/stable>`_.
@@ -133,7 +133,7 @@ Version compatibility
 ``bitsandbytes`` matching the minimum version requirements, but this is a highly ambitious claim to
 make for a Python library. If you end up with errors that seem related to ``graphpatch``'s integration
 with these libraries, you might try changing their versions to those listed below. This list was
-automatically generated as part of the ``graphpatch`` release process; it reflects the versions
+automatically generated as part of the ``graphpatch`` release process. It reflects the versions
 used while testing |graphpatch_version|:
 
 .. include:: transformers_versions.rst

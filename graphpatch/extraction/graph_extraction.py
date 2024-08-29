@@ -27,6 +27,7 @@ from .extraction_context import (
     ExtractionState,
     ExtractionWrapper,
     compilation_context,
+    detach_accelerate_hooks,
     is_container,
 )
 from .extraction_options import ExtractionOptions
@@ -128,11 +129,11 @@ def _repair_input_signature(state: ExtractionState) -> None:
     assert graph_module is not None
     insert_after = graph_module.graph._root
     existing_placeholders = {n.target: n for n in graph_module.graph.nodes if n.op == "placeholder"}
-    forward_parameters = inspect.signature(
-        state.wrapped_module._graphpatch_wrapped_module.forward
-    ).parameters
+    with detach_accelerate_hooks(state.wrapped_module._graphpatch_wrapped_module):
+        forward_parameters = inspect.signature(
+            state.wrapped_module._graphpatch_wrapped_module.forward
+        ).parameters
     canonical_placeholders: Dict[str, Node] = {}
-
     # Construct (possibly new) graph inputs in the correct order.
     for name, parameter in forward_parameters.items():
         if name in existing_placeholders:
