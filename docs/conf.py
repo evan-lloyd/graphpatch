@@ -7,9 +7,9 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "graphpatch"
-copyright = "2023--2024, Evan Lloyd"
+copyright = "2023–2024, Evan Lloyd"
 author = "Evan Lloyd"
-release = "0.2.1"
+release = "0.2.2"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

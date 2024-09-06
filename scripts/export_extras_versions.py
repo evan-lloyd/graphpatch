@@ -3,7 +3,7 @@ import subprocess
 import sys
 
 result = subprocess.run(
-    "poetry export -f requirements.txt -E transformers -E transformer-lens", check=True, shell=True, capture_output=True
+    "poetry export -f requirements.txt --all-extras", check=True, shell=True, capture_output=True
 )
 
 PACKAGE_NAMES = (
@@ -23,10 +23,12 @@ wanted_lines = [
 out_lines = []
 for line in wanted_lines:
     if "numpy" in line[1]:
-        if "python_version < \"3.9\"" in line[0]:
-            out_lines.append(f"{line[1]} (python 3.8)")
+        if 'python_version < "3.9"' in line[0]:
+            out_lines.append(f"{line[1]} (Python 3.8)")
+        elif 'python_version < "3.10"' in line[0]:
+            out_lines.append(f"{line[1]} (Python 3.9)")
         else:
-            out_lines.append(f"{line[1]} (later python versions)")
+            out_lines.append(f"{line[1]} (later Python versions)")
     else:
         out_lines.append(line[1])
 

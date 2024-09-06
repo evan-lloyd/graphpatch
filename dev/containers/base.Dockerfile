@@ -1,7 +1,7 @@
 # Cached poetry dependency installation adapted from
 # https://medium.com/@albertazzir/blazing-fast-python-docker-builds-with-poetry-a78a66f5aed0
 
-FROM python:3.10.11-buster as builder
+FROM python:3.10.11-buster AS builder
 
 RUN pip install poetry==1.6.1
 
@@ -23,7 +23,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.options.always-copy true
 RUN --mount=type=cache,target=$POETRY_CACHE_DIR poetry install --only main --no-root
 
-FROM nvidia/cuda:11.8.0-runtime-ubuntu20.04 as runtime
+FROM nvidia/cuda:11.8.0-runtime-ubuntu20.04 AS runtime
 
 # TODO: this is probably bloating the image size, can we build a "portable" pinned Python in another
 # intermediate layer and just copy it over? Or just download a pre-built binary?
@@ -52,3 +52,4 @@ RUN cp /usr/local/bin/python3.10 /graphpatch/.venv/bin/python
 RUN echo "cd /graphpatch" >> "/root/.bashrc"
 
 COPY graphpatch ./graphpatch
+COPY .python-version README.md ./
