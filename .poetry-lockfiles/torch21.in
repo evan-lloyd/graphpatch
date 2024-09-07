@@ -9,3 +9,10 @@ torch = [
     { platform = "linux", url = "https://download.pytorch.org/whl/cu118/torch-2.1.2%2Bcu118-cp39-cp39-linux_x86_64.whl", python = ">=3.9,<3.10"},
     { platform = "linux", url = "https://download.pytorch.org/whl/cu118/torch-2.1.2%2Bcu118-cp38-cp38-linux_x86_64.whl", python = ">=3.8,<3.9"},
 ]
+
+[tool.poetry.group.numpy.dependencies]
+numpy = [
+    { python = "<3.9", version = ">=1.17,<1.25" },
+    # torch 2.1 compiled against numpy v1
+    { python = ">=3.9", version = ">=1.17,<2" },
+]
