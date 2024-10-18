@@ -1,4 +1,4 @@
-# graphpatch 0.2.2
+# graphpatch 0.2.3
 
 Documentation is hosted on [Read the Docs](https://graphpatch.readthedocs.io/en/stable).
 
@@ -130,7 +130,7 @@ with pg.patch({"lm_head.output": ZeroPatch(slice=(slice(None), slice(None), 3681
 version requirements, but this is a highly ambitious claim to make for a Python library. If you end
 up with errors that seem related to `graphpatch`’s integration with these libraries, you might try
 changing their versions to those listed below. This list was automatically generated as part of the
-`graphpatch` release process. It reflects the versions used while testing `graphpatch 0.2.2`:
+`graphpatch` release process. It reflects the versions used while testing `graphpatch 0.2.3`:
 
 ```default
 accelerate==0.34.2
