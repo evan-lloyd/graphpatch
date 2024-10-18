@@ -1,0 +1,18 @@
+'''
+<root>: OpaqueGraphModule
+├─x: Tensor(3, 2)
+├─sub_shape: tuple(2)
+│ ├─sub_0: int
+│ └─sub_1: int
+├─linear: CompiledGraphModule
+│ ├─x: Tensor(3, 2)
+│ ├─cb: Tensor(3, 2)
+│ ├─scb: Tensor(3, 1)
+│ ├─bias: Tensor(3)
+│ ├─threshold: float
+│ ├─mul: Tensor(3, 2)
+│ ├─weight: Tensor(3, 2)
+│ ├─matmul_8bit: Tensor(3, 3)
+│ └─output: Tensor(3, 3)
+└─output: Tensor(3, 3)
+'''
