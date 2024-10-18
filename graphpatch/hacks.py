@@ -364,6 +364,10 @@ def set_dynamo_config():
         # by dynamically generating each instance). Possible we could leverage this new behavior
         # for some free speedups in torch 2.5+ ?
         "inline_inbuilt_nn_modules": False,
+        # Allowing torch to add these has some weird side effects in 2.5, such as deleting
+        # get_item_nodes referencing input shapes, if equivalent to symbolic shapes as lifted
+        # inputs (which will not work for us, since we delete those)
+        "do_not_emit_runtime_asserts": True,
     }
     orig_values = {key: getattr(torch._dynamo.config, key, _NOT_PRESENT) for key in config_values}
     for key, value in config_values.items():
