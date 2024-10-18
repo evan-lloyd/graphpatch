@@ -2,7 +2,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import torch
 from torch import Tensor
-from torch.optim import Adam  # type: ignore
+from torch.optim import Adam
 
 from graphpatch import AddPatch, Patch, PatchableGraph, ProbePatch
 from graphpatch.optional.dataclasses import dataclass
