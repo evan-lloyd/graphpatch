@@ -7,6 +7,7 @@
 * [ ] long tests across full tox matrix
 * [ ] notebooks 
 * [ ] lint, format, typecheck
+* [ ] regenerate README.md
 
 ### Post-release checklist:
 * [ ] Tagged release on GitHub
