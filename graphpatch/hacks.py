@@ -8,7 +8,6 @@ from functools import partial, partialmethod
 import torch
 from torch._dynamo.source import AttrSource, GetItemSource, LocalSource, NNModuleSource
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
-from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
 from torch.utils._python_dispatch import _get_current_dispatch_mode
 
 from .optional.accelerate import AVAILABLE as ACCELERATE_AVAILABLE
@@ -20,6 +19,14 @@ if TORCH_VERSION < (2, 1):
     from torch._dynamo import allow_in_graph, disable, skip  # noqa: F401
 else:
     from torch._dynamo.decorators import allow_in_graph, disable, skip  # noqa: F401
+
+# Renamed in 2.5
+if TORCH_VERSION < (2, 5):
+    from torch.fx.experimental.proxy_tensor import (
+        maybe_disable_fake_tensor_mode as unset_fake_temporarily,
+    )
+else:
+    from torch.fx.experimental.proxy_tensor import unset_fake_temporarily
 
 __all__ = [
     "AttrSource",
@@ -353,6 +360,14 @@ def set_dynamo_config():
         "capture_scalar_outputs": True,
         "capture_dynamic_output_shape_ops": True,
         "raise_on_ctx_manager_usage": False,
+        # TODO: turning this on doesn't work with ExtractionWrapper as-is (but we could maybe cheat
+        # by dynamically generating each instance). Possible we could leverage this new behavior
+        # for some free speedups in torch 2.5+ ?
+        "inline_inbuilt_nn_modules": False,
+        # Allowing torch to add these has some weird side effects in 2.5, such as deleting
+        # get_item_nodes referencing input shapes, if equivalent to symbolic shapes as lifted
+        # inputs (which will not work for us, since we delete those)
+        "do_not_emit_runtime_asserts": True,
     }
     orig_values = {key: getattr(torch._dynamo.config, key, _NOT_PRESENT) for key in config_values}
     for key, value in config_values.items():
@@ -402,7 +417,7 @@ def allow_builtin_in_graph(module):
 @contextmanager
 def patch_module_module(cls):
     """Needed for torch >= 2.3, which started disallowing the @disable decorator within our
-    ExtractionWrapper class. This lets us hit get inside the "if" here:
+    ExtractionWrapper class. This lets us get inside the "if" here:
     https://github.com/pytorch/pytorch/blob/71d020262793542974cf13b30f2a9099773f015c/torch/_dynamo/variables/functions.py#L326-L334
 
     Note that we have to undo this change or that leads to problems with pickling later.
@@ -461,10 +476,10 @@ def monkeypatch_accelerate():
         the move to SafeTensors. These would fail to load while in fake mode, so we temporarily
         disable it, and then convert to FakeTensor after the fact.
         """
-        with maybe_disable_fake_tensor_mode():
+        with unset_fake_temporarily():
             result = orig_offload_getitem(self, key)
         if in_fake_mode() and not isinstance(result, FakeTensor):
-            with maybe_disable_fake_tensor_mode():
+            with unset_fake_temporarily():
                 result = torch.empty_like(result, device="meta")
             result = FakeTensor(_get_current_dispatch_mode(), result, "meta")
         return result
@@ -556,10 +571,11 @@ def handle_transformers_output():
     from collections import namedtuple
 
     from torch._dynamo.variables import builder
-    from torch._dynamo.variables.dicts import DataClassVariable
     from transformers.utils.generic import ModelOutput
 
     if TORCH_VERSION < (2, 2):
+        from torch._dynamo.variables.dicts import DataClassVariable
+
         orig_include_none = DataClassVariable.include_none
         DataClassVariable.include_none = True
 

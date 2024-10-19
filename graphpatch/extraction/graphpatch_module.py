@@ -188,7 +188,7 @@ class GraphPatchModule(GraphModule):
     def __init__(
         self,
         root: Union[Module, Dict[str, Any]],
-        graph: Optional[Graph],
+        graph: Graph,
         class_name: str,
         accelerate_hook: Optional[ModelHook] = None,
     ):

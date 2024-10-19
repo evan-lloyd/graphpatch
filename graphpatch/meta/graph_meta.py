@@ -328,7 +328,7 @@ class GraphMetaWrapper(NodeDataWrapper[Union[GraphMeta, NodeMeta]]):
             yield result_stack.pop()
 
     def handle_wrap(self, data: Any, path: str) -> MaybeHandledData:  # type: ignore[type-arg]
-        if not isinstance(data, GraphModule):
+        if not isinstance(data, GraphPatchModule):
             return NodeData._UNHANDLED_VALUE
 
         # Create meta nodes bottom-up so we can construct this iteratively rather than recursively.

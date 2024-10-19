@@ -2,9 +2,16 @@ import re
 import subprocess
 import sys
 
-result = subprocess.run(
-    "poetry export -f requirements.txt --all-extras", check=True, shell=True, capture_output=True
-)
+try:
+    result = subprocess.run(
+        "poetry export -f requirements.txt --all-extras --without torch",
+        check=True,
+        shell=True,
+        capture_output=True,
+    )
+except subprocess.CalledProcessError as exc:
+    print(exc.stdout, exc.stderr)
+    raise
 
 PACKAGE_NAMES = (
     "accelerate",

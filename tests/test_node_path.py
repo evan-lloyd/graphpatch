@@ -131,24 +131,29 @@ def test_node_path_autocomplete(path_data):
 
 
 @pytest.mark.parametrize("all_patchable_graphs", ["compiled", "opaque"], indirect=True)
-def test_patchable_graph_graph_repr(all_patchable_graphs, snapshot):
+def test_patchable_graph_graph_repr(all_patchable_graphs, snapshot, request):
     snapshot = snapshot.with_defaults(extension_class=SingleFileAmber)
 
     # Note we get slightly different structures for newer versions of torch, due to it retaining
     # more not-actually-used nodes. In future releases we should use our own logic to clean up
     # graphs after extraction, which should eliminate this discrepancy.
-    if TORCH_VERSION >= (2, 4):
-        torch_version_suffix = "2_4"
-    elif TORCH_VERSION >= (2, 2):
-        torch_version_suffix = "2_2-2_3"
-    elif TORCH_VERSION >= (2, 1):
-        torch_version_suffix = "2_1"
+    if "compiled" in request.node.name:
+        if TORCH_VERSION >= (2, 5):
+            torch_version_suffix = "_2_5"
+        elif TORCH_VERSION >= (2, 4):
+            torch_version_suffix = "_2_4"
+        elif TORCH_VERSION >= (2, 2):
+            torch_version_suffix = "_2_2-2_3"
+        elif TORCH_VERSION >= (2, 1):
+            torch_version_suffix = "_2_1"
+        else:
+            torch_version_suffix = "_2_0"
     else:
-        torch_version_suffix = "2_0"
+        torch_version_suffix = ""
 
     for pg_name, pg in all_patchable_graphs.items():
         assert repr(pg.graph) == snapshot(
-            name=f"{pg_name}_{torch_version_suffix}"
+            name=f"{pg_name}{torch_version_suffix}"
         ), f"Snapshot mismatch for {pg_name}"
 
 

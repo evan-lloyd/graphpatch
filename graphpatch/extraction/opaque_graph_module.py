@@ -3,7 +3,8 @@ from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type, Union, cast
 
-from torch.fx import Graph, Node
+from torch.fx import Graph
+from torch.fx.node import Argument
 from torch.nn import Module
 
 from .. import hacks
@@ -229,10 +230,10 @@ class OpaqueGraphModule(GraphPatchModule):
         graph: Graph = Graph()
 
         # Set up placeholder nodes from module's forward(), skipping first argument (self).
-        module_args: Dict[str, Node] = {}
-        module_kwargs: Dict[str, Node] = {}
-        module_varargs: Dict[str, Node] = {}
-        module_varkwargs: Dict[str, Node] = {}
+        module_args: Dict[str, Argument] = {}
+        module_kwargs: Dict[str, Argument] = {}
+        module_varargs: Dict[str, Argument] = {}
+        module_varkwargs: Dict[str, Argument] = {}
         for name, arg in list(
             inspect.signature(self._graphpatch_opaque_module_class.forward).parameters.items()
         )[1:]:
@@ -356,6 +357,7 @@ class OpaqueGraphModule(GraphPatchModule):
             # Need to set this, since GraphModule constructor will see that we get_attr on it and
             # attempt to copy it in.
             root["_graphpatch_self"] = self
+            assert graph is not None
             super().__init__(root, graph, class_name, accelerate_hook)
 
             self._initialize_proxy(root)

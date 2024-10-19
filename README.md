@@ -1,4 +1,4 @@
-# graphpatch 0.2.2
+# graphpatch 0.2.3
 
 Documentation is hosted on [Read the Docs](https://graphpatch.readthedocs.io/en/stable).
 
@@ -10,18 +10,6 @@ it by first wrapping your model in a [`PatchableGraph`](https://graphpatch.readt
 created by [`PatchableGraph.patch()`](https://graphpatch.readthedocs.io/en/stable/patchable_graph.html#graphpatch.PatchableGraph.patch):
 
 ```python
-model = GPT2LMHeadModel.from_pretrained(
-   "gpt2-xl",
-   device_map="auto",
-   quantization_config=BitsAndBytesConfig(load_in_8bit=True),
-   torch_dtype=torch.float16
-)
-tokenizer = AutoTokenizer.from_pretrained("gpt2-xl")
-inputs = tokenizer(
-   "The Eiffel Tower, located in", return_tensors="pt", padding=False
-).to(torch.device("cuda"))
-# Note that arguments after the first are forwarded as example inputs
-# to the model during compilation.
 pg = PatchableGraph(model, **inputs, use_cache=False)
 # Applies patches to the multiplication result within the activation function of the
 # MLP in the 18th transformer layer. ProbePatch records the last observed value at the
@@ -130,17 +118,17 @@ with pg.patch({"lm_head.output": ZeroPatch(slice=(slice(None), slice(None), 3681
 version requirements, but this is a highly ambitious claim to make for a Python library. If you end
 up with errors that seem related to `graphpatch`’s integration with these libraries, you might try
 changing their versions to those listed below. This list was automatically generated as part of the
-`graphpatch` release process. It reflects the versions used while testing `graphpatch 0.2.2`:
+`graphpatch` release process. It reflects the versions used while testing `graphpatch 0.2.3`:
 
 ```default
-accelerate==0.34.2
-bitsandbytes==0.43.3
+accelerate==1.0.0
+bitsandbytes==0.44.1
 numpy==1.24.4 (Python 3.8)
 numpy==2.0.2 (Python 3.9)
 numpy==2.1.1 (later Python versions)
 sentencepiece==0.2.0
 transformer-lens==2.4.1
-transformers==4.44.2
+transformers==4.45.2
 ```
 
 <a id="related-work"></a>
@@ -158,6 +146,13 @@ patchable.
 
 [TorchLens](https://github.com/johnmarktaylor91/torchlens) records and outputs visualizations for every intermediate
 activation. However, it is currently unable to perform any activation patching.
+
+[nnsight](https://github.com/ndif-team/nnsight) offers a nice activation patching API, but is limited to
+module inputs and outputs.
+
+[pyvene](https://github.com/stanfordnlp/pyvene) offers fine-grained control over activation patches (for example, down to
+a specific attention head), and a description language/serialization format to allow specification of reproducible
+experiments.
 
 ## Documentation index
 
