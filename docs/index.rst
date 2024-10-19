@@ -14,18 +14,6 @@ created by :meth:`PatchableGraph.patch`:
 
 .. code:: python
 
-   model = GPT2LMHeadModel.from_pretrained(
-      "gpt2-xl",
-      device_map="auto",
-      quantization_config=BitsAndBytesConfig(load_in_8bit=True),
-      torch_dtype=torch.float16
-   )
-   tokenizer = AutoTokenizer.from_pretrained("gpt2-xl")
-   inputs = tokenizer(
-      "The Eiffel Tower, located in", return_tensors="pt", padding=False
-   ).to(torch.device("cuda"))
-   # Note that arguments after the first are forwarded as example inputs
-   # to the model during compilation.
    pg = PatchableGraph(model, **inputs, use_cache=False)
    # Applies patches to the multiplication result within the activation function of the
    # MLP in the 18th transformer layer. ProbePatch records the last observed value at the
@@ -153,6 +141,12 @@ patchable.
 `TorchLens <https://github.com/johnmarktaylor91/torchlens>`_ records and outputs visualizations for every intermediate
 activation. However, it is currently unable to perform any activation patching.
 
+`nnsight <https://github.com/ndif-team/nnsight>`_ offers a nice activation patching API, but is limited to
+module inputs and outputs.
+
+`pyvene <https://github.com/stanfordnlp/pyvene>`_ offers fine-grained control over activation patches (for example, down to
+a specific attention head), and a description language/serialization format to allow specification of reproducible
+experiments.
 
 Documentation index
 ###################
