@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=$POETRY_CACHE_DIR touch README.md && pip install p
 
 RUN wget -O - https://tailscale.com/install.sh | sh
 
-RUN mkdir /init && echo "MODEL_DIR=/models" >> /etc/environment
+RUN mkdir /init && echo "GP_MODEL_DIR=/models" >> /etc/environment
 COPY --chmod=777 dev/containers/init/ /init/
 
 COPY tests/ tests/

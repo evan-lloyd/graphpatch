@@ -9,7 +9,7 @@ ENV POETRY_NO_INTERACTION=1 \
 ENV PATH=$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
 RUN echo "PYENV_ROOT=$PYENV_ROOT" >> /etc/environment \
   && echo "PATH=$PATH" >> /etc/environment \
-  && echo "MODEL_DIR=/models" >> /etc/environment
+  && echo "GP_MODEL_DIR=/models" >> /etc/environment
 
 RUN mkdir /init 
 RUN curl -fsSL https://tailscale.com/install.sh | sh

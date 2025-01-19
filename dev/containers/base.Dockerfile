@@ -9,7 +9,7 @@ ENV POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=1 \
     POETRY_VIRTUALENVS_CREATE=1 \
     POETRY_CACHE_DIR=/tmp/poetry_cache \
-    MODEL_DIR=/models
+    GP_MODEL_DIR=/models
 
 # There is an outstanding issue where this isn't actually respected,
 # https://github.com/python-poetry/poetry/issues/5906

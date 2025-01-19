@@ -1,1 +1,155 @@
-.poetry-lockfiles/lock-torch25.toml
+[project]
+name = "graphpatch"
+version = "0.2.3"
+description = "graphpatch is a library for activation patching on PyTorch neural network models."
+authors = [{ name = "Evan Lloyd", email = "evan.t.lloyd@gmail.com" }]
+requires-python = ">=3.8.1, <3.13"
+readme = "README.md"
+license = "MIT"
+keywords = [
+    "mechanistic interpretability",
+    "interpretability",
+    "pytorch",
+    "torch",
+    "activation patch",
+    "ablation",
+    "transformer",
+    "large language model",
+    "llm",
+]
+classifiers = ["Development Status :: 4 - Beta"]
+dependencies = [
+    # Need at least torch 2.4 for Python 3.12 support
+    "torch>=2.4,<2.6 ; python_version >= '3.12'",
+    # Need at least torch 2.1 for Python 3.11 support
+    "torch>=2.1,<2.6 ; python_version >= '3.11' and python_version < '3.12'",
+    "torch>=2.0,<2.6 ; python_version >= '3.9' and python_version < '3.11'",
+    # Python 3.8 support dropped in torch 2.5
+    "torch>=2.0,<2.5 ; python_version >= '3.8' and python_version < '3.9'",
+    # torch does not list numpy as a mandatory requirement, but it is in fact required for certain
+    # codepaths encountered during compile(). NB: these do not actually add additional constraints
+    # on end users, as they exactly reflect the versions at which the published packages dropped
+    # support for each Python minor version.
+    "numpy>=1.17,<1.25 ; python_version < '3.9'",
+    "numpy>=1.17,<2.1 ; python_version >= '3.9' and python_version < '3.10'",
+    "numpy>=1.17 ; python_version >= '3.10' and python_version < '3.12'",
+    "numpy>=1.26 ; python_version >= '3.12'",
+]
+
+[project.optional-dependencies]
+transformers = [
+    # Somewhat arbitrary, but this is the first version with Llama, which we use in tests
+    "transformers>=4.28.0",
+    # slightly bumped from transformers setup.py (we don't depend on it directly), which had >=0.1.91
+    # (0.1.92 was yanked and there was never a 0.1.93); I couldn't get 0.1.91 to build so couldn't
+    # verify it worked. It's optional, technically, but needed for Llama.
+    "sentencepiece>=0.1.94",
+    "accelerate>=0.15.0",
+    "bitsandbytes>=0.35.4 ; sys_platform == 'linux'",
+]
+transformer-lens = ["transformer-lens>=1.16.0"]
+
+[project.urls]
+Homepage = "https://www.graphpatch.dev"
+Repository = "https://github.com/evan-lloyd/graphpatch"
+Documentation = "https://graphpatch.readthedocs.io/en/latest/index.html"
+
+[dependency-groups]
+dev = [
+    "ipython>=8.12.3,<9",
+    "pdbpp>=0.10.3,<0.11",
+    "xdot~=1.3",
+    "graphviz>=0.20.3,<0.21",
+    "objgraph>=3.6.1,<4",
+]
+testenv-lint = ["flake8>=6.1.0,<7"]
+testenv-format = ["black[jupyter]>=23.10.1,<24", "isort>=5.12.0,<6"]
+testenv-typecheck = ["mypy>=1.6.1,<2"]
+testenv-test = [
+    "pytest>=7.4.2,<8",
+    "pytest-mock>=3.12.0,<4",
+    "syrupy>=4.6.4,<5",
+    "pytest-xdist>=3.5.0,<4",
+    "pytest-env>=1.1.3,<2",
+]
+testenv-test-notebooks = ["nbmake>=1.4.6,<2"]
+testenv-test-coverage = ["pytest-cov>=4.1.0,<5"]
+testenv-docs = [
+    "docutils>=0.21.2 ; python_version >= '3.12'",
+    "furo>=2024.04.27; python_version>='3.12'",
+    "sphinx>=8.0.0; python_version>='3.12'",
+    "sphinx-autobuild>=2024.10.3 ; python_version >= '3.12'",
+    "sphinx-markdown-builder>=0.6.7 ; python_version >= '3.12'",
+]
+torch20 = [
+    "torch>=2.0,<2.1; python_version >= '3.8' and python_version < '3.11'",
+]
+torch21 = [
+    "torch>=2.1,<2.2; python_version >= '3.8' and python_version < '3.12'",
+]
+torch22 = [
+    "torch>=2.2,<2.3; python_version >= '3.8' and python_version < '3.12'",
+]
+torch23 = [
+    "torch>=2.3,<2.4; python_version >= '3.8' and python_version < '3.12'",
+]
+torch24 = [
+    "torch>=2.4,<2.5; python_version >= '3.8' and python_version < '3.13'",
+]
+torch25 = [
+    "torch>=2.5,<2.6; python_version >= '3.9' and python_version < '3.13'",
+]
+
+[tool.uv]
+default-groups = ["dev", "testenv-test", "torch25"]
+conflicts = [
+    [
+        { group = "torch20" },
+        { group = "torch21" },
+        { group = "torch22" },
+        { group = "torch23" },
+        { group = "torch24" },
+        { group = "torch25" },
+    ],
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm6.2"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+    { index = "pytorch-cu118", marker = "sys_platform == 'linux'" },
+]
+
+[tool.hatch.build.targets.sdist]
+include = ["graphpatch"]
+
+[tool.hatch.build.targets.wheel]
+include = ["graphpatch"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
