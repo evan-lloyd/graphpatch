@@ -39,12 +39,14 @@ dependencies = [
 [project.optional-dependencies]
 transformers = [
     # Somewhat arbitrary, but this is the first version with Llama, which we use in tests
-    "transformers>=4.28.0",
+    "transformers>=4.28.0,<4.47 ; python_version < '3.9'",
+    "transformers>=4.28.0 ; python_version >= '3.9'",
     # slightly bumped from transformers setup.py (we don't depend on it directly), which had >=0.1.91
     # (0.1.92 was yanked and there was never a 0.1.93); I couldn't get 0.1.91 to build so couldn't
     # verify it worked. It's optional, technically, but needed for Llama.
     "sentencepiece>=0.1.94",
-    "accelerate>=0.15.0",
+    "accelerate>=0.15.0,<1.1 ; python_version < '3.9'",
+    "accelerate>=0.15.0 ; python_version >= '3.9'",
     "bitsandbytes>=0.35.4 ; sys_platform == 'linux'",
 ]
 transformer-lens = ["transformer-lens>=1.16.0"]
