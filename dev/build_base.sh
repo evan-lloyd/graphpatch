@@ -1,2 +1,2 @@
 #!/bin/bash
-docker build . -f dev/containers/base.Dockerfile --tag graphpatch-base --target runtime --platform linux/amd64
+docker build . -f dev/containers/base.Dockerfile --tag graphpatch-base --platform linux/amd64
