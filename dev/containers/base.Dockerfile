@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8.0-runtime-ubuntu20.04
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
 
 WORKDIR /graphpatch
 COPY .python-version ./
@@ -10,7 +10,9 @@ ADD https://astral.sh/uv/0.5.23/install.sh /uv-installer.sh
 RUN sh /uv-installer.sh && rm /uv-installer.sh
 ENV PATH=/root/.local/bin:/graphpatch/.venv/bin:$PATH \
     GP_MODEL_DIR=/models \
-    UV_CACHE_DIR=/root/.cache/uv
+    UV_CACHE_DIR=/root/.cache/uv \
+    UV_LINK_MODE=symlink \
+    TERMINFO_DIRS=/etc/terminfo:/lib/terminfo:/usr/share/terminfo
 RUN uv python install `head -n 1 .python-version`
 
 # Bake in env vars so they'll be present when we SSH into a remote container
