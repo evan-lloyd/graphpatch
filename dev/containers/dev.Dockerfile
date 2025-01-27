@@ -1,20 +1,17 @@
 FROM graphpatch-base
 WORKDIR /graphpatch
 
-ENV POETRY_NO_INTERACTION=1 \
-  POETRY_VIRTUALENVS_IN_PROJECT=1 \
-  POETRY_VIRTUALENVS_CREATE=1 \
-  POETRY_CACHE_DIR=/tmp/poetry_cache
+RUN wget -O - https://tailscale.com/install.sh | sh
+COPY --chmod=777 dev/containers/init/ /init/
+
+RUN uv python install
 
 # Add dev packages for remote development/testing
-COPY pyproject.toml poetry.lock pytest.ini mypy.ini tox.ini .black .flake8 .isort.cfg ./
-RUN --mount=type=cache,target=$POETRY_CACHE_DIR touch README.md && pip install poetry==1.6.1 \
-  && poetry install --no-root --all-extras
-
-RUN wget -O - https://tailscale.com/install.sh | sh
-
-RUN mkdir /init && echo "MODEL_DIR=/models" >> /etc/environment
-COPY --chmod=777 dev/containers/init/ /init/
+RUN --mount=type=bind,source=dev/external_requirements.txt,target=external_requirements.txt \
+  uv tool install tox --overrides external_requirements.txt --with tox-uv
+COPY pytest.ini mypy.ini tox.ini .black .flake8 .isort.cfg .taplo.toml ./
+RUN uv sync --frozen --all-extras --group testenv-lint --group testenv-format \
+  --group testenv-typecheck --group testenv-test --group torch25 --group base --group dev
 
 COPY tests/ tests/
 COPY demos/ demos/

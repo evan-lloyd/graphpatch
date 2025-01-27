@@ -328,8 +328,8 @@ def requires_transformer_lens(f):
 
 
 def long_running(f):
-    if not os.getenv("RUN_LONG_TESTS"):
+    if not os.getenv("GP_LONG_TESTS"):
         return pytest.mark.skip(
-            "Must opt in to long-running tests with RUN_LONG_TESTS in environment"
+            "Must opt in to long-running tests with GP_LONG_TESTS in environment"
         )(f)
     return f

@@ -170,7 +170,7 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
 @requires_accelerate
 @pytest.mark.parametrize("opacity", ["compiled", "opaque"])
 def test_llama(tmp_path_factory, opacity):
-    model_path = f"{os.getenv('MODEL_DIR')}/llama-7b-hf"
+    model_path = f"{os.getenv('GP_MODEL_DIR')}/llama-7b-hf"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     standardize_tokenizer(tokenizer)
     llama = LlamaForCausalLM.from_pretrained(
@@ -267,7 +267,7 @@ def test_llama(tmp_path_factory, opacity):
 @requires_accelerate
 @pytest.mark.parametrize("opacity", ["compiled", "opaque"])
 def test_gpt2(tmp_path_factory, opacity):
-    model_path = f"{os.getenv('MODEL_DIR')}/gpt2-xl"
+    model_path = f"{os.getenv('GP_MODEL_DIR')}/gpt2-xl"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     standardize_tokenizer(tokenizer)
     gpt2 = GPT2LMHeadModel.from_pretrained(
