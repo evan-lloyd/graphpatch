@@ -24,7 +24,7 @@ def _roundtrip(module):
     buffer = io.BytesIO()
     module.save(buffer)
     buffer.seek(0)
-    return torch.load(buffer)
+    return torch.load(buffer, weights_only=False)
 
 
 def _serialization_asserts(
