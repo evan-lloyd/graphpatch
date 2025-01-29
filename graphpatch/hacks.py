@@ -371,13 +371,20 @@ def set_dynamo_config():
     }
     orig_values = {key: getattr(torch._dynamo.config, key, _NOT_PRESENT) for key in config_values}
     for key, value in config_values.items():
-        setattr(torch._dynamo.config, key, value)
+        try:
+            setattr(torch._dynamo.config, key, value)
+        except Exception:
+            # Some configs not applicable to all torch versions
+            pass
     try:
         yield
     finally:
         for key, value in orig_values.items():
             if value is _NOT_PRESENT:
-                delattr(torch._dynamo.config, key)
+                try:
+                    delattr(torch._dynamo.config, key)
+                except Exception:
+                    pass
             else:
                 setattr(torch._dynamo.config, key, value)
 

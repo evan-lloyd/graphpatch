@@ -2,6 +2,7 @@
 <root>: OpaqueGraphModule
 ├─input_ids: Tensor(1, 100)
 ├─kwargs
+├─loss_type: NoneType
 ├─model: OpaqueGraphModule
 │ ├─root_inputs: Tensor(1, 100, 100)
 │ ├─root_linear: OpaqueGraphModule
