@@ -580,17 +580,24 @@ def handle_transformers_output():
     from torch._dynamo.variables import builder
     from transformers.utils.generic import ModelOutput
 
-    if TORCH_VERSION < (2, 2):
+    # DataClassVariable removed in 2.5
+    if TORCH_VERSION < (2, 5):
         from torch._dynamo.variables.dicts import DataClassVariable
 
         orig_include_none = DataClassVariable.include_none
         DataClassVariable.include_none = True
+
+        # Torch attempts to "skip" all functions on ModelOutput, but for some reason this stopped
+        # working on transformers versions >= 4.48. Since the operation is idempotent, it is safe
+        # for us to just guarantee that it gets applied.
+        DataClassVariable._patch_once()
 
     orig_get_fake_value = builder.get_fake_value
 
     def get_fake_value(*args, **kwargs):
         result = orig_get_fake_value(*args, **kwargs)
         if isinstance(result, ModelOutput):
+            # breakpoint()
             fields = type(result).__dataclass_fields__
             tuple_result = namedtuple("DummyModelOutput", fields.keys())(
                 *(getattr(result, f) for f in fields.keys())
@@ -604,7 +611,7 @@ def handle_transformers_output():
         yield
     finally:
         builder.get_fake_value = orig_get_fake_value
-        if TORCH_VERSION < (2, 2):
+        if TORCH_VERSION < (2, 5):
             DataClassVariable.include_none = orig_include_none
 
 
