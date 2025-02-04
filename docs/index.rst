@@ -121,7 +121,8 @@ Version compatibility
 version requirements, but this is a highly ambitious claim to make for a Python library. If you end
 up with errors that seem related to ``graphpatch``'s integration with these libraries, you might try
 changing their versions to those listed below. This list was automatically generated as part of the
-``graphpatch`` release process. It reflects the versions used while testing |graphpatch_version|:
+``graphpatch`` release process, and is in a format recognized by ``pip``. It reflects the versions
+used while testing |graphpatch_version|:
 
 .. include:: extras_versions.rst
 

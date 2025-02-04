@@ -62,6 +62,9 @@ def pytest_configure(config):
         library_source = f"{site_packages_dir}/{match.group(1)}"
         line_number = int(match.group(2))
         condition = match.group(3)
+        if condition == "-":
+            with open("debug/condition.py", "r") as condition_file:
+                condition = f'exec("""{condition_file.read()}""") or gpbp_condition(locals())'
         debugger.set_break(library_source, line_number, cond=condition)
         print(
             f"Set breakpoint in {library_source}, line {line_number}"

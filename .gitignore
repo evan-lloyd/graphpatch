@@ -154,3 +154,6 @@ cython_debug/
 
 # MacOS
 .DS_Store
+
+# Local scratch dir for debugging
+debug/*

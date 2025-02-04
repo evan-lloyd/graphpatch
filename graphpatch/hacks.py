@@ -71,6 +71,7 @@ def monkeypatch_dynamic_shapes():
     def wrap_literal(self, _original, value):
         # Avoids some additional cases of tensor sizes getting specialized.
         if type(value) is int and isinstance(self.get_source(), (LocalSource, NNModuleSource)):
+            # breakpoint()
             return self.wrap_unspecialized_primitive(value)
         return _original(self, value)
 
@@ -171,7 +172,7 @@ def monkeypatch_dynamic_shapes():
             evaluate_expr,
         ],
         builder: [wrap_fx_proxy_cls],
-        VariableBuilder: [wrap_literal] if TORCH_VERSION < (2, 4) else [],
+        # VariableBuilder: [wrap_literal] if TORCH_VERSION < (2, 4) else [],
     }
     orig_functions = {
         patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
@@ -616,6 +617,16 @@ def handle_transformers_output():
 
 
 @contextmanager
+def patch_function(object, function_name, patched_function):
+    try:
+        original = getattr(object, function_name)
+        setattr(object, function_name, patched_function)
+        yield
+    finally:
+        setattr(object, function_name, original)
+
+
+@contextmanager
 def dynamo_hacks_for_current_torch_version():
     with ExitStack() as hack_stack:
         if TORCH_VERSION < (2, 1):
@@ -631,6 +642,18 @@ def dynamo_hacks_for_current_torch_version():
         if ACCELERATE_AVAILABLE:
             hack_stack.enter_context(monkeypatch_accelerate())
         hack_stack.enter_context(monkeypatch_graph_names())
+        # from torch._dynamo.trace_rules import torch_name_rule_map, get_torch_obj_rule_map
+        # from torch._dynamo.variables import SkipFunctionVariable, TorchInGraphFunctionVariable
+
+        # # TODO: also Sequential
+        # torch_name_rule_map.append(
+        #     {"torch.nn.container.ModuleList#__getitem__": TorchInGraphFunctionVariable}
+        # )
+        # get_torch_obj_rule_map.cache_clear()
+
+        # # hack_stack.enter_context(
+        # #     patch_function(ModuleList, "__init__", disable(ModuleList.__init__))
+        # # )
         yield
 
 
