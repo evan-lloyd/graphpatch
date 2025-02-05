@@ -64,7 +64,8 @@ def monkeypatch_dynamic_shapes():
         TensorProperty,
         TensorPropertySource,
     )
-    from torch._dynamo.variables import NNModuleVariable, builder
+    from torch._dynamo.variables import ListVariable, NNModuleVariable, builder
+    from torch._dynamo.variables.base import ValueMutationExisting, ValueMutationNew
     from torch.fx.experimental.symbolic_shapes import DimDynamic, ShapeEnv
 
     def wrap_fx_proxy_cls(_original, target_cls, tx, *args, **kwargs):
@@ -125,6 +126,7 @@ def monkeypatch_dynamic_shapes():
         care about the guards that would have gotten generated because they aren't present in the
         compiled GraphModule, and we discard the OptimizedModule after compiling."""
         return
+
     # Renamed in torch 2.3.
     maybe_guard.__name__ = "_maybe_guard_eq" if TORCH_VERSION < (2, 3) else "_maybe_guard_rel"
 
@@ -173,6 +175,16 @@ def monkeypatch_dynamic_shapes():
 
     tracing_context_init.__name__ = "__init__"
 
+    def list_variable_init(self, _original, *args, **kwargs):
+        """List variables not mutable by default starting in torch 2.6..."""
+        _original(self, *args, **kwargs)
+        if kwargs.get("source") is not None:
+            self.mutation_type = ValueMutationExisting()
+        else:
+            self.mutation_type = ValueMutationNew()
+
+    list_variable_init.__name__ = "__init__"
+
     patch_map = {
         OutputGraph: [remove_unused_graphargs],
         ShapeEnv: [
@@ -186,6 +198,7 @@ def monkeypatch_dynamic_shapes():
         # problems
         # TracingContext: [tracing_context_init],
         NNModuleVariable: [call_method] if TORCH_VERSION >= (2, 5) else [],
+        ListVariable: [list_variable_init] if TORCH_VERSION >= (2, 6) else [],
     }
     orig_functions = {
         patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
