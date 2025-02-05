@@ -64,16 +64,8 @@ def monkeypatch_dynamic_shapes():
         TensorProperty,
         TensorPropertySource,
     )
-    from torch._dynamo.variables import builder
-    from torch._dynamo.variables.builder import VariableBuilder
+    from torch._dynamo.variables import NNModuleVariable, builder
     from torch.fx.experimental.symbolic_shapes import DimDynamic, ShapeEnv
-
-    def wrap_literal(self, _original, value):
-        # Avoids some additional cases of tensor sizes getting specialized.
-        if type(value) is int and isinstance(self.get_source(), (LocalSource, NNModuleSource)):
-            # breakpoint()
-            return self.wrap_unspecialized_primitive(value)
-        return _original(self, value)
 
     def wrap_fx_proxy_cls(_original, target_cls, tx, *args, **kwargs):
         # TODO: investigate whether the mystery is explained by VariableBuilder#_common_constants
@@ -128,15 +120,13 @@ def monkeypatch_dynamic_shapes():
             concrete_val = sympy.sympify(hint)
         return concrete_val
 
-    def _maybe_guard_eq(self, _original, *args, **kwargs):
+    def maybe_guard(self, _original, *args, **kwargs):
         """This prevents many cases of torch deciding to specialize on tensor dimensions. We don't
         care about the guards that would have gotten generated because they aren't present in the
         compiled GraphModule, and we discard the OptimizedModule after compiling."""
         return
-
-    def _maybe_guard_rel(self, _original, *args, **kwags):
-        """Same as _maybe_guard_eq, renamed in torch 2.3."""
-        return
+    # Renamed in torch 2.3.
+    maybe_guard.__name__ = "_maybe_guard_eq" if TORCH_VERSION < (2, 3) else "_maybe_guard_rel"
 
     def remove_unused_graphargs(self, _original):
         """Remove the dynamic size placeholders, since we monkeypatched away any logic that uses
@@ -149,7 +139,18 @@ def monkeypatch_dynamic_shapes():
             if isinstance(arg.source, (TensorPropertySource, DefaultsSource)):
                 self.remove_node(node)
 
-    def __init__(self, _original, *args, **kwargs):
+    def call_method(self, _original, tx, *args, **kwargs):
+        """Torch 2.5 adds a special case that undoes a fix for slicing container modules unless
+        in export mode. Truly enabling export mode gives its own problems, so mock it up for just
+        long enough to bypass the check."""
+        orig_export = tx.output.export
+        try:
+            tx.output.export = True
+            return _original(self, tx, *args, **kwargs)
+        finally:
+            tx.output.export = orig_export
+
+    def shape_env_init(self, _original, *args, **kwargs):
         _original(self, *args, **kwargs)
         # Tweak some internal flags to avoid specializing on tensor dimensions. These got wrapped
         # in a dataclass in 2.4.
@@ -163,16 +164,28 @@ def monkeypatch_dynamic_shapes():
 
         self.val_to_var = {}
 
+    shape_env_init.__name__ = "__init__"
+
+    def tracing_context_init(self, _original, *args, **kwargs):
+        _original(self, *args, **kwargs)
+        # Yet another source of specialized 0/1
+        self.force_unspec_int_unbacked_size_like = True
+
+    tracing_context_init.__name__ = "__init__"
+
     patch_map = {
         OutputGraph: [remove_unused_graphargs],
         ShapeEnv: [
-            _maybe_guard_eq if TORCH_VERSION < (2, 3) else _maybe_guard_rel,
+            maybe_guard,
             produce_guards,
-            __init__,
+            shape_env_init,
             evaluate_expr,
         ],
         builder: [wrap_fx_proxy_cls],
-        # VariableBuilder: [wrap_literal] if TORCH_VERSION < (2, 4) else [],
+        # TODO: this seems potentially useful, figure out how to use it without causing other
+        # problems
+        # TracingContext: [tracing_context_init],
+        NNModuleVariable: [call_method] if TORCH_VERSION >= (2, 5) else [],
     }
     orig_functions = {
         patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
@@ -180,12 +193,20 @@ def monkeypatch_dynamic_shapes():
     }
 
     try:
-        for patched_obj, attr_map in orig_functions.items():
-            for attr, fn in attr_map.items():
+        for patched_obj, patch_fns in patch_map.items():
+            for fn in patch_fns:
                 if isinstance(patched_obj, type):
-                    setattr(patched_obj, attr, partialmethod(locals()[attr], fn))
+                    setattr(
+                        patched_obj,
+                        fn.__name__,
+                        partialmethod(fn, orig_functions[patched_obj][fn.__name__]),
+                    )
                 else:
-                    setattr(patched_obj, attr, partial(locals()[attr], fn))
+                    setattr(
+                        patched_obj,
+                        fn.__name__,
+                        partial(fn, orig_functions[patched_obj][fn.__name__]),
+                    )
         yield
     finally:
         for patched_obj, attr_map in orig_functions.items():
@@ -356,6 +377,8 @@ def set_dynamo_config():
     _NOT_PRESENT = object()
     config_values = {
         "specialize_int": False,
+        # TODO: make this not break
+        # "specialize_float": False,
         "assume_static_by_default": False,
         "automatic_dynamic_shapes": False,
         "capture_scalar_outputs": True,

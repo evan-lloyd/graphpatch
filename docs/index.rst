@@ -51,10 +51,10 @@ The only mandatory requirements are ``torch>=2`` and ``numpy>=1.17``. Version 2+
 because ``graphpatch`` leverages :func:`torch.compile`, which was introduced in ``2.0.0``, to extract computational graphs from models.
 CUDA support is not required. ``numpy`` is required for full ``compile()`` support.
 
-Python 3.8--3.12 are supported. Note that ``torch`` versions prior to ``2.1.0`` do not support compilation
-on Python 3.11, and versions prior to ``2.4.0`` do not support compilation on Python 3.12;
-you will get an exception when trying to use ``graphpatch`` with such a configuration. No version of
-``torch`` yet supports compilation on Python 3.13.
+Python 3.8--3.13 are supported. Note that ``torch`` versions prior to ``2.1.0`` do not support compilation
+on Python 3.11, versions prior to ``2.4.0`` do not support compilation on Python 3.12, and versions prior
+to ``2.6.0`` do not support compilation on Python 3.13; you will get an exception when trying to use
+``graphpatch`` with such a configuration. No version of ``torch`` yet supports compilation on Python 3.14.
 
 Installation
 ############

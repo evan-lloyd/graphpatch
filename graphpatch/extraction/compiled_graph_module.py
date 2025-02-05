@@ -1,6 +1,6 @@
 from typing import Any
 
-from torch._dynamo import optimize_assert
+from torch import compile
 from torch.fx import Graph, GraphModule
 from torch.nn import Module
 
@@ -49,7 +49,7 @@ def compile_module(module: Module, *args: Any, **kwargs: Any) -> CompiledGraphMo
 
         # We need to actually run inference to generate a GraphModule, which gets passed to
         # our callback above.
-        optimize_assert(callback, export=True, dynamic=True)(module)(*args, **kwargs)
+        compile(backend=callback, dynamic=True, fullgraph=True)(module)(*args, **kwargs)
 
         if not isinstance(graph_module, CompiledGraphModule):
             raise ValueError("Compilation callback was never called.")
