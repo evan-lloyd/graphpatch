@@ -50,6 +50,34 @@ def in_fake_mode():
 
 
 @contextmanager
+def patch_context(patch_map):
+    orig_functions = {
+        patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
+        for patched_obj, attrs in patch_map.items()
+    }
+
+    try:
+        for patched_obj, patch_fns in patch_map.items():
+            for fn in patch_fns:
+                if isinstance(patched_obj, type):
+                    setattr(
+                        patched_obj,
+                        fn.__name__,
+                        partialmethod(fn, orig_functions[patched_obj][fn.__name__]),
+                    )
+                else:
+                    setattr(
+                        patched_obj,
+                        fn.__name__,
+                        partial(fn, orig_functions[patched_obj][fn.__name__]),
+                    )
+        yield
+    finally:
+        for patched_obj, attr_map in orig_functions.items():
+            for attr, fn in attr_map.items():
+                setattr(patched_obj, attr, fn)
+
+
 def monkeypatch_dynamic_shapes():
     """For torch >= 2.1.0. This version improves dynamic shapes in a way that's problematic for our
     use case; the philosophy seems to be one of eager optimization, with run-time checks that
@@ -65,7 +93,6 @@ def monkeypatch_dynamic_shapes():
         TensorPropertySource,
     )
     from torch._dynamo.variables import ListVariable, NNModuleVariable, builder
-    from torch._dynamo.variables.base import ValueMutationExisting, ValueMutationNew
     from torch.fx.experimental.symbolic_shapes import DimDynamic, ShapeEnv
 
     def wrap_fx_proxy_cls(_original, target_cls, tx, *args, **kwargs):
@@ -177,6 +204,8 @@ def monkeypatch_dynamic_shapes():
 
     def list_variable_init(self, _original, *args, **kwargs):
         """List variables not mutable by default starting in torch 2.6..."""
+        from torch._dynamo.variables.base import ValueMutationExisting, ValueMutationNew
+
         _original(self, *args, **kwargs)
         if kwargs.get("source") is not None:
             self.mutation_type = ValueMutationExisting()
@@ -185,46 +214,23 @@ def monkeypatch_dynamic_shapes():
 
     list_variable_init.__name__ = "__init__"
 
-    patch_map = {
-        OutputGraph: [remove_unused_graphargs],
-        ShapeEnv: [
-            maybe_guard,
-            produce_guards,
-            shape_env_init,
-            evaluate_expr,
-        ],
-        builder: [wrap_fx_proxy_cls],
-        # TODO: this seems potentially useful, figure out how to use it without causing other
-        # problems
-        # TracingContext: [tracing_context_init],
-        NNModuleVariable: [call_method] if TORCH_VERSION >= (2, 5) else [],
-        ListVariable: [list_variable_init] if TORCH_VERSION >= (2, 6) else [],
-    }
-    orig_functions = {
-        patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
-        for patched_obj, attrs in patch_map.items()
-    }
-
-    try:
-        for patched_obj, patch_fns in patch_map.items():
-            for fn in patch_fns:
-                if isinstance(patched_obj, type):
-                    setattr(
-                        patched_obj,
-                        fn.__name__,
-                        partialmethod(fn, orig_functions[patched_obj][fn.__name__]),
-                    )
-                else:
-                    setattr(
-                        patched_obj,
-                        fn.__name__,
-                        partial(fn, orig_functions[patched_obj][fn.__name__]),
-                    )
-        yield
-    finally:
-        for patched_obj, attr_map in orig_functions.items():
-            for attr, fn in attr_map.items():
-                setattr(patched_obj, attr, fn)
+    return patch_context(
+        {
+            OutputGraph: [remove_unused_graphargs],
+            ShapeEnv: [
+                maybe_guard,
+                produce_guards,
+                shape_env_init,
+                evaluate_expr,
+            ],
+            builder: [wrap_fx_proxy_cls],
+            # TODO: this seems potentially useful, figure out how to use it without causing other
+            # problems
+            # TracingContext: [tracing_context_init],
+            NNModuleVariable: [call_method] if TORCH_VERSION >= (2, 5) else [],
+            ListVariable: [list_variable_init] if TORCH_VERSION >= (2, 6) else [],
+        }
+    )
 
 
 _RESERVED_NAMES = frozenset(
@@ -614,8 +620,15 @@ def handle_transformers_output():
     """
     from collections import namedtuple
 
+    import torch
     from torch._dynamo.variables import builder
+    from transformers.utils import import_utils
     from transformers.utils.generic import ModelOutput
+
+    if hasattr(torch, "compiler"):
+        from torch import compiler as is_compiling_target
+    else:
+        from torch import _dynamo as is_compiling_target
 
     # DataClassVariable removed in 2.5
     if TORCH_VERSION < (2, 5):
@@ -629,12 +642,9 @@ def handle_transformers_output():
         # for us to just guarantee that it gets applied.
         DataClassVariable._patch_once()
 
-    orig_get_fake_value = builder.get_fake_value
-
-    def get_fake_value(*args, **kwargs):
-        result = orig_get_fake_value(*args, **kwargs)
+    def get_fake_value(_original, *args, **kwargs):
+        result = _original(*args, **kwargs)
         if isinstance(result, ModelOutput):
-            # breakpoint()
             fields = type(result).__dataclass_fields__
             tuple_result = namedtuple("DummyModelOutput", fields.keys())(
                 *(getattr(result, f) for f in fields.keys())
@@ -643,13 +653,26 @@ def handle_transformers_output():
         else:
             return result
 
-    try:
-        builder.get_fake_value = get_fake_value
-        yield
-    finally:
-        builder.get_fake_value = orig_get_fake_value
-        if TORCH_VERSION < (2, 5):
-            DataClassVariable.include_none = orig_include_none
+    def is_compiling(_original):
+        """This, for some reason, returns False even when torch clearly *is* compiling."""
+        return True
+
+    with patch_context(
+        {
+            builder: [get_fake_value],
+            is_compiling_target: (
+                # Not all supported transformers versions have this function
+                [is_compiling]
+                if hasattr(import_utils, "is_torchdynamo_compiling")
+                else []
+            ),
+        }
+    ):
+        try:
+            yield
+        finally:
+            if TORCH_VERSION < (2, 5):
+                DataClassVariable.include_none = orig_include_none
 
 
 @contextmanager

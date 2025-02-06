@@ -41,14 +41,13 @@ def test_extract_llama(tiny_llama_tokenizer, tiny_llama_config, opacity):
             # Some versions of Llama have an unused rotary embedding submodule due to it being moved
             allow_unused_submodules=True,
         ),
-        inputs.input_ids,
+        **inputs,
         use_cache=False,
     )
     assert_results_identical(
         original_model,
         gm,
-        inputs.input_ids,
-        input_kwargs={"use_cache": False},
+        input_kwargs={"use_cache": False, **inputs},
     )
     batched_inputs = tiny_llama_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
@@ -116,19 +115,17 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
             skip_compilation=opacity == "opaque",
             allow_unused_submodules=True,
         ),
-        inputs.input_ids,
+        **inputs,
         use_cache=False,
     )
-    assert_results_identical(
-        original_model, gm, inputs.input_ids, input_kwargs={"use_cache": False}
-    )
+    assert_results_identical(original_model, gm, input_kwargs={"use_cache": False, **inputs})
     batched_inputs = tiny_gpt2_tokenizer(
         ["This should still work", "Even though the inputs are a different shape"],
         return_tensors="pt",
         padding=True,
     )
     assert_results_identical(
-        original_model, gm, batched_inputs.input_ids, input_kwargs={"use_cache": False}
+        original_model, gm, input_kwargs={"use_cache": False, **batched_inputs}
     )
     pg = PatchableGraph(
         original_model,
@@ -137,17 +134,16 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
             skip_compilation=opacity == "opaque",
             allow_unused_submodules=True,
         ),
-        inputs.input_ids,
+        **inputs,
         use_cache=False,
     )
     assert_results_identical(
         original_model,
         pg._graph_module,
-        batched_inputs.input_ids,
-        input_kwargs={"use_cache": False},
+        input_kwargs={"use_cache": False, **batched_inputs},
     )
-    assert pg.generate(inputs.input_ids, max_length=20).equal(
-        original_model.generate(inputs.input_ids, max_length=20, use_cache=False)
+    assert pg.generate(**inputs, max_length=20).equal(
+        original_model.generate(**inputs, max_length=20, use_cache=False)
     )
     # generate only "foo"
     with pg.patch(
@@ -158,7 +154,7 @@ def test_extract_gpt2(tiny_gpt2_tokenizer, tiny_gpt2_config, opacity):
             ]
         }
     ):
-        patched_generation = pg.generate(inputs.input_ids, max_length=20, use_cache=False)
+        patched_generation = pg.generate(**inputs, max_length=20, use_cache=False)
     result = patched_generation[0, inputs.input_ids.shape[1] :] - 22944
     assert result.numel() == 20 - inputs.input_ids.numel()
     assert result.count_nonzero() == 0
@@ -191,7 +187,7 @@ def test_llama(tmp_path_factory, opacity):
             skip_compilation=opacity == "opaque",
             allow_unused_submodules=True,
         ),
-        inputs.input_ids,
+        **inputs,
         use_cache=False,
     )
 
