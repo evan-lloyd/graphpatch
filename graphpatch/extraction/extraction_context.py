@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type, U
 
 import torch
 from torch.fx import Graph
-from torch.nn import LayerNorm, Module, ModuleDict, ModuleList
+from torch.nn import LayerNorm, Module, ModuleDict, ModuleList, Parameter
 
 from .. import hacks
 from ..optional.accelerate import ModelHook
@@ -126,6 +126,7 @@ class ExtractionWrapper(Module):
             wrapped_module = Wrapped8BitLinear(wrapped_module)
         # Avoid adding the wrapped module to the module hierarchy.
         object.__setattr__(self, "_graphpatch_wrapped_module", wrapped_module)
+        object.__setattr__(self, "_parameters", wrapped_module._parameters)
 
     def __deepcopy__(self, memo: Any = None) -> "ExtractionWrapper":
         """compile() deep copies modules during symbolic tracing in order to fakify their
@@ -149,6 +150,7 @@ class ExtractionWrapper(Module):
                 deepcopy(self._graphpatch_wrapped_module, memo),
             )
         new_instance._modules = deepcopy(self._modules, memo)
+        new_instance._parameters = self._parameters
         return new_instance
 
     @contextmanager

@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 
 import inspect
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from functools import partial, partialmethod
 
@@ -50,6 +50,34 @@ def in_fake_mode():
 
 
 @contextmanager
+def maybe_allow_function(fn):
+    """Add the function's id to the pre-torch-2.3 allowlists, if we're on such a version. This got
+    refactored heavily in later versions, but so far we haven't needed to manually tweak those, so
+    hold off on making this general.
+    """
+    if TORCH_VERSION >= (2, 3):
+        yield
+        return
+    from torch._dynamo.allowed_functions import (
+        _allowed_function_ids,
+        _disallowed_function_ids,
+    )
+
+    had_allowed = id(fn) in _allowed_function_ids
+    had_disallowed = id(fn) in _disallowed_function_ids
+
+    try:
+        _allowed_function_ids.add(id(fn))
+        _disallowed_function_ids.remove(id(fn))
+        yield
+    finally:
+        if not had_allowed:
+            _allowed_function_ids.remove(id(fn))
+        if had_disallowed:
+            _disallowed_function_ids.add(id(fn))
+
+
+@contextmanager
 def patch_context(patch_map):
     orig_functions = {
         patched_obj: {a.__name__: getattr(patched_obj, a.__name__) for a in attrs}
@@ -93,7 +121,15 @@ def monkeypatch_dynamic_shapes():
         TensorPropertySource,
     )
     from torch._dynamo.variables import ListVariable, NNModuleVariable, builder
+    from torch._dynamo.variables.builder import VariableBuilder
     from torch.fx.experimental.symbolic_shapes import DimDynamic, ShapeEnv
+
+    def wrap_literal(self, _original, value):
+        # Avoids some additional cases of tensor sizes getting specialized.
+        if isinstance(value, (int,)):
+            return self.wrap_symint(value)
+            # return self.wrap_unspecialized_primitive(value)
+        return _original(self, value)
 
     def wrap_fx_proxy_cls(_original, target_cls, tx, *args, **kwargs):
         # TODO: investigate whether the mystery is explained by VariableBuilder#_common_constants
@@ -224,6 +260,7 @@ def monkeypatch_dynamic_shapes():
                 evaluate_expr,
             ],
             builder: [wrap_fx_proxy_cls],
+            # VariableBuilder: [wrap_literal] if TORCH_VERSION < (2, 4) else [],
             # TODO: this seems potentially useful, figure out how to use it without causing other
             # problems
             # TracingContext: [tracing_context_init],
@@ -613,7 +650,7 @@ def backport_unpack_ops():
 
 
 @contextmanager
-def handle_transformers_output():
+def handle_transformers():
     """compile() can't handle transformers ModelOutput results from modules. However, we can trick
     it into working by transforming them into namedtuples, which have similar enough of an API to
     (probably) deal with any reasonable code using them.
@@ -654,7 +691,8 @@ def handle_transformers_output():
             return result
 
     def is_compiling(_original):
-        """This, for some reason, returns False even when torch clearly *is* compiling."""
+        """The original changes sign in different parts of the compilation process, which triggers
+        some "data-dependent value" errors."""
         return True
 
     with patch_context(
@@ -667,6 +705,10 @@ def handle_transformers_output():
                 else []
             ),
         }
+    ), (
+        maybe_allow_function(import_utils.is_torchdynamo_compiling)
+        if hasattr(import_utils, "is_torchdynamo_compiling")
+        else nullcontext
     ):
         try:
             yield
@@ -697,22 +739,10 @@ def dynamo_hacks_for_current_torch_version():
         if TORCH_VERSION >= (2, 3):
             hack_stack.enter_context(allow_inlining_skipped_functions())
         if TRANSFORMERS_AVAILABLE:
-            hack_stack.enter_context(handle_transformers_output())
+            hack_stack.enter_context(handle_transformers())
         if ACCELERATE_AVAILABLE:
             hack_stack.enter_context(monkeypatch_accelerate())
         hack_stack.enter_context(monkeypatch_graph_names())
-        # from torch._dynamo.trace_rules import torch_name_rule_map, get_torch_obj_rule_map
-        # from torch._dynamo.variables import SkipFunctionVariable, TorchInGraphFunctionVariable
-
-        # # TODO: also Sequential
-        # torch_name_rule_map.append(
-        #     {"torch.nn.container.ModuleList#__getitem__": TorchInGraphFunctionVariable}
-        # )
-        # get_torch_obj_rule_map.cache_clear()
-
-        # # hack_stack.enter_context(
-        # #     patch_function(ModuleList, "__init__", disable(ModuleList.__init__))
-        # # )
         yield
 
 

@@ -136,8 +136,9 @@ def assert_on_nested_tensors(output_1, output_2):
 
 
 def assert_outputs_identical(module_1, module_2, *test_inputs, tolerance=None, input_kwargs=None):
-    output_1 = module_1(*test_inputs, **(input_kwargs or {}))
-    output_2 = module_2(*test_inputs, **(input_kwargs or {}))
+    input_kwargs = input_kwargs or {}
+    output_1 = module_1(*test_inputs, **input_kwargs)
+    output_2 = module_2(*test_inputs, **input_kwargs)
 
     for (prefix_1, cur_1), (prefix_2, cur_2) in assert_on_nested_tensors(output_1, output_2):
         if tolerance is not None:

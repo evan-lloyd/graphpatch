@@ -28,8 +28,13 @@ def _roundtrip(module):
 
 
 def _serialization_asserts(
-    original_module, deserialized_module, test_inputs, output_probe_node_path="output"
+    original_module,
+    deserialized_module,
+    *test_inputs,
+    output_probe_node_path="output",
+    input_kwargs=None,
 ):
+    input_kwargs = input_kwargs or {}
     # After round trip...
     # Deserialized version should be valid
     validate_extraction(
@@ -47,28 +52,32 @@ def _serialization_asserts(
     assert_patchable_graphs_identical(original_module, deserialized_module)
 
     # ...forward() and backward() should work, and give the same result
-    assert_results_identical(original_module, deserialized_module, test_inputs)
+    assert_results_identical(
+        original_module, deserialized_module, *test_inputs, input_kwargs=input_kwargs
+    )
 
     # ...we should still be able to patch
     with original_module.patch(
         {output_probe_node_path: (original_probe := ProbePatch())}
     ), deserialized_module.patch({output_probe_node_path: (deserialized_probe := ProbePatch())}):
-        original_module(test_inputs)
-        deserialized_module(test_inputs)
+        original_module(*test_inputs, **input_kwargs)
+        deserialized_module(*test_inputs, **input_kwargs)
         assert original_probe.activation.equal(deserialized_probe.activation)
 
     if not hasattr(original_module, "generate"):
         return
 
     # ...generate should still work
-    assert original_module.generate(test_inputs).equal(deserialized_module.generate(test_inputs))
+    assert original_module.generate(*test_inputs, **input_kwargs).equal(
+        deserialized_module.generate(*test_inputs, **input_kwargs)
+    )
 
     # ...and be patchable
     with original_module.patch({output_probe_node_path: ZeroPatch()}), deserialized_module.patch(
         {output_probe_node_path: ZeroPatch()}
     ):
-        assert original_module.generate(test_inputs).equal(
-            deserialized_module.generate(test_inputs)
+        assert original_module.generate(*test_inputs, **input_kwargs).equal(
+            deserialized_module.generate(*test_inputs, **input_kwargs)
         )
 
 
@@ -150,7 +159,10 @@ def test_tuple_output_module_serialization(
     # submodule.
     deserialized = _roundtrip(patchable_tuple_output_module)
     _serialization_asserts(
-        patchable_tuple_output_module, deserialized, tuple_output_module_inputs, "output|sub_0"
+        patchable_tuple_output_module,
+        deserialized,
+        tuple_output_module_inputs,
+        output_probe_node_path="output|sub_0",
     )
 
 
@@ -163,7 +175,7 @@ def test_deeply_nested_output_module_serialization(
         patchable_deeply_nested_output_module,
         deserialized,
         deeply_nested_output_module_inputs,
-        "output|sub_0.sub_0",
+        output_probe_node_path="output|sub_0.sub_0",
     )
 
 
@@ -178,7 +190,10 @@ def test_container_module_serialization(patchable_container_module, container_mo
 def test_pretrained_module_serialization(patchable_pretrained_module, pretrained_module_inputs):
     deserialized = _roundtrip(patchable_pretrained_module)
     _serialization_asserts(
-        patchable_pretrained_module, deserialized, pretrained_module_inputs, "output|logits"
+        patchable_pretrained_module,
+        deserialized,
+        pretrained_module_inputs,
+        output_probe_node_path="output|logits",
     )
 
 
@@ -196,7 +211,7 @@ def test_multiple_device_serialization(
         patchable_accelerate_pretrained_module,
         deserialized,
         accelerate_pretrained_module_inputs,
-        "output|logits",
+        output_probe_node_path="output|logits",
     )
 
 
@@ -212,7 +227,7 @@ def test_mixed_cpu_module_serialization(
         patchable_mixed_cpu_pretrained_module,
         deserialized,
         mixed_cpu_pretrained_module_inputs,
-        "output|logits",
+        output_probe_node_path="output|logits",
     )
 
 
@@ -227,7 +242,7 @@ def test_disk_offload_module_serialization(
         patchable_disk_offload_pretrained_module,
         deserialized,
         disk_offload_pretrained_module_inputs,
-        "output|logits",
+        output_probe_node_path="output|logits",
     )
 
 
@@ -244,5 +259,5 @@ def test_quantized_pretrained_module_serialization(
         patchable_quantized_pretrained_module,
         deserialized,
         quantized_pretrained_module_inputs.to(torch.float16),
-        "output|logits",
+        output_probe_node_path="output|logits",
     )
