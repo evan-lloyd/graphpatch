@@ -224,7 +224,7 @@ def compilation_context(root_state: ExtractionState) -> Iterator[None]:
         context_stack.enter_context(torch.inference_mode())
         context_stack.enter_context(hacks.dynamo_hacks_for_current_torch_version())
         context_stack.enter_context(
-            hacks.allow_builtin_in_graph(root_state.wrapped_module._graphpatch_wrapped_module)
+            hacks.force_inline(root_state.wrapped_module._graphpatch_wrapped_module)
         )
         context_stack.enter_context(hacks.patch_module_module(ExtractionWrapper))
         for submodule in root_state.wrapped_module.modules():

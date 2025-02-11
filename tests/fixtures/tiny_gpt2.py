@@ -33,7 +33,7 @@ def tiny_gpt2_path(tmp_path_factory):
         "task_specific_params": {"text-generation": {"do_sample": True, "max_length": 50}},
         "vocab_size": 50257,
         "pad_token": 50256,
-        "padding_size": "right",
+        "padding_side": "right",
         "truncation_side": "left",
         "add_prefix_space": True,
         "add_bos_token": True,

@@ -3,7 +3,7 @@
 import inspect
 from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
-from functools import partial, partialmethod
+from functools import partial, partialmethod, wraps
 
 import torch
 from torch._dynamo.source import AttrSource, GetItemSource, LocalSource, NNModuleSource
@@ -16,9 +16,14 @@ from .optional.transformers import AVAILABLE as TRANSFORMERS_AVAILABLE
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
 if TORCH_VERSION < (2, 1):
-    from torch._dynamo import allow_in_graph, disable, skip  # noqa: F401
+    from torch._dynamo import allow_in_graph, disable, skip, assume_constant_result  # noqa: F401
 else:
-    from torch._dynamo.decorators import allow_in_graph, disable, skip  # noqa: F401
+    from torch._dynamo.decorators import (
+        allow_in_graph,
+        disable,
+        skip,
+        assume_constant_result,
+    )  # noqa: F401
 
 # Renamed in 2.5
 if TORCH_VERSION < (2, 5):
@@ -49,32 +54,66 @@ def in_fake_mode():
     return isinstance(torch.empty(0), FakeTensor)
 
 
+def wrap_disable(fn):
+    @disable
+    @wraps(fn)
+    def inner(*args, **kwargs):
+        # print("yeah it's a print statement")
+        # breakpoint()
+        return fn(*args, **kwargs)
+
+    return inner
+
+
+def is_allowed_in_graph(fn):
+    """Polyfill for API changes across Torch versions."""
+    if TORCH_VERSION >= (2, 3):
+        from torch._dynamo.trace_rules import is_callable_allowed as is_allowed
+    else:
+        from torch._dynamo.allowed_functions import is_allowed
+
+    return is_allowed(fn)
+
+
 @contextmanager
-def maybe_allow_function(fn):
-    """Add the function's id to the pre-torch-2.3 allowlists, if we're on such a version. This got
-    refactored heavily in later versions, but so far we haven't needed to manually tweak those, so
-    hold off on making this general.
+def avoid_inlining(fn):
+    """Avoids inlining the given function, aka "allows in graph". The built-in API for this
+    (@allow_in_graph) leaves side-effects, which, as a library, we want to avoid causing.
     """
     if TORCH_VERSION >= (2, 3):
-        yield
-        return
-    from torch._dynamo.allowed_functions import (
-        _allowed_function_ids,
-        _disallowed_function_ids,
-    )
+        from torch._dynamo.trace_rules import _allowed_callable_ids, _disallowed_callable_ids
 
-    had_allowed = id(fn) in _allowed_function_ids
-    had_disallowed = id(fn) in _disallowed_function_ids
+        add_to = [_allowed_callable_ids]
+        remove_from = [_disallowed_callable_ids]
+    else:
+        from torch._dynamo.allowed_functions import (
+            _allowed_function_ids,
+            _disallowed_function_ids,
+        )
+
+        add_to = [_allowed_function_ids]
+        remove_from = [_disallowed_function_ids]
+        if TORCH_VERSION >= (2, 1):
+            from torch._dynamo.allowed_functions import _allowed_user_defined_function_ids
+
+            add_to.append(_allowed_user_defined_function_ids)
+
+    had_allowed = [id(fn) in ids for ids in add_to]
+    had_disallowed = [id(fn) in ids for ids in remove_from]
 
     try:
-        _allowed_function_ids.add(id(fn))
-        _disallowed_function_ids.remove(id(fn))
+        for ids in add_to:
+            ids.add(id(fn))
+        for ids in remove_from:
+            ids.remove(id(fn))
         yield
     finally:
-        if not had_allowed:
-            _allowed_function_ids.remove(id(fn))
-        if had_disallowed:
-            _disallowed_function_ids.add(id(fn))
+        for ids, had in zip(add_to, had_allowed):
+            if not had:
+                ids.remove(id(fn))
+        for ids, had in zip(remove_from, had_disallowed):
+            if had:
+                ids.add(id(fn))
 
 
 @contextmanager
@@ -87,7 +126,11 @@ def patch_context(patch_map):
     try:
         for patched_obj, patch_fns in patch_map.items():
             for fn in patch_fns:
-                if isinstance(patched_obj, type):
+                # Duck type methods vs functions by checking if there is a self parameter
+                if (
+                    inspect.signature(getattr(patched_obj, fn.__name__)).parameters.get("self")
+                    is not None
+                ):
                     setattr(
                         patched_obj,
                         fn.__name__,
@@ -470,7 +513,7 @@ def set_dynamo_config():
 
 
 @contextmanager
-def allow_builtin_in_graph(module):
+def force_inline(module):
     # Same functionality, different names.
     if TORCH_VERSION >= (2, 3):
         allowlist_name = "LEGACY_MOD_INLINELIST"
@@ -659,6 +702,11 @@ def handle_transformers():
 
     import torch
     from torch._dynamo.variables import builder
+    from transformers.modeling_attn_mask_utils import (
+        AttentionMaskConverter,
+        _prepare_4d_causal_attention_mask_for_sdpa,
+    )
+    from transformers.modeling_utils import PreTrainedModel
     from transformers.utils import import_utils
     from transformers.utils.generic import ModelOutput
 
@@ -692,23 +740,54 @@ def handle_transformers():
 
     def is_compiling(_original):
         """The original changes sign in different parts of the compilation process, which triggers
-        some "data-dependent value" errors."""
+        some "data-dependent value" errors.
+        """
+        if (2, 1) <= TORCH_VERSION < (2, 3):
+            return torch.tensor(True)
         return True
+
+    def warn_if_padding_and_no_attention_mask(self, _original, *args, **kwargs):
+        return
+
+    # def is_torch_fx_proxy(_original):
+    #     breakpoint()
+    #     if (2, 1) <= TORCH_VERSION < (2, 3):
+    #         return torch.tensor(False)
+    #     return False
+
+    # assume_constant_result(import_utils.is_torchdynamo_compiling)
+    # assume_constant_result(import_utils.is_torch_fx_proxy)
+    # @disable
+    # def _ignore_causal_mask_sdpa(_original, *args, **kwargs):
+    #     return _original(*args, **kwargs)
+
+    # _ignore_causal_mask_spda = wrap_disable(AttentionMaskConverter._ignore_causal_mask_sdpa)
 
     with patch_context(
         {
             builder: [get_fake_value],
-            is_compiling_target: (
-                # Not all supported transformers versions have this function
-                [is_compiling]
-                if hasattr(import_utils, "is_torchdynamo_compiling")
-                else []
-            ),
+            # is_compiling_target: (
+            #     # Not all supported transformers versions have this function
+            #     [is_compiling]
+            #     if hasattr(import_utils, "is_torchdynamo_compiling")
+            #     else []
+            # ),
+            # utils: [run_node],
+            # import_utils: [is_torch_fx_proxy],
+            # PreTrainedModel: [wrap_disable(PreTrainedModel.warn_if_padding_and_no_attention_mask)],
+            # AttentionMaskConverter: [_ignore_causal_mask_sdpa],
+            # PreTrainedModel: (
+            #     [warn_if_padding_and_no_attention_mask] if (2, 1) <= TORCH_VERSION < (2, 3) else []
+            # ),
         }
     ), (
-        maybe_allow_function(import_utils.is_torchdynamo_compiling)
+        avoid_inlining(import_utils.is_torchdynamo_compiling)
         if hasattr(import_utils, "is_torchdynamo_compiling")
-        else nullcontext
+        else nullcontext()
+    ), avoid_inlining(
+        PreTrainedModel.warn_if_padding_and_no_attention_mask
+    ), avoid_inlining(
+        _prepare_4d_causal_attention_mask_for_sdpa
     ):
         try:
             yield
