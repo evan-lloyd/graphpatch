@@ -16,14 +16,19 @@ from .optional.transformers import AVAILABLE as TRANSFORMERS_AVAILABLE
 TORCH_VERSION = tuple(int(v.split("+")[0]) for v in torch.__version__.split("."))
 
 if TORCH_VERSION < (2, 1):
-    from torch._dynamo import allow_in_graph, disable, skip, assume_constant_result  # noqa: F401
-else:
-    from torch._dynamo.decorators import (
+    from torch._dynamo import (  # noqa: F401
         allow_in_graph,
+        assume_constant_result,
         disable,
         skip,
+    )
+else:
+    from torch._dynamo.decorators import (  # noqa: F401
+        allow_in_graph,
         assume_constant_result,
-    )  # noqa: F401
+        disable,
+        skip,
+    )
 
 # Renamed in 2.5
 if TORCH_VERSION < (2, 5):
@@ -76,12 +81,97 @@ def is_allowed_in_graph(fn):
 
 
 @contextmanager
+def opaqify(fn):
+    from torch._dynamo.utils import proxy_args_kwargs
+    from torch._dynamo.variables import (
+        TensorVariable,
+        TorchInGraphFunctionVariable,
+        VariableTracker,
+    )
+    from torch._dynamo.variables.builder import handle_traced_output, wrap_fx_proxy
+    from torch._dynamo.guards import CheckFunctionManager
+    from torch._guards import GuardsSet
+    from torch._dynamo.source import WeakRefCallSource
+
+    def call_function(self, _original, tx, args, kwargs):
+        value = self.get_function()(
+            *[arg.realize().get_real_value() for arg in args],
+            **{k: v.realize().get_real_value() for k, v in kwargs.items()},
+        )
+        # result = VariableTracker.build(
+        #     tx,
+        #     value,
+        #     LocalSource(local_name=fn.__name__),
+        # )
+        # result = handle_traced_output(
+        #     value,
+        #     tx,
+        #     tx.output.create_proxy(
+        #         "call_function",
+        #         self.get_function(),
+        #         *proxy_args_kwargs(args, kwargs),
+        #     ),
+        #     {"source": LocalSource(local_name=self.get_function().__name__)},
+        #     None,
+        #     TensorVariable,
+        # )
+        if value is None:
+            result = handle_traced_output(
+                None,
+                tx,
+                tx.output.create_proxy(
+                    "call_function",
+                    self.get_function(),
+                    *proxy_args_kwargs(args, kwargs),
+                ),
+                # {},
+                {"source": self.source},
+                None,
+                TensorVariable,
+            )
+        else:
+            result = wrap_fx_proxy(
+                tx=tx,
+                proxy=tx.output.create_proxy(
+                    "call_function",
+                    self.get_function(),
+                    *proxy_args_kwargs(args, kwargs),
+                ),
+                example_value=value,
+                source=self.source,
+            )
+        breakpoint()
+        return result
+
+    def __init__(self, _original, *args, **kwargs):
+        return
+
+    def add(self, _original, *args, **kwargs):
+        return
+
+    try:
+        with patch_context(
+            {
+                TorchInGraphFunctionVariable: [call_function],
+                # CheckFunctionManager: [__init__],
+                GuardsSet: [add],
+            }
+        ):
+            yield
+    finally:
+        pass
+
+
+@contextmanager
 def avoid_inlining(fn):
     """Avoids inlining the given function, aka "allows in graph". The built-in API for this
     (@allow_in_graph) leaves side-effects, which, as a library, we want to avoid causing.
     """
     if TORCH_VERSION >= (2, 3):
-        from torch._dynamo.trace_rules import _allowed_callable_ids, _disallowed_callable_ids
+        from torch._dynamo.trace_rules import (
+            _allowed_callable_ids,
+            _disallowed_callable_ids,
+        )
 
         add_to = [_allowed_callable_ids]
         remove_from = [_disallowed_callable_ids]
@@ -94,7 +184,9 @@ def avoid_inlining(fn):
         add_to = [_allowed_function_ids]
         remove_from = [_disallowed_function_ids]
         if TORCH_VERSION >= (2, 1):
-            from torch._dynamo.allowed_functions import _allowed_user_defined_function_ids
+            from torch._dynamo.allowed_functions import (
+                _allowed_user_defined_function_ids,
+            )
 
             add_to.append(_allowed_user_defined_function_ids)
 
